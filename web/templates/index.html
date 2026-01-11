@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buitinių atliekų surinkimo grafikas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Buitinių atliekų surinkimo grafikas</h1>
+            <p class="subtitle">Pasirinkite gatvę/kaimą, kad pamatytumėte surinkimo datas</p>
+        </header>
+
+        <div class="search-section">
+            <input type="text" id="searchInput" placeholder="Ieškoti gatvės ar kaimo..." onkeyup="searchLocations()">
+        </div>
+
+        <div class="main-content">
+            <div class="locations-panel">
+                <h2>Gatvės ir kaimai</h2>
+                <div id="locationsList" class="locations-list">
+                    <p class="loading">Kraunama...</p>
+                </div>
+            </div>
+
+            <div class="calendar-panel">
+                <h2>Kalendorius</h2>
+                <div id="selectedLocation" class="selected-location">
+                    <p>Pasirinkite gatvę/kaimą iš sąrašo</p>
+                </div>
+                <div id="calendarContainer" class="calendar-container">
+                    <!-- Calendar will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+    <script>
+        let allLocations = [];
+        let selectedLocation = null;
+
+        // Load locations on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadLocations();
+        });
+
+        async function loadLocations() {
+            try {
+                const response = await fetch('/api/v1/locations');
+                const data = await response.json();
+                allLocations = data.locations;
+                displayLocations(allLocations);
+            } catch (error) {
+                console.error('Error loading locations:', error);
+                document.getElementById('locationsList').innerHTML = '<p class="error">Klaida kraunant duomenis</p>';
+            }
+        }
+
+        function displayLocations(locations) {
+            const container = document.getElementById('locationsList');
+            
+            if (locations.length === 0) {
+                container.innerHTML = '<p class="no-results">Nerasta jokių vietų</p>';
+                return;
+            }
+
+            container.innerHTML = locations.map(loc => {
+                const displayName = loc.village 
+                    ? `${loc.street}, ${loc.village}` 
+                    : loc.street;
+                return `
+                    <div class="location-item" onclick="selectLocation(${loc.id})">
+                        <strong>${displayName}</strong>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function searchLocations() {
+            const query = document.getElementById('searchInput').value.trim();
+            
+            if (query === '') {
+                displayLocations(allLocations);
+            } else {
+                const filtered = allLocations.filter(loc => {
+                    const searchText = `${loc.village} ${loc.street}`.toLowerCase();
+                    return searchText.includes(query.toLowerCase());
+                });
+                displayLocations(filtered);
+            }
+        }
+
+        async function selectLocation(locationId) {
+            try {
+                const response = await fetch(`/api/v1/schedule?location_id=${locationId}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Klaida: ' + data.error);
+                    return;
+                }
+
+                selectedLocation = data;
+                displaySelectedLocation(data);
+                renderCalendar(data.dates);
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+                alert('Klaida kraunant grafiką');
+            }
+        }
+
+        function displaySelectedLocation(location) {
+            const container = document.getElementById('selectedLocation');
+            const displayName = location.village 
+                ? `${location.street}, ${location.village}` 
+                : location.street;
+            
+            container.innerHTML = `
+                <h3>${displayName}</h3>
+                <p class="date-count">Surinkimo dienų: ${location.dates.length}</p>
+            `;
+        }
+    </script>
+</body>
+</html>
