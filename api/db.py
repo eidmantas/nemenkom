@@ -17,18 +17,20 @@ def get_all_locations() -> List[Dict]:
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT id, village, street, schedule_group_id
+        SELECT id, seniūnija, village, street, house_numbers, schedule_group_id
         FROM locations
-        ORDER BY village, street
+        ORDER BY seniūnija, village, street
     """)
     
     results = []
     for row in cursor.fetchall():
         results.append({
             'id': row[0],
-            'village': row[1],
-            'street': row[2],
-            'schedule_group_id': row[3]
+            'seniūnija': row[1],
+            'village': row[2],
+            'street': row[3],
+            'house_numbers': row[4],
+            'schedule_group_id': row[5]
         })
     
     conn.close()
@@ -52,13 +54,13 @@ def get_location_schedule(location_id: Optional[int] = None, village: Optional[s
     # Build query based on provided parameters
     if location_id:
         cursor.execute("""
-            SELECT id, village, street, schedule_group_id
+            SELECT id, seniūnija, village, street, house_numbers, schedule_group_id
             FROM locations
             WHERE id = ?
         """, (location_id,))
     elif village and street:
         cursor.execute("""
-            SELECT id, village, street, schedule_group_id
+            SELECT id, seniūnija, village, street, house_numbers, schedule_group_id
             FROM locations
             WHERE village = ? AND street = ?
         """, (village, street))
@@ -92,10 +94,45 @@ def get_location_schedule(location_id: Optional[int] = None, village: Optional[s
     
     return {
         'id': location_row[0],
-        'village': location_row[1],
-        'street': location_row[2],
-        'schedule_group_id': location_row[3],
+        'seniūnija': location_row[1],
+        'village': location_row[2],
+        'street': location_row[3],
+        'house_numbers': location_row[4],
+        'schedule_group_id': location_row[5],
         'dates': dates
+    }
+
+def get_schedule_group_info(schedule_group_id: int) -> Optional[Dict]:
+    """
+    Get metadata about a schedule group
+    
+    Args:
+        schedule_group_id: Schedule group ID
+    
+    Returns:
+        Dictionary with schedule group metadata, or None if not found
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, first_date, last_date, date_count, created_at
+        FROM schedule_groups
+        WHERE id = ?
+    """, (schedule_group_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return None
+    
+    return {
+        'id': row[0],
+        'first_date': row[1],
+        'last_date': row[2],
+        'date_count': row[3],
+        'created_at': row[4]
     }
 
 def get_schedule_group_schedule(schedule_group_id: int) -> Dict:
@@ -111,12 +148,23 @@ def get_schedule_group_schedule(schedule_group_id: int) -> Dict:
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Get schedule group metadata
+    group_info = get_schedule_group_info(schedule_group_id)
+    if not group_info:
+        conn.close()
+        return {
+            'schedule_group_id': schedule_group_id,
+            'error': 'Schedule group not found',
+            'locations': [],
+            'dates': []
+        }
+    
     # Get all locations in this group
     cursor.execute("""
-        SELECT id, village, street
+        SELECT id, seniūnija, village, street, house_numbers
         FROM locations
         WHERE schedule_group_id = ?
-        ORDER BY village, street
+        ORDER BY seniūnija, village, street
     """, (schedule_group_id,))
     
     locations = []
@@ -124,38 +172,39 @@ def get_schedule_group_schedule(schedule_group_id: int) -> Dict:
     for row in cursor.fetchall():
         locations.append({
             'id': row[0],
-            'village': row[1],
-            'street': row[2]
+            'seniūnija': row[1],
+            'village': row[2],
+            'street': row[3],
+            'house_numbers': row[4]
         })
         location_ids.append(row[0])
     
-    if not location_ids:
-        conn.close()
-        return {
-            'schedule_group_id': schedule_group_id,
-            'locations': [],
-            'dates': []
-        }
-    
     # Get dates (all locations in group have same dates, so get from first)
-    cursor.execute("""
-        SELECT date, waste_type
-        FROM pickup_dates
-        WHERE location_id = ?
-        ORDER BY date
-    """, (location_ids[0],))
-    
     dates = []
-    for row in cursor.fetchall():
-        dates.append({
-            'date': row[0],
-            'waste_type': row[1]
-        })
+    if location_ids:
+        cursor.execute("""
+            SELECT date, waste_type
+            FROM pickup_dates
+            WHERE location_id = ?
+            ORDER BY date
+        """, (location_ids[0],))
+        
+        for row in cursor.fetchall():
+            dates.append({
+                'date': row[0],
+                'waste_type': row[1]
+            })
     
     conn.close()
     
     return {
         'schedule_group_id': schedule_group_id,
+        'metadata': {
+            'first_date': group_info['first_date'],
+            'last_date': group_info['last_date'],
+            'date_count': group_info['date_count']
+        },
+        'location_count': len(locations),
         'locations': locations,
         'dates': dates
     }
@@ -175,20 +224,22 @@ def search_locations(query: str) -> List[Dict]:
     
     search_term = f"%{query}%"
     cursor.execute("""
-        SELECT id, village, street, schedule_group_id
+        SELECT id, seniūnija, village, street, house_numbers, schedule_group_id
         FROM locations
-        WHERE village LIKE ? OR street LIKE ?
-        ORDER BY village, street
+        WHERE seniūnija LIKE ? OR village LIKE ? OR street LIKE ?
+        ORDER BY seniūnija, village, street
         LIMIT 50
-    """, (search_term, search_term))
+    """, (search_term, search_term, search_term))
     
     results = []
     for row in cursor.fetchall():
         results.append({
             'id': row[0],
-            'village': row[1],
-            'street': row[2],
-            'schedule_group_id': row[3]
+            'seniūnija': row[1],
+            'village': row[2],
+            'street': row[3],
+            'house_numbers': row[4],
+            'schedule_group_id': row[5]
         })
     
     conn.close()
