@@ -9,18 +9,18 @@ import datetime
 
 # Lithuanian month names
 MONTH_MAPPING = {
-    "Sausis": 1,
-    "Vasaris": 2,
-    "Kovas": 3,
-    "Balandis": 4,
-    "Gegužė": 5,
-    "Birželis": 6,
-    "Liepa": 7,
-    "Rugpjūtis": 8,
-    "Rugsėjis": 9,
-    "Spalis": 10,
-    "Lapkritis": 11,
-    "Gruodis": 12,
+    "Sausio": 1,
+    "Vasario": 2,
+    "Kovo": 3,
+    "Balandžio": 4,
+    "Gegužės": 5,
+    "Birželio": 6,
+    "Liepos": 7,
+    "Rugpjūčio": 8,
+    "Rugsėjo": 9,
+    "Spalio": 10,
+    "Lapkričio": 11,
+    "Gruodžio": 12,
 }
 
 def parse_street_village(location_str: str) -> Tuple[str, str]:

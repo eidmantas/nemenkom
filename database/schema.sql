@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS data_fetches (
 );
 
 -- Table to group locations with the same schedule
+-- Multiple locations can share the same schedule_group_id if they have identical pickup dates
 CREATE TABLE IF NOT EXISTS schedule_groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Table for locations (streets/villages)

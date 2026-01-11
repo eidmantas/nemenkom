@@ -174,7 +174,7 @@ if __name__ == '__main__':
     from validator import validate_file_and_data
     
     file_path = fetch_xlsx()
-    source_url = "https://www.nemenkom.lt/..."
+    source_url = 'https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx'
     is_valid, errors, data = validate_file_and_data(file_path)
     
     if is_valid:
