@@ -192,7 +192,7 @@ def extract_dates_from_cell(cell_value, month_name: str, year: int = 2026) -> Li
     
     return sorted(set(dates))  # Remove duplicates and sort
 
-def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
+def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -> List[Dict]:
     """
     Parse xlsx file and extract all location schedules
     
@@ -204,6 +204,7 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
     Args:
         file_path: Path to xlsx file
         year: Year for the schedule
+        simple_subset: If True, only process entries that don't need AI parsing
     
     Returns:
         List of dictionaries with structure:
@@ -216,6 +217,8 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
         }
     """
     print(f"Parsing xlsx file: {file_path}")
+    if simple_subset:
+        print("🔍 Filtering: Only processing simple entries (traditional parser)")
     
     # Read excel file, skip first row (header)
     df = pd.read_excel(file_path, skiprows=1)
@@ -233,8 +236,13 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
     
     print(f"Found {len(df)} rows, {len(month_columns)} month columns")
     
+    # Import parser_router for simple_subset filtering
+    if simple_subset:
+        from scraper.parser_router import should_use_ai_parser
+    
     results = []
     current_seniūnija = None  # Track current county (handles merged cells)
+    skipped_count = 0
     
     # Process each row
     for idx, row in df.iterrows():
@@ -249,10 +257,21 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
         
         # Parse Kaimai (village and streets)
         kaimai_value = row.get('Kaimai', '')
-        if pd.isna(kaimai_value) or not str(kaimai_value).strip():
+        if pd.isna(kaimai_value):
             continue
         
-        parsed_items = parse_village_and_streets(kaimai_value)
+        # Convert to string once and check if empty
+        kaimai_str = str(kaimai_value).strip()
+        if not kaimai_str:
+            continue
+        
+        # Filter by simple_subset flag
+        if simple_subset:
+            if should_use_ai_parser(kaimai_str):
+                skipped_count += 1
+                continue
+        
+        parsed_items = parse_village_and_streets(kaimai_str)
         if not parsed_items:
             continue
         
@@ -275,6 +294,7 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
         
         # Create entries based on parsed items
         # First item is village, rest are streets
+        # Store original kaimai_str for hash generation
         if len(parsed_items) == 1:
             # No street list - just village entry
             results.append({
@@ -282,10 +302,12 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
                 'village': village,
                 'street': '',  # Empty street means whole village
                 'house_numbers': None,
-                'dates': all_dates
+                'dates': all_dates,
+                'kaimai_str': kaimai_str  # Original Kaimai string for hash
             })
         else:
             # Multiple streets - create entry for each street
+            # All streets share the same kaimai_str (from the parent row)
             for street, house_nums in parsed_items[1:]:  # Skip first (village)
                 if street:  # Only add if street name is not empty
                     results.append({
@@ -293,10 +315,14 @@ def parse_xlsx(file_path: Path, year: int = 2026) -> List[Dict]:
                         'village': village,
                         'street': street,
                         'house_numbers': house_nums,
-                        'dates': all_dates
+                        'dates': all_dates,
+                        'kaimai_str': kaimai_str  # Original Kaimai string for hash
                     })
     
-    print(f"Parsed {len(results)} location entries")
+    if simple_subset and skipped_count > 0:
+        print(f"Parsed {len(results)} location entries (skipped {skipped_count} AI-needed entries)")
+    else:
+        print(f"Parsed {len(results)} location entries")
     return results
 
 if __name__ == '__main__':

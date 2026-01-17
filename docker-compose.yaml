@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "3333:3333"
+    volumes:
+      - ./database:/app/database
+      - ./web:/app/web
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped

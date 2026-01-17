@@ -118,13 +118,14 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
     
     return (is_valid, all_issues)
 
-def validate_file_and_data(file_path: Path, year: int = 2026) -> Tuple[bool, List[str], List[Dict]]:
+def validate_file_and_data(file_path: Path, year: int = 2026, simple_subset: bool = False) -> Tuple[bool, List[str], List[Dict]]:
     """
     Complete validation: structure + parsed data
     
     Args:
         file_path: Path to xlsx file
         year: Year for parsing
+        simple_subset: If True, only process entries that don't need AI parsing
     
     Returns:
         Tuple of (is_valid, list_of_errors, parsed_data)
@@ -140,7 +141,7 @@ def validate_file_and_data(file_path: Path, year: int = 2026) -> Tuple[bool, Lis
     
     # Parse and validate data
     try:
-        parsed_data = parse_xlsx(file_path, year)
+        parsed_data = parse_xlsx(file_path, year, simple_subset=simple_subset)
         data_valid, data_errors = validate_parsed_data(parsed_data)
         all_errors.extend(data_errors)
         

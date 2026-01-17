@@ -68,12 +68,14 @@
             }
 
             container.innerHTML = locations.map(loc => {
+                const streetDisplay = loc.street || '(visas kaimas)';
                 const displayName = loc.village 
-                    ? `${loc.street}, ${loc.village}` 
-                    : loc.street;
+                    ? `${loc.village}${loc.street ? ' - ' + loc.street : ''}` 
+                    : streetDisplay;
                 return `
                     <div class="location-item" onclick="selectLocation(${loc.id})">
                         <strong>${displayName}</strong>
+                        ${loc.seniūnija ? `<small>${loc.seniūnija}</small>` : ''}
                     </div>
                 `;
             }).join('');
@@ -114,13 +116,15 @@
 
         function displaySelectedLocation(location) {
             const container = document.getElementById('selectedLocation');
+            const streetDisplay = location.street || '(visas kaimas)';
             const displayName = location.village 
-                ? `${location.street}, ${location.village}` 
-                : location.street;
+                ? `${location.village}${location.street ? ' - ' + location.street : ''}` 
+                : streetDisplay;
             
             container.innerHTML = `
                 <h3>${displayName}</h3>
                 <p class="date-count">Surinkimo dienų: ${location.dates.length}</p>
+                ${location.seniūnija ? `<p><small>${location.seniūnija}</small></p>` : ''}
             `;
         }
     </script>

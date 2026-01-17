@@ -2,6 +2,7 @@
 Main script to run the scraper - can be used for daily cron jobs
 """
 import sys
+import argparse
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -15,6 +16,13 @@ import tempfile
 
 def main():
     """Main scraper function"""
+    parser = argparse.ArgumentParser(description='Waste Schedule Scraper')
+    parser.add_argument('--simple-subset', action='store_true',
+                        help='Only process Kaimai entries that can be parsed by traditional parser (skip AI-needed entries)')
+    parser.add_argument('--file', type=str, default=None,
+                        help='Path to local xlsx file (if not provided, will fetch from URL)')
+    args = parser.parse_args()
+    
     # Initialize database
     init_database()
     
@@ -24,16 +32,25 @@ def main():
     
     print("=" * 60)
     print("Waste Schedule Scraper")
+    if args.simple_subset:
+        print("🔍 MODE: Simple subset only (traditional parser)")
     print("=" * 60)
     
     try:
-        # Fetch xlsx
-        print(f"\n1. Fetching xlsx from: {url}")
-        file_path = fetch_xlsx(url)
+        # Fetch or use local xlsx
+        if args.file:
+            print(f"\n1. Using local xlsx file: {args.file}")
+            file_path = Path(args.file)
+            if not file_path.exists():
+                print(f"❌ File not found: {args.file}")
+                return 1
+        else:
+            print(f"\n1. Fetching xlsx from: {url}")
+            file_path = fetch_xlsx(url)
         
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
-        is_valid, errors, parsed_data = validate_file_and_data(file_path, year)
+        is_valid, errors, parsed_data = validate_file_and_data(file_path, year, simple_subset=args.simple_subset)
         
         if errors:
             print(f"\n⚠️  Validation warnings/errors:")
