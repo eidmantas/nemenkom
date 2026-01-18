@@ -11,8 +11,6 @@ services:
     environment:
       - FLASK_ENV=production
     restart: unless-stopped
-    networks:
-      - caddy
 
   scraper:
     build:
@@ -24,9 +22,4 @@ services:
       - TZ=Europe/Vilnius
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
-    networks:
-      - caddy
 
-networks:
-  caddy:
-    external: true

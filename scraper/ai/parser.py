@@ -28,20 +28,49 @@ Rules:
 1. Extract the village/city name (first part, before any streets)
 2. Extract all streets (they may be in parentheses or listed after village)
 3. Extract house numbers if specified - MUST use normalized format (see below)
-4. Street names ending with "g." (gatvė) are complete names, but house numbers often follow immediately.
-5. Ordinal street names like "1-oji g., 2-oji g." are separate streets, not house numbers.
-6. If no streets, return just the village.
-7. Single letters or very short strings (like "m") are NOT house numbers - set to null.
-8. IMPORTANT: House numbers often appear in parentheses immediately after the street name, sometimes separated by a comma (e.g., "Street g.,(nuo...)" or "Street g. (nuo...)"). These numbers BELONG to the preceding street.
+4. Street names ending with "g." (gatvė) are complete street names
+5. Ordinal street names like "1-oji g., 2-oji g." are separate streets, not house numbers
+6. If no streets, return just the village
+7. Single letters or very short strings (like "m") are NOT house numbers - set to null
+8. CRITICAL: When multiple streets are listed and house numbers appear in parentheses, the house numbers ALWAYS belong to the street IMMEDIATELY BEFORE the parentheses, even if there's a comma after that street name.
+   - Example: "Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A)" → Svajonės g. has NO house numbers, Vanaginės g. has "1-31A"
+   - Example: "Street1 g., Street2 g., (numbers)" → Street1 has null, Street2 has the numbers
+   - The comma after the street name before parentheses is a data entry quirk - ignore it as a street separator
+   - Pattern: "StreetA g., StreetB g., (numbers)" means StreetB gets the numbers, StreetA gets null
 
 HOUSE NUMBERS FORMAT (REQUIRED):
-- Normalize to compact format: remove "nuo", "iki", "Nr." prefixes.
+- Normalize to compact format: remove "nuo", "iki", "Nr." prefixes
 - Ranges: "nuo 18 iki 18U" → "18-18U", "nuo Nr. 1 iki 9" → "1-9"
 - Lists: "26, 28" → "26,28" (no spaces), "114, 114A,114B" → "114,114A,114B"
 - Combined: "nuo Nr.1 iki 31A, nuo 2 iki 14B" → "1-31A,2-14B"
-- Parenthesis Handling: If a street is "Molėtų g.,(nuo Nr. 40 iki 48)", the street is "Molėtų g." and house_numbers is "40-48".
-- Special: "nuo 107" → "≥107", "iki Nr.5" → "≤5"
-- If house numbers are unclear/invalid, set to null.
+- Special: "nuo 107" (no end) → "≥107", "iki Nr.5" → "≤5"
+- Single values: "26" → "26"
+- If house numbers are unclear/invalid (single letter, typo), set to null
+
+CRITICAL PATTERN RECOGNITION:
+- When you see: "Street1 g., Street2 g., (house numbers)"
+  → Street1 has NO house numbers (null)
+  → Street2 HAS the house numbers (from parentheses)
+- The comma after Street2 is NOT separating streets - it's indicating house numbers follow
+- Always assign parentheses house numbers to the street immediately preceding them
+
+EXAMPLE - Multiple streets with trailing comma pattern:
+Input: "Didžioji Riešė (Molėtų g.,(nuo Nr. 40 iki 48), Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A, nuo 2 iki 14B), Veneros g.(nuo Nr. 7))"
+Output:
+{{
+  "village": "Didžioji Riešė",
+  "streets": [
+    {{"street": "Molėtų g.", "house_numbers": "40-48"}},
+    {{"street": "Svajonės g.", "house_numbers": null}},
+    {{"street": "Vanaginės g.", "house_numbers": "1-31A,2-14B"}},
+    {{"street": "Veneros g.", "house_numbers": "7"}}
+  ]
+}}
+Note: 
+- Molėtų g. gets "40-48" (comma before parentheses, numbers belong to Molėtų g.)
+- Svajonės g. has NO house numbers (null)
+- Vanaginės g. gets "1-31A,2-14B" (comma before parentheses, numbers belong to Vanaginės g.)
+- Veneros g. gets "7" (no comma, but parentheses still indicate house numbers)
 
 Return JSON in this exact format:
 {{
