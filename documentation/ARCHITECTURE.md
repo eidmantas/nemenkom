@@ -36,13 +36,14 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
 
 - **Purpose**: User-facing website for viewing schedules
 - **Files**:
-  - `web/templates/index.html` - Main page with street/village selector and calendar view
+  - `web/templates/index.html` - Main page with cascading searchable selectors and calendar view
   - `web/static/css/style.css` - Styling
   - `web/static/js/calendar.js` - Calendar rendering logic
 - **Features**:
-  - Dropdown/table to select street/village combo
-  - Calendar view showing pickup dates
-  - Responsive design
+  - **Searchable Dropdowns**: Type-to-search with partial matching and Lithuanian character normalization
+  - **Cascading Selection**: Village → Street → House Number with smart validation
+  - **Calendar View**: Displays pickup dates for selected location
+  - **Responsive Design**: Basic responsive layout
 
 ### 4. Calendar Generator (`calendar/`)
 

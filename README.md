@@ -110,30 +110,33 @@ curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=ben
 ```
 ┌─────────────────────────────────────────┐
 │  Buitinių atliekų surinkimo grafikas    │
-│  [Search: Ieškoti gatvės ar kaimo...]  │
+│  Cascading Selection + Calendar View     │
 ├──────────────────┬──────────────────────┤
-│  Gatvės ir kaimai │   Kalendorius        │
-│  (Left Panel)     │   (Right Panel)      │
+│  Selection UI     │   Kalendorius        │
+│  (Left Panel)    │   (Right Panel)      │
 │                   │                      │
-│  • Aleksandravas  │   [Selected Location]│
-│  • Aukštadvaris   │   [Calendar View]    │
-│  • ...            │   [Pickup Dates]     │
+│  [Village Search] │   [Selected Location]│
+│  [Street Search]  │   [Calendar View]    │
+│  [House # Search]│   [Pickup Dates]     │
 └──────────────────┴──────────────────────┘
 ```
 
 ### Features
-- **Search**: Filter locations by village/street name
-- **Location List**: Click to select and view schedule
+- **Searchable Dropdowns**: Type to search villages, streets, and house numbers
+  - Partial matching: Type "Riese" to find "Riešė"
+  - Lithuanian character normalization: Works with or without Lithuanian letters (š, ž, ą, etc.)
+  - Scrollable lists: Browse all options when focused
+  - Keyboard support: Enter to select first match
+- **Cascading Selection**: Village → Street → House Number
+  - Auto-populating: Select village → streets filter → house numbers filter
+  - Smart validation: Requires street/house numbers only when they exist
+  - "Visiems" (All) option when no specific house numbers exist
 - **Calendar View**: Displays pickup dates for selected location
 - **Responsive**: Basic responsive design (mobile improvements planned)
 
 ### Future Enhancements
-- **Cascading Selection UI**: Village → Street → House Number (when house numbers are in DB)
-  - Auto-populating dropdowns: Select village → streets filter → house numbers filter
-  - "Visiems" (All) option when no specific house numbers exist
 - Google Calendar export button
 - Multi-waste-type selection (general, plastic, glass)
-- Address input with autocomplete
 - Improved mobile UI
 
 ## Project Structure

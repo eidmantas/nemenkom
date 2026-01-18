@@ -11,10 +11,11 @@ This document contains the full context of the project for AI agents to continue
 ### ✅ Completed
 - **Database Schema**: Hash-based `schedule_groups` with JSON dates, `locations` with `kaimai_hash`
 - **Traditional Parser**: Handles simple village/street patterns
-- **Parser Router**: Logic to decide between traditional and AI parsing
-- **API**: Flask REST API with endpoints for locations and schedules
-- **Web Interface**: Basic HTML/JS interface for viewing schedules
+- **Parser Router**: Logic to decide between traditional and AI parsing (detects streets without parentheses)
+- **API**: Flask REST API with endpoints for locations and schedules, smart validation (requires street/house_numbers when they exist)
+- **Web Interface**: Searchable dropdowns with Lithuanian character normalization, cascading selection (Village → Street → House Number)
 - **Database**: SQLite with 900 locations, 10 schedule groups (simple subset only)
+- **Testing**: Comprehensive test suite (29 tests) covering parser, router, API endpoints, and E2E flows
 
 ### 🚧 In Progress / Next Steps
 - **AI Parser**: Groq LLM integration for complex "Kaimai" patterns
