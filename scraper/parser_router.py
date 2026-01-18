@@ -39,10 +39,15 @@ def should_use_ai_parser(kaimai_str: str) -> bool:
     has_missing_commas = re.search(r'[a-ząčęėįšųūž]+\.\s+[A-ZĄČĘĖĮŠŲŪŽ]', kaimai_str)
     
     # Check for streets outside parentheses
-    # Only flag if there ARE parentheses but also text outside them
+    # Flag if:
+    # 1. There ARE parentheses but also text outside them, OR
+    # 2. There are NO parentheses but street names (ending with "g.") appear after village name
     has_streets_outside = (
-        '(' in kaimai_str and  # Has parentheses
-        re.search(r'\)\s+[A-ZĄČĘĖĮŠŲŪŽ]', kaimai_str)  # Text after closing paren
+        # Case 1: Has parentheses AND text after closing paren
+        ('(' in kaimai_str and re.search(r'\)\s+[A-ZĄČĘĖĮŠŲŪŽ]', kaimai_str)) or
+        # Case 2: No parentheses but has pattern "Village Street1 g., Street2 g."
+        # This catches cases like "Bezdonys Pakalnės g., Draugystės g."
+        (not '(' in kaimai_str and re.search(r'[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+\s+[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+\.?\s+g\.', kaimai_str))
     )
     
     return bool(has_house_numbers or has_missing_commas or has_streets_outside)

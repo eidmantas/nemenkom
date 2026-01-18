@@ -270,3 +270,121 @@ def search_locations(query: str) -> List[Dict]:
     
     conn.close()
     return results
+
+def get_unique_villages() -> List[str]:
+    """Get list of unique villages"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT DISTINCT village
+        FROM locations
+        WHERE village != ''
+        ORDER BY village
+    """)
+    
+    results = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+def get_streets_for_village(village: str) -> List[str]:
+    """Get list of unique streets for a village (includes empty string for whole village)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT DISTINCT street
+        FROM locations
+        WHERE village = ?
+        ORDER BY CASE WHEN street = '' THEN 0 ELSE 1 END, street
+    """, (village,))
+    
+    results = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+def get_house_numbers_for_street(village: str, street: str) -> List[str]:
+    """Get list of unique house numbers for a street (street can be empty string for whole village)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT DISTINCT house_numbers
+        FROM locations
+        WHERE village = ? AND street = ?
+        ORDER BY house_numbers
+    """, (village, street))
+    
+    # Filter out None values, but keep empty strings if they exist
+    results = [row[0] for row in cursor.fetchall() if row[0] is not None]
+    conn.close()
+    return results
+
+def village_has_streets(village: str) -> bool:
+    """Check if a village has any non-empty streets"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT COUNT(*) 
+        FROM locations
+        WHERE village = ? AND street != '' AND street IS NOT NULL
+        LIMIT 1
+    """, (village,))
+    
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+def street_has_house_numbers(village: str, street: str) -> bool:
+    """Check if a street has any house numbers"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT COUNT(*) 
+        FROM locations
+        WHERE village = ? AND street = ? AND house_numbers IS NOT NULL AND house_numbers != ''
+        LIMIT 1
+    """, (village, street))
+    
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+def get_location_by_selection(village: str, street: str, house_numbers: Optional[str] = None) -> Optional[Dict]:
+    """Get location by village, street, and optionally house_numbers"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if house_numbers:
+        cursor.execute("""
+            SELECT id, seniūnija, village, street, house_numbers, kaimai_hash
+            FROM locations
+            WHERE village = ? AND street = ? AND house_numbers = ?
+            LIMIT 1
+        """, (village, street, house_numbers))
+    else:
+        # If no house_numbers specified, get first match (or one with NULL house_numbers)
+        cursor.execute("""
+            SELECT id, seniūnija, village, street, house_numbers, kaimai_hash
+            FROM locations
+            WHERE village = ? AND street = ?
+            ORDER BY CASE WHEN house_numbers IS NULL THEN 0 ELSE 1 END
+            LIMIT 1
+        """, (village, street))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return None
+    
+    return {
+        'id': row[0],
+        'seniūnija': row[1],
+        'village': row[2],
+        'street': row[3],
+        'house_numbers': row[4],
+        'kaimai_hash': row[5]
+    }

@@ -128,6 +128,9 @@ curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=ben
 - **Responsive**: Basic responsive design (mobile improvements planned)
 
 ### Future Enhancements
+- **Cascading Selection UI**: Village → Street → House Number (when house numbers are in DB)
+  - Auto-populating dropdowns: Select village → streets filter → house numbers filter
+  - "Visiems" (All) option when no specific house numbers exist
 - Google Calendar export button
 - Multi-waste-type selection (general, plastic, glass)
 - Address input with autocomplete
@@ -189,7 +192,16 @@ See `database/schema.sql` for full schema.
 - Update parser to accept `waste_type` parameter
 - Update API to filter by waste type
 
-### 5. Testing & Deployment
+### 5. Enhanced Web Interface (House Numbers Support)
+- **Cascading Selection**: Village → Street → House Number
+  - Step 1: Select City/Village (dropdown)
+  - Step 2: Select Street (filtered by selected village, auto-populated)
+  - Step 3: Select House Number (filtered by selected street, auto-populated)
+  - Show "Visiems" (All) option when no specific house numbers exist
+- Update API to support filtering by house numbers
+- Update database queries to handle house number filtering
+
+### 6. Testing & Deployment
 - Test AI parser with full dataset
 - Verify date accuracy across all locations
 - Production deployment

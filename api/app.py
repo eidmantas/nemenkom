@@ -2,12 +2,11 @@
 Flask API application for waste schedule data
 """
 from flask import Flask, jsonify, request, render_template
-from api.db import get_all_locations, get_location_schedule, get_schedule_group_schedule, search_locations
-from scraper.fetcher import fetch_xlsx
-from scraper.validator import validate_file_and_data
-from scraper.db_writer import write_parsed_data
-from pathlib import Path
-import tempfile
+from api.db import (
+    get_all_locations, get_location_schedule, get_schedule_group_schedule, search_locations,
+    get_unique_villages, get_streets_for_village, get_house_numbers_for_street, get_location_by_selection,
+    village_has_streets, street_has_house_numbers
+)
 
 app = Flask(__name__, 
             template_folder='../web/templates',
@@ -41,14 +40,44 @@ def api_schedule():
     """Get schedule for a specific location"""
     location_id = request.args.get('location_id', type=int)
     village = request.args.get('village', '')
-    street = request.args.get('street', '')
+    street = request.args.get('street', None)  # None if not provided, '' if empty string provided
+    house_numbers = request.args.get('house_numbers', None)  # None if not provided
     
-    if not location_id and not (village and street):
+    if location_id:
+        schedule = get_location_schedule(location_id=location_id)
+    elif village:
+        # Validate based on what exists in database:
+        # 1. If village has streets, street parameter must be provided
+        # 2. If street has house numbers, house_numbers parameter must be provided
+        
+        if village_has_streets(village):
+            # Village has streets, so street must be provided
+            if street is None:
+                return jsonify({
+                    'error': 'This village has streets. Please select a street.'
+                }), 400
+            street_value = street
+        else:
+            # Village has no streets, use empty string
+            street_value = ''
+        
+        # Check if street has house numbers
+        if street_has_house_numbers(village, street_value):
+            # Street has house numbers, so house_numbers must be provided
+            if house_numbers is None:
+                return jsonify({
+                    'error': 'This street has specific house numbers. Please select a house number.'
+                }), 400
+        
+        location = get_location_by_selection(village, street_value, house_numbers)
+        if location:
+            schedule = get_location_schedule(location_id=location['id'])
+        else:
+            schedule = None
+    else:
         return jsonify({
-            'error': 'Must provide either location_id or both village and street'
+            'error': 'Must provide either location_id or village'
         }), 400
-    
-    schedule = get_location_schedule(location_id=location_id, village=village, street=street)
     
     if not schedule:
         return jsonify({
@@ -64,95 +93,34 @@ def api_schedule_group(schedule_group_id):
     schedule = get_schedule_group_schedule(schedule_group_id, waste_type)
     return jsonify(schedule)
 
-@app.route('/api/v1/data', methods=['POST'])
-def api_post_data():
-    """
-    Accept scraped data from fetcher module
-    Can either:
-    1. POST with URL to fetch and process
-    2. POST with raw xlsx file
-    """
-    if 'url' in request.json:
-        # Fetch from URL
-        url = request.json['url']
-        year = request.json.get('year', 2026)
-        
-        try:
-            # Fetch file
-            file_path = fetch_xlsx(url)
-            
-            # Validate and parse
-            is_valid, errors, parsed_data = validate_file_and_data(file_path, year)
-            
-            # Write to database
-            success = write_parsed_data(parsed_data, url, errors if not is_valid else None)
-            
-            # Clean up temp file
-            if file_path.exists() and str(file_path).startswith(tempfile.gettempdir()):
-                file_path.unlink()
-            
-            if success:
-                return jsonify({
-                    'status': 'success',
-                    'locations_processed': len(parsed_data)
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'errors': errors
-                }), 400
-                
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'error': str(e)
-            }), 500
+@app.route('/api/v1/villages', methods=['GET'])
+def api_villages():
+    """Get list of unique villages"""
+    villages = get_unique_villages()
+    return jsonify({'villages': villages})
+
+@app.route('/api/v1/streets', methods=['GET'])
+def api_streets():
+    """Get list of streets for a village"""
+    village = request.args.get('village', '')
+    if not village:
+        return jsonify({'error': 'village parameter required'}), 400
     
-    elif 'file' in request.files:
-        # Upload file directly
-        file = request.files['file']
-        year = request.form.get('year', 2026, type=int)
-        
-        # Save to temp file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-        file.save(temp_file.name)
-        file_path = Path(temp_file.name)
-        temp_file.close()
-        
-        try:
-            # Validate and parse
-            is_valid, errors, parsed_data = validate_file_and_data(file_path, year)
-            
-            # Write to database
-            source_url = f"uploaded_file_{file.filename}"
-            success = write_parsed_data(parsed_data, source_url, errors if not is_valid else None)
-            
-            # Clean up temp file
-            file_path.unlink()
-            
-            if success:
-                return jsonify({
-                    'status': 'success',
-                    'locations_processed': len(parsed_data)
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'errors': errors
-                }), 400
-                
-        except Exception as e:
-            if file_path.exists():
-                file_path.unlink()
-            return jsonify({
-                'status': 'error',
-                'error': str(e)
-            }), 500
+    streets = get_streets_for_village(village)
+    return jsonify({'streets': streets})
+
+@app.route('/api/v1/house-numbers', methods=['GET'])
+def api_house_numbers():
+    """Get list of house numbers for a street"""
+    village = request.args.get('village', '')
+    street = request.args.get('street', '')
     
-    else:
-        return jsonify({
-            'error': 'Must provide either "url" in JSON or "file" in form data'
-        }), 400
+    if not village:
+        return jsonify({'error': 'village parameter required'}), 400
+    
+    # street can be empty string for whole village
+    house_numbers = get_house_numbers_for_street(village, street or '')
+    return jsonify({'house_numbers': house_numbers})
 
 if __name__ == '__main__':
     # Initialize database if needed
