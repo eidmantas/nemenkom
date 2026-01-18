@@ -1,0 +1,18 @@
+version: '3.8'
+
+# Local development override
+# Copy this to docker-compose.override.yaml for local development
+# This file is automatically merged with docker-compose.yaml by docker-compose
+# It adds the external Caddy network configuration
+
+services:
+  nemenkom:
+    networks:
+      - caddy
+  scraper:
+    networks:
+      - caddy
+
+networks:
+  caddy:
+    external: true

@@ -45,6 +45,8 @@ podman-compose logs -f web
 podman-compose down
 ```
 
+**Note:** For local development, `docker-compose.override.yaml` is automatically used (if it exists) to override the external Caddy network with a local default network. On RPI/production, the external Caddy network will be used from `docker-compose.yaml`.
+
 Web server: **http://localhost:3333**
 
 The database is stored in `./database/` and persists between restarts. The scraper automatically updates it twice daily.
