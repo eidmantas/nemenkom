@@ -2,6 +2,7 @@
 Main script to run the scraper - can be used for daily cron jobs
 """
 import sys
+import argparse
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -13,27 +14,36 @@ from scraper.db_writer import write_parsed_data
 from database.init import init_database
 import tempfile
 
-def main():
-    """Main scraper function"""
+def run_scraper(simple_subset=False, file_path=None, url=None, year=2026):
+    """Run the scraper with given parameters"""
     # Initialize database
     init_database()
     
-    # Configuration
-    url = DEFAULT_URL
-    year = 2026  # Can be made configurable
+    # Use default URL if not provided
+    if url is None:
+        url = DEFAULT_URL
     
     print("=" * 60)
     print("Waste Schedule Scraper")
+    if simple_subset:
+        print("🔍 MODE: Simple subset only (traditional parser)")
     print("=" * 60)
     
     try:
-        # Fetch xlsx
-        print(f"\n1. Fetching xlsx from: {url}")
-        file_path = fetch_xlsx(url)
+        # Fetch or use local xlsx
+        if file_path:
+            print(f"\n1. Using local xlsx file: {file_path}")
+            file_path = Path(file_path)
+            if not file_path.exists():
+                print(f"❌ File not found: {file_path}")
+                return 1
+        else:
+            print(f"\n1. Fetching xlsx from: {url}")
+            file_path = fetch_xlsx(url)
         
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
-        is_valid, errors, parsed_data = validate_file_and_data(file_path, year)
+        is_valid, errors, parsed_data = validate_file_and_data(file_path, year, simple_subset=simple_subset)
         
         if errors:
             print(f"\n⚠️  Validation warnings/errors:")
@@ -65,6 +75,17 @@ def main():
         import traceback
         traceback.print_exc()
         return 1
+
+def main():
+    """Main scraper function (CLI entry point)"""
+    parser = argparse.ArgumentParser(description='Waste Schedule Scraper')
+    parser.add_argument('--simple-subset', action='store_true',
+                        help='Only process Kaimai entries that can be parsed by traditional parser (skip AI-needed entries)')
+    parser.add_argument('--file', type=str, default=None,
+                        help='Path to local xlsx file (if not provided, will fetch from URL)')
+    args = parser.parse_args()
+    
+    return run_scraper(simple_subset=args.simple_subset, file_path=args.file)
 
 if __name__ == '__main__':
     sys.exit(main())

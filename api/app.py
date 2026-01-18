@@ -57,10 +57,11 @@ def api_schedule():
     
     return jsonify(schedule)
 
-@app.route('/api/v1/schedule-group/<int:schedule_group_id>', methods=['GET'])
+@app.route('/api/v1/schedule-group/<schedule_group_id>', methods=['GET'])
 def api_schedule_group(schedule_group_id):
-    """Get schedule for a schedule group"""
-    schedule = get_schedule_group_schedule(schedule_group_id)
+    """Get schedule for a schedule group (hash-based ID)"""
+    waste_type = request.args.get('waste_type', 'bendros')
+    schedule = get_schedule_group_schedule(schedule_group_id, waste_type)
     return jsonify(schedule)
 
 @app.route('/api/v1/data', methods=['POST'])

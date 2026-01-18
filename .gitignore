@@ -1,2 +1,34 @@
 RELEASE.md
-README.md
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Database
+database/*.db
+database/*.db-journal
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

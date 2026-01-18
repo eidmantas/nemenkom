@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.db
+*.db-journal
+xlsx-converted-to-csv-for-ai-context.csv

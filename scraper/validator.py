@@ -23,9 +23,11 @@ def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
     except Exception as e:
         return (False, [f"Failed to read xlsx: {str(e)}"])
     
-    # Check for required column
-    if 'Kaimai' not in df.columns:
-        errors.append("Required column 'Kaimai' not found")
+    # Check for required columns
+    required_columns = ['Seniūnija', 'Kaimai']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        errors.append(f"Required columns not found: {missing_columns}")
     
     # Check for month columns
     month_columns = [col for col in df.columns if col in MONTH_MAPPING]
@@ -52,50 +54,78 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
     """
     Validate parsed data structure and content
     
+    More lenient validation - warns about issues but doesn't fail on minor problems
+    
     Args:
         parsed_data: List of parsed location dictionaries
     
     Returns:
-        Tuple of (is_valid, list_of_errors)
+        Tuple of (is_valid, list_of_warnings_or_errors)
     """
-    errors = []
+    warnings = []
+    critical_errors = []
     
     if not parsed_data:
-        errors.append("No locations parsed from xlsx")
-        return (False, errors)
+        critical_errors.append("No locations parsed from xlsx")
+        return (False, critical_errors)
     
     # Check structure
-    required_keys = ['village', 'street', 'dates']
+    required_keys = ['seniūnija', 'village', 'street', 'dates']
+    locations_with_dates = 0
+    locations_without_dates = 0
+    
     for i, item in enumerate(parsed_data):
+        # Check required keys
         for key in required_keys:
             if key not in item:
-                errors.append(f"Item {i} missing required key: {key}")
+                critical_errors.append(f"Item {i} missing required key: {key}")
         
-        # Validate street is not empty
-        if not item.get('street', '').strip():
-            errors.append(f"Item {i} has empty street")
+        # Validate seniūnija is not empty
+        if not item.get('seniūnija', '').strip():
+            critical_errors.append(f"Item {i} has empty seniūnija")
+        
+        # Validate village is not empty
+        if not item.get('village', '').strip():
+            critical_errors.append(f"Item {i} has empty village")
+        
+        # Street can be empty (means whole village), but must be present
+        if 'street' not in item:
+            critical_errors.append(f"Item {i} missing 'street' key (can be empty string)")
         
         # Validate dates
         dates = item.get('dates', [])
         if not isinstance(dates, list):
-            errors.append(f"Item {i} dates is not a list")
+            critical_errors.append(f"Item {i} dates is not a list")
         elif len(dates) == 0:
-            # Warning but not error - some locations might have no dates
-            pass
+            locations_without_dates += 1
+            # Warning - location has no pickup dates
+            street_display = item.get('street', '') or '(visas kaimas)'
+            warnings.append(f"Item {i} ({item.get('village', '?')} / {street_display}) has no pickup dates")
+        else:
+            locations_with_dates += 1
     
     # Check for reasonable number of locations
     if len(parsed_data) < 1:
-        errors.append("Too few locations parsed (expected at least 1)")
+        critical_errors.append("Too few locations parsed (expected at least 1)")
     
-    return (len(errors) == 0, errors)
+    # Warn if many locations have no dates
+    if locations_without_dates > 0:
+        warnings.append(f"{locations_without_dates} locations have no pickup dates (out of {len(parsed_data)} total)")
+    
+    # Return warnings and errors together
+    all_issues = critical_errors + warnings
+    is_valid = len(critical_errors) == 0
+    
+    return (is_valid, all_issues)
 
-def validate_file_and_data(file_path: Path, year: int = 2026) -> Tuple[bool, List[str], List[Dict]]:
+def validate_file_and_data(file_path: Path, year: int = 2026, simple_subset: bool = False) -> Tuple[bool, List[str], List[Dict]]:
     """
     Complete validation: structure + parsed data
     
     Args:
         file_path: Path to xlsx file
         year: Year for parsing
+        simple_subset: If True, only process entries that don't need AI parsing
     
     Returns:
         Tuple of (is_valid, list_of_errors, parsed_data)
@@ -111,7 +141,7 @@ def validate_file_and_data(file_path: Path, year: int = 2026) -> Tuple[bool, Lis
     
     # Parse and validate data
     try:
-        parsed_data = parse_xlsx(file_path, year)
+        parsed_data = parse_xlsx(file_path, year, simple_subset=simple_subset)
         data_valid, data_errors = validate_parsed_data(parsed_data)
         all_errors.extend(data_errors)
         
