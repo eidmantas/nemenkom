@@ -28,19 +28,20 @@ Rules:
 1. Extract the village/city name (first part, before any streets)
 2. Extract all streets (they may be in parentheses or listed after village)
 3. Extract house numbers if specified - MUST use normalized format (see below)
-4. Street names ending with "g." (gatvė) are complete street names
-5. Ordinal street names like "1-oji g., 2-oji g." are separate streets, not house numbers
-6. If no streets, return just the village
-7. Single letters or very short strings (like "m") are NOT house numbers - set to null
+4. Street names ending with "g." (gatvė) are complete names, but house numbers often follow immediately.
+5. Ordinal street names like "1-oji g., 2-oji g." are separate streets, not house numbers.
+6. If no streets, return just the village.
+7. Single letters or very short strings (like "m") are NOT house numbers - set to null.
+8. IMPORTANT: House numbers often appear in parentheses immediately after the street name, sometimes separated by a comma (e.g., "Street g.,(nuo...)" or "Street g. (nuo...)"). These numbers BELONG to the preceding street.
 
 HOUSE NUMBERS FORMAT (REQUIRED):
-- Normalize to compact format: remove "nuo", "iki", "Nr." prefixes
+- Normalize to compact format: remove "nuo", "iki", "Nr." prefixes.
 - Ranges: "nuo 18 iki 18U" → "18-18U", "nuo Nr. 1 iki 9" → "1-9"
-- Lists: "26, 28" → "26,28" (no spaces), "114, 114A,114B" → "114,114A,114B"
+- Lists: "26, 28" → "26,28" (no spaces)
 - Combined: "nuo Nr.1 iki 31A, nuo 2 iki 14B" → "1-31A,2-14B"
-- Special: "nuo 107" (no end) → "≥107", "iki Nr.5" → "≤5"
-- Single values: "26" → "26"
-- If house numbers are unclear/invalid (single letter, typo), set to null
+- Parenthesis Handling: If a street is "Molėtų g.,(nuo Nr. 40 iki 48)", the street is "Molėtų g." and house_numbers is "40-48".
+- Special: "nuo 107" → "≥107", "iki Nr.5" → "≤5"
+- If house numbers are unclear/invalid, set to null.
 
 Return JSON in this exact format:
 {{
