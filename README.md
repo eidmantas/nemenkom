@@ -15,23 +15,39 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 
 ### Docker/Podman (Recommended)
 
+**Microservice Architecture:**
+- `web` service: Flask API and web interface (port 3333)
+- `scraper` service: Scheduled scraper (runs at 11:00 and 18:00 daily)
+
+**Using Makefile (recommended):**
 ```bash
-# Start the container
-docker-compose up -d
-# or: podman-compose up -d
+make up      # Start all services
+make down    # Stop services
+make restart # Restart services
+make build   # Build images
+make clean   # Stop and remove everything
+make test    # Run tests locally
+```
 
-# View logs
-docker-compose logs -f
-# or: podman-compose logs -f
+**Or directly with podman-compose:**
+```bash
+# Start all services
+podman-compose up -d
 
-# Stop the container
-docker-compose down
-# or: podman-compose down
+# View logs (all services)
+podman-compose logs -f
+
+# View logs (specific service)
+podman-compose logs -f scraper
+podman-compose logs -f web
+
+# Stop all services
+podman-compose down
 ```
 
 Web server: **http://localhost:3333**
 
-The database is stored in `./database/` and persists between restarts.
+The database is stored in `./database/` and persists between restarts. The scraper automatically updates it twice daily.
 
 ### Option 2: Manual Setup
 
@@ -158,10 +174,10 @@ See `database/schema.sql` for full schema.
 - Add rate limiting (30 RPM, 14,400 RPD free tier)
 - Update `parser.py` to use AI parser via router
 
-### 2. Add Scraper Service to Docker Compose
-- Add separate service (same or different container) for scheduled scraper
-- Runs consistently to download/parse XLSX and keep database up to date
-- Use cron or scheduler within the service
+### 2. Add Scraper Service to Docker Compose ✅
+- ✅ Separate service with dedicated Dockerfile.scraper
+- ✅ Runs at 11:00 and 18:00 daily via cron
+- ✅ Microservice architecture: web + scraper services
 
 ### 3. Google Calendar Integration
 - Refactor `google_calendar.py`

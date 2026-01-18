@@ -30,8 +30,5 @@ COPY . .
 # Set PYTHONPATH so imports work
 ENV PYTHONPATH=/app
 
-# Expose port
-EXPOSE 3333
-
-# Run the web application
-CMD ["python", "api/app.py"]
+# Run Python scheduler (runs immediately, then schedules at 11:00 and 18:00)
+CMD ["python", "scraper/scheduler.py"]

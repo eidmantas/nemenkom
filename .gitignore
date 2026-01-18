@@ -16,6 +16,13 @@ __pycache__/
 *.pyd
 .Python
 
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
 # IDE
 .vscode/
 .idea/

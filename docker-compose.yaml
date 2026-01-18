@@ -11,3 +11,14 @@ services:
     environment:
       - FLASK_ENV=production
     restart: unless-stopped
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
+    volumes:
+      - ./database:/app/database
+    environment:
+      - TZ=Europe/Vilnius
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

@@ -106,12 +106,14 @@ def write_location_schedule(conn: sqlite3.Connection, seniūnija: str, village: 
     house_nums_str = house_numbers if house_numbers else None
     
     # Insert or update location (no FK to schedule_group, just store kaimai_hash)
+    # Convert datetime to ISO format string to avoid deprecation warning (Python 3.12+)
+    now_str = datetime.now().isoformat()
     cursor.execute("""
         INSERT INTO locations (seniūnija, village, street, house_numbers, kaimai_hash, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(seniūnija, village, street, house_numbers) 
         DO UPDATE SET kaimai_hash = ?, updated_at = ?
-    """, (seniūnija, village, street, house_nums_str, kaimai_hash, datetime.now(), kaimai_hash, datetime.now()))
+    """, (seniūnija, village, street, house_nums_str, kaimai_hash, now_str, kaimai_hash, now_str))
     
     # Dates are now stored in schedule_groups, not in pickup_dates table
     # No need to insert pickup_dates - just return location_id
