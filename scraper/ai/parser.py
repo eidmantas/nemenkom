@@ -37,7 +37,7 @@ Rules:
 HOUSE NUMBERS FORMAT (REQUIRED):
 - Normalize to compact format: remove "nuo", "iki", "Nr." prefixes.
 - Ranges: "nuo 18 iki 18U" → "18-18U", "nuo Nr. 1 iki 9" → "1-9"
-- Lists: "26, 28" → "26,28" (no spaces)
+- Lists: "26, 28" → "26,28" (no spaces), "114, 114A,114B" → "114,114A,114B"
 - Combined: "nuo Nr.1 iki 31A, nuo 2 iki 14B" → "1-31A,2-14B"
 - Parenthesis Handling: If a street is "Molėtų g.,(nuo Nr. 40 iki 48)", the street is "Molėtų g." and house_numbers is "40-48".
 - Special: "nuo 107" → "≥107", "iki Nr.5" → "≤5"
