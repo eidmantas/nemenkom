@@ -16,7 +16,7 @@ def run_scraper_job():
     """Run the scraper job"""
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running scraper...")
     try:
-        exit_code = run_scraper(simple_subset=True)
+        exit_code = run_scraper(simple_subset=False)  # Full parsing with AI
         
         if exit_code == 0:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scraper completed successfully")

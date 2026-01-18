@@ -69,7 +69,7 @@ python database/init.py
 # Simple subset only (traditional parser, no AI needed)
 python scraper/main.py --simple-subset
 
-# Full parsing (when AI parser is implemented)
+# Full parsing (traditional + AI parser) - processes all entries
 python scraper/main.py
 ```
 
@@ -174,11 +174,14 @@ See `database/schema.sql` for full schema.
 
 ## Next Steps
 
-### 1. Implement AI Parser (Groq)
-- Create `scraper/ai_parser.py`
-- Integrate Groq API for complex "Kaimai" patterns
-- Add rate limiting (30 RPM, 14,400 RPD free tier)
-- Update `parser.py` to use AI parser via router
+### 1. Implement AI Parser (Groq) ✅ **COMPLETE**
+- ✅ Created `scraper/ai/parser.py` with Groq API integration
+- ✅ Integrates Groq API for complex "Kaimai" patterns
+- ✅ Rate limiting (`scraper/ai/rate_limiter.py`) - respects 30 RPM, 14,400 RPD free tier
+- ✅ Caching (`scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
+- ✅ Full validation and error handling
+- ✅ Updated `parser.py` to use AI parser via router
+- ✅ Test coverage: 15 tests
 
 ### 2. Add Scraper Service to Docker Compose ✅
 - ✅ Separate service with dedicated Dockerfile.scraper
@@ -212,10 +215,11 @@ See `database/schema.sql` for full schema.
 ## Documentation
 
 - **`documentation/ARCHITECTURE.md`** - System architecture and design
-- **`documentation/HYBRID_PARSER.md`** - Parser implementation details
-- **`documentation/AI_COST_ANALYSIS.md`** - AI options cost analysis
+- **`documentation/HYBRID_PARSER.md`** - Hybrid parser implementation (traditional + AI)
+- **`documentation/AI-AGENT.md`** - Full context for AI agents (for continuation)
 - **`documentation/DECISION_SCHEDULE_GROUPS.md`** - Database schema decisions
-- **`documentation/AI-AGENT.md`** - Full context for AI agents
+- **`documentation/TESTING.md`** - Testing strategy and setup
+- **`documentation/AI_COST_ANALYSIS.md`** - Historical: AI options analysis (we chose Groq)
 
 ## Development Notes
 
@@ -223,13 +227,20 @@ See `database/schema.sql` for full schema.
 - ✅ Database schema implemented (hash-based IDs, JSON dates)
 - ✅ Traditional parser working (simple patterns)
 - ✅ Parser router implemented
+- ✅ AI parser implemented (Groq LLM integration)
+  - Automatic routing for complex patterns
+  - Caching and rate limiting
+  - Full validation and error handling
 - ✅ API and web interface functional
-- 🚧 AI parser (next step)
+- ✅ Seniūnija support: API returns separate seniūnija/village keys, handles duplicate village names
+- ✅ House number normalization: Compact format (spaces removed, ranges normalized)
 - 🚧 Google Calendar integration
 - 🚧 Multi-waste-type support
 
 ### Testing
-- Use `--simple-subset` flag to test traditional parser only
+- Comprehensive test suite: 56 tests (parser, router, AI parser, API, E2E)
+- Use `--simple-subset` flag to test traditional parser only (skips AI-needed entries)
+- Without flag: Full hybrid parsing (traditional + AI parser)
 - Database currently has 900 locations, 10 schedule groups (simple subset)
 - Verify dates match XLSX source data
 

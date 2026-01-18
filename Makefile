@@ -56,6 +56,9 @@ restart: down up
 build:
 	podman-compose build
 
+rebuild: clean build
+	@echo "✅ Images rebuilt (clean build)"
+
 # Cleanup
 clean: down
 	podman-compose down --rmi all --volumes

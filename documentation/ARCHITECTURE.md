@@ -119,9 +119,12 @@ nemenkom/
 ├── Dockerfile
 ├── docker-compose.yml
 └── documentation/
-    ├── ARCHITECTURE.md
-    ├── HYBRID_PARSER.md
-    └── AI_COST_ANALYSIS.md
+    ├── ARCHITECTURE.md          # System architecture overview
+    ├── HYBRID_PARSER.md         # Hybrid parser implementation details
+    ├── AI-AGENT.md              # Full context for AI agents
+    ├── DECISION_SCHEDULE_GROUPS.md  # Database schema decisions
+    ├── TESTING.md               # Testing strategy and setup
+    └── AI_COST_ANALYSIS.md      # Historical: AI options analysis (we chose Groq)
 ```
 
 ## Implementation Phases

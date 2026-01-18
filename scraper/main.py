@@ -8,9 +8,9 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraper.fetcher import fetch_xlsx, DEFAULT_URL
-from scraper.validator import validate_file_and_data
-from scraper.db_writer import write_parsed_data
+from scraper.core.fetcher import fetch_xlsx, DEFAULT_URL
+from scraper.core.validator import validate_file_and_data
+from scraper.core.db_writer import write_parsed_data
 from database.init import init_database
 import tempfile
 

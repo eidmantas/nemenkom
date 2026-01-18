@@ -2,7 +2,7 @@
 Unit tests for parser router (AI parser decision logic)
 """
 import pytest
-from scraper.parser_router import should_use_ai_parser
+from scraper.ai.router import should_use_ai_parser
 
 
 class TestShouldUseAIParser:

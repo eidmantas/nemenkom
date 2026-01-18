@@ -7,6 +7,19 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <div class="top-header">
+        <div class="top-header-content">
+            <a href="https://github.com/eidmantas/nemenkom" target="_blank" rel="noopener noreferrer" class="top-header-link">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 6px;">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+                GitHub
+            </a>
+            <a href="/api-docs" class="top-header-link">
+                📖 API Documentation
+            </a>
+        </div>
+    </div>
     <div class="container">
         <header>
             <h1>Buitinių atliekų surinkimo grafikas</h1>
@@ -80,6 +93,8 @@
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', function() {
             loadVillages();
+            // Restore selections from URL
+            restoreFromURL();
         });
 
         // Normalize Lithuanian characters to ASCII for search
@@ -110,7 +125,7 @@
             try {
                 const response = await fetch('/api/v1/villages');
                 const data = await response.json();
-                allVillages = data.villages || [];
+                allVillages = data.villages || []; // Array of {seniūnija, village} objects
                 populateVillageDatalist();
             } catch (error) {
                 console.error('Error loading villages:', error);
@@ -120,9 +135,10 @@
         function populateVillageDatalist() {
             const datalist = document.getElementById('villageList');
             datalist.innerHTML = '';
-            allVillages.forEach(village => {
+            allVillages.forEach(v => {
                 const option = document.createElement('option');
-                option.value = village;
+                const displayValue = `${v.seniūnija} / ${v.village}`;
+                option.value = displayValue;
                 datalist.appendChild(option);
             });
         }
@@ -137,8 +153,13 @@
                 // Show all villages when no query
                 filtered = allVillages;
             } else {
-                // Filter by query
-                filtered = allVillages.filter(v => partialMatch(query, v));
+                // Filter by query - match either Seniūnija or Village part
+                filtered = allVillages.filter(v => {
+                    const displayText = `${v.seniūnija} / ${v.village}`;
+                    return partialMatch(query, displayText) || 
+                           partialMatch(query, v.seniūnija) || 
+                           partialMatch(query, v.village);
+                });
             }
             
             dropdown.innerHTML = '';
@@ -149,14 +170,15 @@
             }
             
             // Show all filtered results (scrollable)
-            filtered.forEach(village => {
+            filtered.forEach(v => {
                 const item = document.createElement('div');
                 item.className = 'dropdown-item';
-                item.textContent = village;
+                const displayText = `${v.seniūnija} / ${v.village}`;
+                item.textContent = displayText;
                 item.onclick = () => {
-                    input.value = village;
+                    input.value = displayText;
                     dropdown.style.display = 'none';
-                    handleVillageSelection(village);
+                    handleVillageSelection(v);
                 };
                 dropdown.appendChild(item);
             });
@@ -182,10 +204,15 @@
                 const input = document.getElementById('villageInput');
                 const query = input.value.trim();
                 if (query) {
-                    // Find first match
-                    const match = allVillages.find(v => partialMatch(query, v));
+                    // Find first match - check full string or individual parts
+                    const match = allVillages.find(v => {
+                        const displayText = `${v.seniūnija} / ${v.village}`;
+                        return partialMatch(query, displayText) || 
+                               partialMatch(query, v.seniūnija) || 
+                               partialMatch(query, v.village);
+                    });
                     if (match) {
-                        input.value = match;
+                        input.value = `${match.seniūnija} / ${match.village}`;
                         document.getElementById('villageDropdown').style.display = 'none';
                         handleVillageSelection(match);
                     }
@@ -193,9 +220,9 @@
             }
         }
 
-        async function handleVillageSelection(village) {
+        async function handleVillageSelection(villageObj) {
             // Reset state
-            currentVillage = village;
+            currentVillage = villageObj; // Store the object {seniūnija, village}
             currentStreet = '';
             currentHouseNumber = '';
             villageHasStreets = false;
@@ -210,13 +237,16 @@
             document.getElementById('houseNumberSelectGroup').style.display = 'none';
             clearCalendar();
             
-            if (!village) {
+            // Update URL
+            updateURL();
+            
+            if (!villageObj || !villageObj.seniūnija || !villageObj.village) {
                 return;
             }
             
             // Load streets for this village
             try {
-                const response = await fetch(`/api/v1/streets?village=${encodeURIComponent(village)}`);
+                const response = await fetch(`/api/v1/streets?seniūnija=${encodeURIComponent(villageObj.seniūnija)}&village=${encodeURIComponent(villageObj.village)}`);
                 const data = await response.json();
                 const streets = data.streets || [];
                 allStreets = streets;
@@ -234,14 +264,14 @@
                 if (hasWholeVillage && !hasOtherStreets) {
                     currentStreet = '';
                     document.getElementById('streetSelectGroup').style.display = 'none';
-                    loadHouseNumbers(village, '');
+                    loadHouseNumbers(villageObj, '');
                 } else if (hasOtherStreets) {
-                    // Show street select
+                    // Show street select - DON'T show "Visiems" if there are specific streets
                     document.getElementById('streetSelectGroup').style.display = '';
                 } else {
                     // No streets at all - can load schedule directly
                     document.getElementById('streetSelectGroup').style.display = 'none';
-                    loadSchedule(village, null, null);
+                    loadSchedule(villageObj, null, null);
                 }
             } catch (error) {
                 console.error('Error loading streets:', error);
@@ -251,7 +281,11 @@
         function populateStreetDatalist() {
             const datalist = document.getElementById('streetList');
             datalist.innerHTML = '';
-            allStreets.forEach(street => {
+            // Only show specific streets, NOT "Visiems" if there are specific streets
+            const streetsToShow = villageHasStreets 
+                ? allStreets.filter(s => s !== '')  // Filter out empty string if there are specific streets
+                : allStreets;  // Show all (including empty) if no specific streets
+            streetsToShow.forEach(street => {
                 const option = document.createElement('option');
                 option.value = street || 'Visiems (visas kaimas)';
                 datalist.appendChild(option);
@@ -336,6 +370,9 @@
             document.getElementById('houseNumberSelectGroup').style.display = 'none';
             clearCalendar();
             
+            // Update URL
+            updateURL();
+            
             if (!currentVillage) {
                 return;
             }
@@ -344,9 +381,9 @@
             loadHouseNumbers(currentVillage, street);
         }
 
-        async function loadHouseNumbers(village, street) {
+        async function loadHouseNumbers(villageObj, street) {
             try {
-                const response = await fetch(`/api/v1/house-numbers?village=${encodeURIComponent(village)}&street=${encodeURIComponent(street)}`);
+                const response = await fetch(`/api/v1/house-numbers?seniūnija=${encodeURIComponent(villageObj.seniūnija)}&village=${encodeURIComponent(villageObj.village)}&street=${encodeURIComponent(street)}`);
                 const data = await response.json();
                 const houseNumbers = data.house_numbers || [];
                 allHouseNumbers = houseNumbers;
@@ -361,7 +398,7 @@
                 if (!streetHasHouseNumbers) {
                     currentHouseNumber = '';
                     document.getElementById('houseNumberSelectGroup').style.display = 'none';
-                    loadSchedule(village, street, null);
+                    loadSchedule(villageObj, street, null);
                 } else {
                     // Show house number select
                     document.getElementById('houseNumberSelectGroup').style.display = '';
@@ -462,13 +499,87 @@
                 return;
             }
             
+            // Update URL
+            updateURL();
+            
             loadSchedule(currentVillage, currentStreet, houseNumber);
         }
 
-        async function loadSchedule(village, street, houseNumber) {
+        // Update URL with current selections
+        function updateURL() {
+            const params = new URLSearchParams();
+            if (currentVillage && currentVillage.seniūnija && currentVillage.village) {
+                params.set('seniūnija', currentVillage.seniūnija);
+                params.set('village', currentVillage.village);
+            }
+            if (currentStreet) {
+                params.set('street', currentStreet);
+            }
+            if (currentHouseNumber) {
+                params.set('house', currentHouseNumber);
+            }
+            
+            const newURL = params.toString() 
+                ? `${window.location.pathname}?${params.toString()}`
+                : window.location.pathname;
+            
+            // Update URL without page reload (using history API)
+            window.history.pushState({}, '', newURL);
+        }
+
+        // Restore selections from URL on page load
+        async function restoreFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            const seniūnija = params.get('seniūnija');
+            const village = params.get('village');
+            const street = params.get('street');
+            const house = params.get('house');
+            
+            if (!seniūnija || !village) {
+                return; // No URL parameters, start fresh
+            }
+            
+            // Wait for villages to load first
+            await new Promise(resolve => {
+                const checkVillages = setInterval(() => {
+                    if (allVillages.length > 0) {
+                        clearInterval(checkVillages);
+                        resolve();
+                    }
+                }, 100);
+            });
+            
+            // Find matching village object
+            const villageObj = allVillages.find(v => v.seniūnija === seniūnija && v.village === village);
+            if (villageObj) {
+                document.getElementById('villageInput').value = `${villageObj.seniūnija} / ${villageObj.village}`;
+                await handleVillageSelection(villageObj);
+                
+                // Wait a bit for streets to load
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Set street if provided
+                if (street !== null && allStreets.includes(street)) {
+                    document.getElementById('streetInput').value = street || 'Visiems (visas kaimas)';
+                    await handleStreetSelection(street);
+                    
+                    // Wait a bit for house numbers to load
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Set house number if provided
+                    if (house !== null && allHouseNumbers.includes(house)) {
+                        document.getElementById('houseNumberInput').value = house;
+                        handleHouseNumberSelection(house);
+                    }
+                }
+            }
+        }
+
+        async function loadSchedule(villageObj, street, houseNumber) {
             try {
                 const params = new URLSearchParams();
-                params.append('village', village);
+                params.append('seniūnija', villageObj.seniūnija);
+                params.append('village', villageObj.village);
                 
                 // Only include street parameter if village has streets
                 if (villageHasStreets && street !== null && street !== undefined) {
@@ -502,12 +613,12 @@
             const container = document.getElementById('selectedLocation');
             const streetDisplay = location.street || '(visas kaimas)';
             const houseDisplay = houseNumber ? ` - ${houseNumber}` : ' - Visiems';
+            // Seniūnija is already shown in the village selection, so we don't need to show it again
             const displayName = `${location.village} - ${streetDisplay}${houseDisplay}`;
             
             container.innerHTML = `
                 <h3>${displayName}</h3>
                 <p class="date-count">Surinkimo dienų: ${location.dates.length}</p>
-                ${location.seniūnija ? `<p><small>${location.seniūnija}</small></p>` : ''}
             `;
         }
 

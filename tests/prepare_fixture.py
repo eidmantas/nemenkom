@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraper.fetcher import fetch_xlsx, DEFAULT_URL
+from scraper.core.fetcher import fetch_xlsx, DEFAULT_URL
 from openpyxl import load_workbook, Workbook
 
 def prepare_fixture(num_rows=100):

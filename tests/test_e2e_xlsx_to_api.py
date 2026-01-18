@@ -15,8 +15,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraper.validator import validate_file_and_data
-from scraper.db_writer import write_location_schedule
+from scraper.core.validator import validate_file_and_data
+from scraper.core.db_writer import write_location_schedule
 from api.db import get_location_schedule, search_locations
 import sqlite3
 import tempfile
@@ -95,8 +95,8 @@ def test_xlsx_to_api_end_to_end(sample_xlsx_path, test_db):
     conn = sqlite3.connect(test_db)
     
     # Write data using db_writer
-    from scraper.db_writer import write_location_schedule
-    from scraper.db_writer import generate_kaimai_hash, find_or_create_schedule_group
+    from scraper.core.db_writer import write_location_schedule
+    from scraper.core.db_writer import generate_kaimai_hash, find_or_create_schedule_group
     
     locations_written = 0
     for item in parsed_data:
