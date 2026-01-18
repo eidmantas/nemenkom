@@ -236,9 +236,8 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
     
     print(f"Found {len(df)} rows, {len(month_columns)} month columns")
     
-    # Import parser_router for simple_subset filtering
-    if simple_subset:
-        from scraper.parser_router import should_use_ai_parser
+    # Import parser_router for simple_subset filtering and AI parsing
+    from scraper.ai.router import should_use_ai_parser
     
     results = []
     current_seniūnija = None  # Track current county (handles merged cells)
@@ -271,7 +270,20 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
                 skipped_count += 1
                 continue
         
-        parsed_items = parse_village_and_streets(kaimai_str)
+        # Route to appropriate parser
+        if should_use_ai_parser(kaimai_str):
+            # Use AI parser for complex cases
+            try:
+                from scraper.ai.parser import parse_with_ai
+                parsed_items = parse_with_ai(kaimai_str)
+            except Exception as e:
+                # Fallback to traditional parser if AI fails
+                print(f"⚠️  AI parser failed for '{kaimai_str[:50]}...': {e}")
+                print(f"   Falling back to traditional parser")
+                parsed_items = parse_village_and_streets(kaimai_str)
+        else:
+            # Use traditional parser for simple cases
+            parsed_items = parse_village_and_streets(kaimai_str)
         if not parsed_items:
             continue
         
@@ -327,7 +339,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
 
 if __name__ == '__main__':
     # Test parser
-    from scraper.fetcher import fetch_xlsx
+    from scraper.core.fetcher import fetch_xlsx
     file_path = fetch_xlsx()
     results = parse_xlsx(file_path)
     print(f"\nSample results (first 5):")

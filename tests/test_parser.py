@@ -3,12 +3,12 @@ Unit tests for parser functions
 """
 import pytest
 from datetime import date
-from scraper.parser import (
+from scraper.core.parser import (
     parse_village_and_streets,
     parse_street_with_house_numbers,
     extract_dates_from_cell
 )
-from scraper.parser_router import should_use_ai_parser
+from scraper.ai.router import should_use_ai_parser
 
 
 class TestParseVillageAndStreets:

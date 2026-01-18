@@ -11,13 +11,27 @@ This document contains the full context of the project for AI agents to continue
 ### ✅ Completed
 - **Database Schema**: Hash-based `schedule_groups` with JSON dates, `locations` with `kaimai_hash`
 - **Traditional Parser**: Handles simple village/street patterns
-- **Parser Router**: Logic to decide between traditional and AI parsing
-- **API**: Flask REST API with endpoints for locations and schedules
-- **Web Interface**: Basic HTML/JS interface for viewing schedules
-- **Database**: SQLite with 900 locations, 10 schedule groups (simple subset only)
+- **AI Parser**: Groq LLM integration for complex "Kaimai" patterns (✅ Complete)
+  - Automatic routing via `should_use_ai_parser()`
+  - Caching for efficiency (SQLite-based)
+  - Rate limiting (conservative: 15 RPM, 14.4k RPD - 50% of free tier)
+  - Model: `llama-3.3-70b-versatile` (higher quality for better parsing)
+  - House number normalization: Compact format (removes spaces, normalizes ranges)
+  - Validation: Rejects invalid formats (single letters like "m")
+  - Validation and error handling
+  - Returns same format as traditional parser for seamless integration
+- **Parser Router**: Logic to decide between traditional and AI parsing (detects streets without parentheses)
+- **API**: Flask REST API with endpoints for locations and schedules, smart validation (requires street/house_numbers when they exist)
+  - Returns villages as `{"seniūnija": "...", "village": "..."}` objects (handles duplicate village names)
+  - All endpoints require `seniūnija` parameter for proper disambiguation
+- **Web Interface**: Searchable dropdowns with Lithuanian character normalization, cascading selection (Seniūnija/Village → Street → House Number)
+  - Displays "Seniūnija / Village" format in UI
+  - Search matches both parts separately
+  - "Visiems (visas kaimas)" only shows when appropriate (not when specific streets exist)
+- **Database**: SQLite with 4,635 locations, 10 schedule groups (full dataset with AI parsing)
+- **Testing**: Comprehensive test suite (56 tests) covering parser, router, AI parser, API endpoints, and E2E flows
 
 ### 🚧 In Progress / Next Steps
-- **AI Parser**: Groq LLM integration for complex "Kaimai" patterns
 - **Google Calendar Integration**: Generate calendar events per schedule group
 - **Multi-Waste-Type Support**: Handle plastic, glass waste types (separate XLSX files)
 
@@ -120,16 +134,18 @@ The "Kaimai" column in the XLSX is **highly inconsistent** - human-written with 
 - Handles simple patterns
 - `--simple-subset` flag for testing
 
-### Phase 2: AI Parser (Next)
-- **Groq API** integration (`scraper/ai_parser.py`)
-- **Rate Limiting**: 30 RPM, 14,400 RPD (free tier)
-- **Batching**: Group complex entries, process in batches
+### Phase 2: AI Parser ✅
+- **Groq API** integration (`scraper/ai/parser.py`)
+- **Rate Limiting**: 30 RPM, 14,400 RPD (free tier) - implemented
+- **Caching**: SQLite-based cache to avoid re-parsing identical strings
 - **Error Handling**: Fallback to traditional parser if AI fails
+- **Validation**: Full output validation before caching
+- **Integration**: Automatically routed in `parser.py` via `should_use_ai_parser()`
 
-### Phase 3: Full Integration
-- Update `parser.py` to use router → AI parser
-- Test with full dataset
-- Deploy
+### Phase 3: Full Integration ✅
+- `parser.py` automatically uses router → AI parser
+- Ready for full dataset processing (remove `--simple-subset` flag)
+- Tested with real complex Kaimai strings
 
 ## API Endpoints
 
@@ -196,11 +212,12 @@ curl "http://localhost:3333/api/v1/schedule?location_id=1"
 
 ## Next Steps
 
-1. **Implement AI Parser** (`scraper/ai_parser.py`)
-   - Groq API client
+1. **AI Parser** ✅ **COMPLETE**
+   - Groq API client implemented
    - Prompt engineering for Lithuanian location parsing
-   - Rate limiting and batching
-   - Error handling
+   - Rate limiting and caching implemented
+   - Error handling with fallback to traditional parser
+   - Full test coverage (15 tests)
 
 2. **Google Calendar Integration**
    - Use existing `google_calendar.py` (needs refactoring)

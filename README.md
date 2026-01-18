@@ -69,7 +69,7 @@ python database/init.py
 # Simple subset only (traditional parser, no AI needed)
 python scraper/main.py --simple-subset
 
-# Full parsing (when AI parser is implemented)
+# Full parsing (traditional + AI parser) - processes all entries
 python scraper/main.py
 ```
 
@@ -110,27 +110,33 @@ curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=ben
 ```
 ┌─────────────────────────────────────────┐
 │  Buitinių atliekų surinkimo grafikas    │
-│  [Search: Ieškoti gatvės ar kaimo...]  │
+│  Cascading Selection + Calendar View     │
 ├──────────────────┬──────────────────────┤
-│  Gatvės ir kaimai │   Kalendorius        │
-│  (Left Panel)     │   (Right Panel)      │
+│  Selection UI     │   Kalendorius        │
+│  (Left Panel)    │   (Right Panel)      │
 │                   │                      │
-│  • Aleksandravas  │   [Selected Location]│
-│  • Aukštadvaris   │   [Calendar View]    │
-│  • ...            │   [Pickup Dates]     │
+│  [Village Search] │   [Selected Location]│
+│  [Street Search]  │   [Calendar View]    │
+│  [House # Search]│   [Pickup Dates]     │
 └──────────────────┴──────────────────────┘
 ```
 
 ### Features
-- **Search**: Filter locations by village/street name
-- **Location List**: Click to select and view schedule
+- **Searchable Dropdowns**: Type to search villages, streets, and house numbers
+  - Partial matching: Type "Riese" to find "Riešė"
+  - Lithuanian character normalization: Works with or without Lithuanian letters (š, ž, ą, etc.)
+  - Scrollable lists: Browse all options when focused
+  - Keyboard support: Enter to select first match
+- **Cascading Selection**: Village → Street → House Number
+  - Auto-populating: Select village → streets filter → house numbers filter
+  - Smart validation: Requires street/house numbers only when they exist
+  - "Visiems" (All) option when no specific house numbers exist
 - **Calendar View**: Displays pickup dates for selected location
 - **Responsive**: Basic responsive design (mobile improvements planned)
 
 ### Future Enhancements
 - Google Calendar export button
 - Multi-waste-type selection (general, plastic, glass)
-- Address input with autocomplete
 - Improved mobile UI
 
 ## Project Structure
@@ -168,11 +174,14 @@ See `database/schema.sql` for full schema.
 
 ## Next Steps
 
-### 1. Implement AI Parser (Groq)
-- Create `scraper/ai_parser.py`
-- Integrate Groq API for complex "Kaimai" patterns
-- Add rate limiting (30 RPM, 14,400 RPD free tier)
-- Update `parser.py` to use AI parser via router
+### 1. Implement AI Parser (Groq) ✅ **COMPLETE**
+- ✅ Created `scraper/ai/parser.py` with Groq API integration
+- ✅ Integrates Groq API for complex "Kaimai" patterns
+- ✅ Rate limiting (`scraper/ai/rate_limiter.py`) - respects 30 RPM, 14,400 RPD free tier
+- ✅ Caching (`scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
+- ✅ Full validation and error handling
+- ✅ Updated `parser.py` to use AI parser via router
+- ✅ Test coverage: 15 tests
 
 ### 2. Add Scraper Service to Docker Compose ✅
 - ✅ Separate service with dedicated Dockerfile.scraper
@@ -189,7 +198,16 @@ See `database/schema.sql` for full schema.
 - Update parser to accept `waste_type` parameter
 - Update API to filter by waste type
 
-### 5. Testing & Deployment
+### 5. Enhanced Web Interface (House Numbers Support)
+- **Cascading Selection**: Village → Street → House Number
+  - Step 1: Select City/Village (dropdown)
+  - Step 2: Select Street (filtered by selected village, auto-populated)
+  - Step 3: Select House Number (filtered by selected street, auto-populated)
+  - Show "Visiems" (All) option when no specific house numbers exist
+- Update API to support filtering by house numbers
+- Update database queries to handle house number filtering
+
+### 6. Testing & Deployment
 - Test AI parser with full dataset
 - Verify date accuracy across all locations
 - Production deployment
@@ -197,10 +215,11 @@ See `database/schema.sql` for full schema.
 ## Documentation
 
 - **`documentation/ARCHITECTURE.md`** - System architecture and design
-- **`documentation/HYBRID_PARSER.md`** - Parser implementation details
-- **`documentation/AI_COST_ANALYSIS.md`** - AI options cost analysis
+- **`documentation/HYBRID_PARSER.md`** - Hybrid parser implementation (traditional + AI)
+- **`documentation/AI-AGENT.md`** - Full context for AI agents (for continuation)
 - **`documentation/DECISION_SCHEDULE_GROUPS.md`** - Database schema decisions
-- **`documentation/AI-AGENT.md`** - Full context for AI agents
+- **`documentation/TESTING.md`** - Testing strategy and setup
+- **`documentation/AI_COST_ANALYSIS.md`** - Historical: AI options analysis (we chose Groq)
 
 ## Development Notes
 
@@ -208,13 +227,20 @@ See `database/schema.sql` for full schema.
 - ✅ Database schema implemented (hash-based IDs, JSON dates)
 - ✅ Traditional parser working (simple patterns)
 - ✅ Parser router implemented
+- ✅ AI parser implemented (Groq LLM integration)
+  - Automatic routing for complex patterns
+  - Caching and rate limiting
+  - Full validation and error handling
 - ✅ API and web interface functional
-- 🚧 AI parser (next step)
+- ✅ Seniūnija support: API returns separate seniūnija/village keys, handles duplicate village names
+- ✅ House number normalization: Compact format (spaces removed, ranges normalized)
 - 🚧 Google Calendar integration
 - 🚧 Multi-waste-type support
 
 ### Testing
-- Use `--simple-subset` flag to test traditional parser only
+- Comprehensive test suite: 56 tests (parser, router, AI parser, API, E2E)
+- Use `--simple-subset` flag to test traditional parser only (skips AI-needed entries)
+- Without flag: Full hybrid parsing (traditional + AI parser)
 - Database currently has 900 locations, 10 schedule groups (simple subset)
 - Verify dates match XLSX source data
 

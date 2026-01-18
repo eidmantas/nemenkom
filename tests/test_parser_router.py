@@ -2,7 +2,7 @@
 Unit tests for parser router (AI parser decision logic)
 """
 import pytest
-from scraper.parser_router import should_use_ai_parser
+from scraper.ai.router import should_use_ai_parser
 
 
 class TestShouldUseAIParser:
@@ -43,3 +43,12 @@ class TestShouldUseAIParser:
         """Streets outside parentheses SHOULD use AI"""
         # Example: "Bendoriai (streets) Žalumos g."
         assert should_use_ai_parser("Bendoriai (Ilgoji g.) Žalumos g.") == True
+    
+    def test_streets_without_parens_use_ai(self):
+        """Streets without parentheses (directly after village) SHOULD use AI"""
+        # Real case from CSV line 56: "Bezdonys Pakalnės g., Draugystės g."
+        assert should_use_ai_parser("Bezdonys Pakalnės g., Draugystės g.") == True
+        # Should NOT match simple village
+        assert should_use_ai_parser("Bezdonys") == False
+        # Should NOT match village with streets in parentheses
+        assert should_use_ai_parser("Bezdonys (Pakalnės g., Draugystės g.)") == False

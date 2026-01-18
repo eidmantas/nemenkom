@@ -118,16 +118,21 @@ The function checks for:
 - Support for roads (kelias, kel.)
 - Support for alleys (al.), squares (pl.), etc.
 
-### 2. Create AI Parser Module (`scraper/ai_parser.py`)
+### 2. Create AI Parser Module ✅ **COMPLETE**
 
-**New file**: `scraper/ai_parser.py`
+**File**: `scraper/ai/parser.py`
+
+**Status**: ✅ Implemented and tested
 
 **Functionality**:
-- Connect to Groq API
-- Send location string with structured prompt
-- Parse JSON response into location structure
-- Handle rate limiting (30 RPM)
-- Error handling and retries
+- ✅ Connect to Groq API (using `groq` library)
+- ✅ Send location string with structured prompt
+- ✅ Parse JSON response into location structure
+- ✅ Handle rate limiting (30 RPM, 14.4k RPD via `scraper/ai/rate_limiter.py`)
+- ✅ Caching (SQLite-based via `scraper/ai/cache.py`)
+- ✅ Error handling with fallback to traditional parser
+- ✅ Full validation of AI output before caching
+- ✅ Returns same format as traditional parser: `List[Tuple[str, Optional[str]]]`
 
 **Prompt structure**:
 ```python

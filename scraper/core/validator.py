@@ -4,7 +4,7 @@ Validator module - Validates xlsx structure and parsed data
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Tuple
-from scraper.parser import parse_xlsx, MONTH_MAPPING
+from scraper.core.parser import parse_xlsx, MONTH_MAPPING
 
 def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
     """
