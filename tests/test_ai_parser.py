@@ -1,10 +1,14 @@
 """
 Unit tests for AI parser (Groq integration)
-Tests use mocked Groq responses to avoid API calls
+
+Unit tests use mocked Groq responses to avoid API calls.
+Integration tests (marked with @pytest.mark.ai_integration) call the real Groq API
+and use tokens. They can run without a pre-existing database - the cache will
+create the database automatically if needed. Tests run "on the fly" - they call
+the AI parser directly and don't require pre-populated database data.
 """
 import pytest
-import json
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
 from scraper.ai.parser import (
     parse_with_ai,
     validate_ai_output,
@@ -12,7 +16,6 @@ from scraper.ai.parser import (
     create_parsing_prompt,
     normalize_house_numbers
 )
-from scraper.ai.cache import get_cache
 
 
 class TestAIParserValidation:
@@ -27,7 +30,7 @@ class TestAIParserValidation:
                 {"street": "Sudervės g.", "house_numbers": "26, 28"}
             ]
         }
-        is_valid, error = validate_ai_output(valid_json, "test")
+        is_valid, error = validate_ai_output(valid_json)
         assert is_valid == True
         assert error is None
     
@@ -36,7 +39,7 @@ class TestAIParserValidation:
         invalid_json = {
             "streets": [{"street": "Braškių g.", "house_numbers": None}]
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "village" in error.lower()
     
@@ -46,7 +49,7 @@ class TestAIParserValidation:
             "village": "",
             "streets": []
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "village" in error.lower()
     
@@ -58,7 +61,7 @@ class TestAIParserValidation:
                 {"street": "Vėtrungės g.", "house_numbers": "m"}
             ]
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "house_numbers" in error.lower()
         assert "invalid" in error.lower()
@@ -68,7 +71,7 @@ class TestAIParserValidation:
         invalid_json = {
             "village": "Pikutiškės"
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "streets" in error.lower()
     
@@ -78,7 +81,7 @@ class TestAIParserValidation:
             "village": "Pikutiškės",
             "streets": "not a list"
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "list" in error.lower()
     
@@ -90,7 +93,7 @@ class TestAIParserValidation:
                 {"house_numbers": None}  # Missing street name
             ]
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "street" in error.lower()
     
@@ -102,7 +105,7 @@ class TestAIParserValidation:
                 {"street": "Braškių g.", "house_numbers": 123}  # Should be string or null
             ]
         }
-        is_valid, error = validate_ai_output(invalid_json, "test")
+        is_valid, error = validate_ai_output(invalid_json)
         assert is_valid == False
         assert "house_numbers" in error.lower()
 
@@ -244,3 +247,182 @@ class TestNormalizeHouseNumbers:
         """Test handling None"""
         assert normalize_house_numbers(None) is None
         assert normalize_house_numbers("") is None
+    
+    def test_normalize_combined_ranges(self):
+        """Test normalizing combined ranges (multiple ranges)"""
+        # Two ranges separated by comma
+        assert normalize_house_numbers("nuo Nr. 2 iki 20A, nuo 1 iki 19") == "2-20A,1-19"
+        assert normalize_house_numbers("nuo Nr.1 iki 31A, nuo 2 iki 14B") == "1-31A,2-14B"
+        # Three ranges
+        assert normalize_house_numbers("nuo 1 iki 5, nuo 10 iki 15, nuo 20 iki 25") == "1-5,10-15,20-25"
+    
+    def test_normalize_complex_ranges(self):
+        """Test normalizing complex ranges (start value with comma)"""
+        # Complex range: "nuo Nr.103, 103A iki 119" → "103,103A-119"
+        assert normalize_house_numbers("nuo Nr.103, 103A iki 119") == "103,103A-119"
+        assert normalize_house_numbers("nuo 10, 10A iki 20") == "10,10A-20"
+    
+    def test_normalize_already_normalized(self):
+        """Test that already normalized values are returned as-is"""
+        assert normalize_house_numbers("26,28") == "26,28"
+        assert normalize_house_numbers("18-18U") == "18-18U"
+        assert normalize_house_numbers("≥107") == "≥107"
+        assert normalize_house_numbers("≤5") == "≤5"
+        assert normalize_house_numbers("2-20A,1-19") == "2-20A,1-19"
+
+
+class TestAIParserIntegration:
+    """Integration tests that actually call the AI parser (uses tokens)
+    
+    Run with: pytest --use-ai-tokens tests/test_ai_parser.py::TestAIParserIntegration
+    
+    These tests use a temporary cache database to ensure fresh API calls
+    and test the current code, not cached results.
+    """
+    
+    @pytest.mark.ai_integration
+    def test_trailing_comma_pattern_vanagines(self, request, temp_cache_db):
+        """Test trailing comma pattern: Svajonės g., Vanaginės g., (numbers)"""
+        if not request.config.getoption("--use-ai-tokens", default=False):
+            pytest.skip("Skipping - use --use-ai-tokens to run this test")
+        
+        # Use temporary cache DB to ensure fresh API calls
+        with patch('scraper.ai.parser.get_cache') as mock_get_cache:
+            from scraper.ai.cache import AIParserCache
+            mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
+            
+            test_case = "Didžioji Riešė (Ąžuolų g., Gegužinės g., Kampinė g.,  Kiparisų g., Lelijų g., Merkurijaus g., Miglės g., Molėtų g.,(nuo Nr. 40 iki 48), Paukščių Tako g., Saturno g., Senoji g., Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A, nuo 2 iki 14B), Veneros g.(nuo Nr. 7))"
+            
+            result = parse_with_ai(test_case)
+        
+        # Convert to dict for easier checking
+        streets_dict = {item[0]: item[1] for item in result if item[0]}
+        
+        # Svajonės g. should have NO house numbers (not immediately before parentheses)
+        assert streets_dict.get("Svajonės g.") is None, "Svajonės g. should have NO house numbers"
+        
+        # Vanaginės g. should have the house numbers (immediately before parentheses)
+        assert streets_dict.get("Vanaginės g.") == "1-31A,2-14B", f"Vanaginės g. should have '1-31A,2-14B', got: {streets_dict.get('Vanaginės g.')}"
+        
+        # Molėtų g. should have its own numbers (before its own parentheses)
+        assert streets_dict.get("Molėtų g.") == "40-48", "Molėtų g. should have '40-48'"
+        
+        # Veneros g. should have its own numbers ("nuo Nr. 7" means from 7 onwards)
+        assert streets_dict.get("Veneros g.") == "≥7", "Veneros g. should have '≥7' (from 7 onwards)"
+    
+    @pytest.mark.ai_integration
+    def test_trailing_comma_bug_case_akmenu_lauko(self, request, temp_cache_db):
+        """Test bug case: Akmenų g., Lauko g.,(numbers) - only Lauko should get numbers"""
+        if not request.config.getoption("--use-ai-tokens", default=False):
+            pytest.skip("Skipping - use --use-ai-tokens to run this test")
+        
+        # Use temporary cache DB to ensure fresh API calls
+        with patch('scraper.ai.parser.get_cache') as mock_get_cache:
+            from scraper.ai.cache import AIParserCache
+            mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
+            
+            test_case = "Didžioji Riešė (Akmenų g., Lauko g.,(nuo Nr. 2 iki 20A, nuo 1 iki 19), Lygumų g., Mėtų g., Molėtų g., Molėtų pl. (114, 114A,114B), Parko g., Pavasario g., Samanų g., Snieguolių g., Šiaurinės g., Veneros g. (iki Nr.5), Vanaginės Sodų g., Vanaginės g. (nuo 33A iki 101),"
+            
+            result = parse_with_ai(test_case)
+        
+        # Convert to dict for easier checking
+        streets_dict = {item[0]: item[1] for item in result if item[0]}
+        
+        # Akmenų g. should have NO house numbers (not immediately before parentheses)
+        assert streets_dict.get("Akmenų g.") is None, f"Akmenų g. should have NO house numbers, got: {streets_dict.get('Akmenų g.')}"
+        
+        # Lauko g. should have the house numbers (immediately before parentheses)
+        assert streets_dict.get("Lauko g.") == "2-20A,1-19", f"Lauko g. should have '2-20A,1-19', got: {streets_dict.get('Lauko g.')}"
+    
+    @pytest.mark.ai_integration
+    def test_complex_patterns_line_462(self, request, temp_cache_db):
+        """Test complex case with multiple patterns: parentheses, no parentheses, trailing comma"""
+        if not request.config.getoption("--use-ai-tokens", default=False):
+            pytest.skip("Skipping - use --use-ai-tokens to run this test")
+        
+        # Use temporary cache DB to ensure fresh API calls
+        with patch('scraper.ai.parser.get_cache') as mock_get_cache:
+            from scraper.ai.cache import AIParserCache
+            mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
+            
+            test_case = "Didžioji Riešė (Alyvų g., Ateities g., Kooperatyvų g., Mokyklos g., Molėtų g., Kaštonų g. ( nuo Nr. 1 iki 9 ), Parko g. 2 ,4, 4A, 6, 8 ), Riešės g., Rožių g., Rūtų g., Žalioji g.,( Nr. 19, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 50, 54, 56, 58, 60),  Žvėrališkių g.)"
+            
+            result = parse_with_ai(test_case)
+        
+        # Convert to dict for easier checking
+        streets_dict = {item[0]: item[1] for item in result if item[0]}
+        
+        # Pattern 1: Numbers in parentheses - Kaštonų g.
+        assert streets_dict.get("Kaštonų g.") == "1-9", "Kaštonų g. should have numbers from parentheses"
+        
+        # Pattern 2: Numbers without parentheses - Parko g.
+        assert streets_dict.get("Parko g.") == "2,4,4A,6,8", "Parko g. should have numbers without parentheses"
+        
+        # Pattern 3: Trailing comma pattern - Žalioji g.
+        assert streets_dict.get("Žalioji g.") == "19,23,25,27,29,31,33,35,37,39,41,43,50,54,56,58,60", "Žalioji g. should have numbers from trailing comma pattern"
+        
+        # Streets without numbers should be null
+        assert streets_dict.get("Alyvų g.") is None, "Alyvų g. should have no house numbers"
+        assert streets_dict.get("Riešės g.") is None, "Riešės g. should have no house numbers"
+    
+    @pytest.mark.ai_integration
+    def test_vanagines_another_case_line_464(self, request, temp_cache_db):
+        """Test another Vanaginės g. case with complex ranges"""
+        if not request.config.getoption("--use-ai-tokens", default=False):
+            pytest.skip("Skipping - use --use-ai-tokens to run this test")
+        
+        # Use temporary cache DB to ensure fresh API calls
+        with patch('scraper.ai.parser.get_cache') as mock_get_cache:
+            from scraper.ai.cache import AIParserCache
+            mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
+            
+            test_case = "Didžioji Riešė (Gėlyno g., Indrajos g., Kaštonų g., (nuo Nr. 10), Lauko g.,  Molėtų g. (nuo Nr. 32A iki 20, 20A, 22 ) Parko g.,(nuo Nr.40 iki 65),  Rasų g., Raudonikių g., Vakarų g., Vanaginės g.,(nuo Nr.103, 103A iki 119, nuo 68,68A,68B iki 80), Verbų g., Vieversių g., Žalioji g., ( nuo Nr. 1 iki Nr. 48 ), Žemoji g., Riešės k., Smilčių g."
+            
+            result = parse_with_ai(test_case)
+        
+        # Convert to dict for easier checking
+        streets_dict = {item[0]: item[1] for item in result if item[0]}
+        
+        # Vanaginės g. should have complex range numbers (trailing comma pattern)
+        expected_vanagines = "103,103A-119,68,68A,68B-80"
+        assert streets_dict.get("Vanaginės g.") == expected_vanagines, f"Vanaginės g. should have '{expected_vanagines}', got: {streets_dict.get('Vanaginės g.')}"
+        
+        # Žalioji g. should have numbers (space before parentheses)
+        assert streets_dict.get("Žalioji g.") == "1-48", f"Žalioji g. should have '1-48', got: {streets_dict.get('Žalioji g.')}"
+        
+        # Parko g. should have numbers (comma before parentheses)
+        assert streets_dict.get("Parko g.") == "40-65", f"Parko g. should have '40-65', got: {streets_dict.get('Parko g.')}"
+    
+    @pytest.mark.ai_integration
+    def test_zalioji_street_patterns(self, request, temp_cache_db):
+        """Test Žalioji g. street with both list and range patterns (trailing comma)"""
+        if not request.config.getoption("--use-ai-tokens", default=False):
+            pytest.skip("Skipping - use --use-ai-tokens to run this test")
+        
+        # Use temporary cache DB to ensure fresh API calls
+        with patch('scraper.ai.parser.get_cache') as mock_get_cache:
+            from scraper.ai.cache import AIParserCache
+            mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
+            
+            # Test case 1: Žalioji g. with list of numbers (line 462)
+            test_case_1 = "Didžioji Riešė (Alyvų g., Ateities g., Kooperatyvų g., Mokyklos g., Molėtų g., Kaštonų g. ( nuo Nr. 1 iki 9 ), Parko g. 2 ,4, 4A, 6, 8 ), Riešės g., Rožių g., Rūtų g., Žalioji g.,( Nr. 19, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 50, 54, 56, 58, 60),  Žvėrališkių g.)"
+            
+            result_1 = parse_with_ai(test_case_1)
+            streets_dict_1 = {item[0]: item[1] for item in result_1 if item[0]}
+            
+            # Žalioji g. should have list of numbers (trailing comma pattern)
+            expected_list = "19,23,25,27,29,31,33,35,37,39,41,43,50,54,56,58,60"
+            assert streets_dict_1.get("Žalioji g.") == expected_list, f"Žalioji g. should have '{expected_list}', got: {streets_dict_1.get('Žalioji g.')}"
+            
+            # Test case 2: Žalioji g. with range (line 464)
+            test_case_2 = "Didžioji Riešė (Gėlyno g., Indrajos g., Kaštonų g., (nuo Nr. 10), Lauko g.,  Molėtų g. (nuo Nr. 32A iki 20, 20A, 22 ) Parko g.,(nuo Nr.40 iki 65),  Rasų g., Raudonikių g., Vakarų g., Vanaginės g.,(nuo Nr.103, 103A iki 119, nuo 68,68A,68B iki 80), Verbų g., Vieversių g., Žalioji g., ( nuo Nr. 1 iki Nr. 48 ), Žemoji g., Riešės k., Smilčių g.)"
+            
+            result_2 = parse_with_ai(test_case_2)
+            streets_dict_2 = {item[0]: item[1] for item in result_2 if item[0]}
+            
+            # Žalioji g. should have range (space before parentheses)
+            assert streets_dict_2.get("Žalioji g.") == "1-48", f"Žalioji g. should have '1-48', got: {streets_dict_2.get('Žalioji g.')}"
+            
+            # Verify other streets in case 2 are correct
+            assert streets_dict_2.get("Vanaginės g.") == "103,103A-119,68,68A,68B-80", "Vanaginės g. should have complex range"
+            assert streets_dict_2.get("Parko g.") == "40-65", "Parko g. should have range"

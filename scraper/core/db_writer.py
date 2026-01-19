@@ -2,7 +2,6 @@
 Database writer module - Writes validated data to SQLite
 """
 import sqlite3
-from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, date
 import json
@@ -100,7 +99,7 @@ def write_location_schedule(conn: sqlite3.Connection, seniūnija: str, village: 
     kaimai_hash = generate_kaimai_hash(kaimai_str)
     
     # Find or create schedule group (updates kaimai_hashes)
-    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
     
     # Normalize house_numbers (None -> NULL in DB)
     house_nums_str = house_numbers if house_numbers else None
@@ -162,7 +161,7 @@ def write_parsed_data(parsed_data: List[Dict], source_url: str, validation_error
         True if successful, False otherwise
     """
     conn = get_db_connection()
-    cursor = conn.cursor()
+    conn.cursor()
     
     try:
         # Start transaction
@@ -170,7 +169,7 @@ def write_parsed_data(parsed_data: List[Dict], source_url: str, validation_error
         
         # Log fetch
         status = 'success' if not validation_errors else 'validation_error'
-        fetch_id = log_fetch(conn, source_url, status, validation_errors)
+        log_fetch(conn, source_url, status, validation_errors)
         
         if validation_errors:
             conn.commit()

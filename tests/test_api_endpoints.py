@@ -12,10 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.db import (
     get_all_locations, get_location_schedule, search_locations,
-    village_has_streets, street_has_house_numbers, get_location_by_selection
+    village_has_streets, street_has_house_numbers
 )
 from scraper.core.db_writer import write_location_schedule
-from database.init import get_db_connection
 
 
 @pytest.fixture
@@ -241,7 +240,6 @@ def test_api_schedule_village_without_streets(test_db_with_village_and_streets):
     
     # Mock get_db_connection
     import api.db as api_db_module
-    import api.app as app_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():

@@ -1,7 +1,6 @@
 """
 Unit tests for parser functions
 """
-import pytest
 from datetime import date
 from scraper.core.parser import (
     parse_village_and_streets,

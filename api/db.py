@@ -2,7 +2,6 @@
 Database query functions for API
 Updated for new schema: hash-based schedule_groups, dates in JSON, no pickup_dates table
 """
-import sqlite3
 import json
 from typing import List, Dict, Optional
 from database.init import get_db_connection

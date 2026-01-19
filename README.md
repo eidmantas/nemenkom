@@ -26,7 +26,7 @@ make down    # Stop services
 make restart # Restart services
 make build   # Build images
 make clean   # Stop and remove everything
-make test    # Run tests locally
+make test    # Run tests (automatically uses venv)
 ```
 
 **Or directly with podman-compose:**
@@ -54,12 +54,11 @@ The database is stored in `./database/` and persists between restarts. The scrap
 ### Option 2: Manual Setup
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create virtual environment and install dependencies
+make venv-install  # Or: python3 -m venv venv && venv/bin/pip install -r requirements.txt
 
-# Install dependencies
-pip install -r requirements.txt
+# Activate venv (optional - make commands use venv automatically)
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Initialize database
 python database/init.py
@@ -179,11 +178,11 @@ See `database/schema.sql` for full schema.
 ### 1. Implement AI Parser (Groq) ✅ **COMPLETE**
 - ✅ Created `scraper/ai/parser.py` with Groq API integration
 - ✅ Integrates Groq API for complex "Kaimai" patterns
-- ✅ Rate limiting (`scraper/ai/rate_limiter.py`) - respects 30 RPM, 14,400 RPD free tier
+- ✅ Rate limiting (`scraper/ai/rate_limiter.py`) - respects 15 RPM, 14,400 RPD free tier
 - ✅ Caching (`scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
 - ✅ Full validation and error handling
 - ✅ Updated `parser.py` to use AI parser via router
-- ✅ Test coverage: 15 tests
+- ✅ Test coverage: 59 tests (including 5 AI integration tests with real API calls)
 
 ### 2. Add Scraper Service to Docker Compose ✅
 - ✅ Separate service with dedicated Dockerfile.scraper
@@ -240,7 +239,11 @@ See `database/schema.sql` for full schema.
 - 🚧 Multi-waste-type support
 
 ### Testing
-- Comprehensive test suite: 56 tests (parser, router, AI parser, API, E2E)
+- Comprehensive test suite: 59 tests (parser, router, AI parser, API, E2E)
+  - 54 regular tests (`make test`) - unit, integration, E2E tests (no AI tokens used)
+  - 5 AI integration tests (`make test-ai`) - make real Groq API calls, test current code
+  - **Note:** `make test` skips AI integration tests by default (they require `--use-ai-tokens` flag)
+  - All tests automatically use venv (no manual activation needed)
 - Use `--simple-subset` flag to test traditional parser only (skips AI-needed entries)
 - Without flag: Full hybrid parsing (traditional + AI parser)
 - Database currently has 900 locations, 10 schedule groups (simple subset)

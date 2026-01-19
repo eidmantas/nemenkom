@@ -1,13 +1,14 @@
-.PHONY: help test test-verbose test-coverage up down restart build clean prepare-fixture db-reset venv venv-install
+.PHONY: help test test-verbose test-coverage test-ai up down restart build clean prepare-fixture db-reset venv-activate venv-install
 
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make venv          - Activate virtual environment (opens shell)"
+	@echo "  make venv-activate - Activate virtual environment (opens shell)"
 	@echo "  make venv-install  - Create venv and install dependencies"
-	@echo "  make test          - Run all tests"
-	@echo "  make test-verbose  - Run tests with verbose output"
-	@echo "  make test-coverage - Run tests with coverage report"
+	@echo "  make test          - Run all tests (uses venv automatically, skips AI integration tests)"
+	@echo "  make test-verbose  - Run tests with verbose output (skips AI integration tests)"
+	@echo "  make test-coverage - Run tests with coverage report (skips AI integration tests)"
+	@echo "  make test-ai       - Run AI integration tests ONLY (uses real Groq tokens)"
 	@echo "  make prepare-fixture - Regenerate test fixture from real XLSX"
 	@echo "  make up            - Start services (podman-compose up)"
 	@echo "  make down          - Stop services"
@@ -17,7 +18,7 @@ help:
 	@echo "  make db-reset      - Delete database file (requires services down)"
 
 # Virtual Environment
-venv:
+venv-activate:
 	@if [ ! -d "venv" ]; then \
 		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
 		exit 1; \
@@ -31,18 +32,41 @@ venv-install:
 	@echo "✅ Virtual environment created and dependencies installed"
 	@echo "   Activate with: source venv/bin/activate"
 
-# Testing
+# Testing (automatically uses venv if available)
 test:
-	pytest tests/ -v
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/pytest tests/ -v
 
 test-verbose:
-	pytest tests/ -vv
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/pytest tests/ -vv
 
 test-coverage:
-	pytest tests/ --cov=scraper --cov=api --cov-report=term-missing
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/pytest tests/ --cov=scraper --cov=api --cov-report=term-missing
+
+test-ai:
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/pytest tests/ --use-ai-tokens -v -m ai_integration
 
 prepare-fixture:
-	python tests/prepare_fixture.py
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/python tests/prepare_fixture.py
 
 # Docker/Podman Compose
 up:

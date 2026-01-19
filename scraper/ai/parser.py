@@ -3,6 +3,7 @@ AI Parser - Uses Groq LLM to parse complex Kaimai strings
 Returns same format as traditional parser for seamless integration
 """
 import json
+import re
 from typing import List, Tuple, Optional
 from groq import Groq
 
@@ -22,6 +23,8 @@ def create_parsing_prompt(kaimai_str: str) -> str:
     """
     return f"""Parse this Lithuanian location string into structured JSON format.
 
+TASK: Extract the village/city name, street names, and house numbers from this Lithuanian location string. House numbers may appear in various formats: explicit lists ("26, 28"), ranges with "nuo...iki" ("nuo 18 iki 18U"), special cases ("nuo 107", "iki 5"), or directly after street names.
+
 Location string: "{kaimai_str}"
 
 Rules:
@@ -32,45 +35,60 @@ Rules:
 5. Ordinal street names like "1-oji g., 2-oji g." are separate streets, not house numbers
 6. If no streets, return just the village
 7. Single letters or very short strings (like "m") are NOT house numbers - set to null
-8. CRITICAL: When multiple streets are listed and house numbers appear in parentheses, the house numbers ALWAYS belong to the street IMMEDIATELY BEFORE the parentheses, even if there's a comma after that street name.
-   - Example: "Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A)" → Svajonės g. has NO house numbers, Vanaginės g. has "1-31A"
-   - Example: "Street1 g., Street2 g., (numbers)" → Street1 has null, Street2 has the numbers
-   - The comma after the street name before parentheses is a data entry quirk - ignore it as a street separator
-   - Pattern: "StreetA g., StreetB g., (numbers)" means StreetB gets the numbers, StreetA gets null
+8. CRITICAL - House number patterns (check in this order):
+   STEP 1: Find ALL occurrences of ",(" or ", (" in the string (comma immediately followed by opening parenthesis).
+      - For EACH ",(" pattern found, scan BACKWARDS from the ",(" to find the LAST complete street name (ending with "g.") before it
+      - The street name that comes IMMEDIATELY before the ",(" (the one right before the comma) gets ALL numbers inside those parentheses
+      - CRITICAL: If you see "StreetA g., StreetB g.,(numbers)", the LAST street before the comma is StreetB - StreetB gets the numbers, StreetA gets null
+      - IMPORTANT: If there are multiple ",(" patterns, process EACH one separately - each street gets its own numbers
+      - Streets that come before a ",(" pattern but are not immediately before it get null for that pattern
+      - Examples: 
+        * "StreetA g., StreetB g.,(numbers)" → StreetB gets ALL numbers, StreetA gets null
+        * "Street1, Street2, Street3 g.,(numbers)" → ONLY Street3 gets numbers
+        * "Žalioji g.,( Nr. 19, 23, 25)" → Žalioji g. gets "19,23,25"
+        * "Molėtų g.,(40-48), StreetX, Vanaginės g., (1-31A)" → Molėtų g. gets "40-48", Vanaginės g. gets "1-31A" (TWO separate patterns)
+        * "Akmenų g., Lauko g.,(numbers)" → ONLY Lauko g. gets numbers (it's the LAST street before ",("), Akmenų g. gets null
+   STEP 2: If no ",(" pattern found, look for "Street g. (numbers)" (space before parenthesis, no comma) → Street gets the numbers
+   STEP 3: If no parentheses, look for "Street g. 2, 4, 6" (numbers directly after street) → Street gets the numbers
 
 HOUSE NUMBERS FORMAT (REQUIRED):
 - Normalize to compact format: remove "nuo", "iki", "Nr." prefixes
 - Ranges: "nuo 18 iki 18U" → "18-18U", "nuo Nr. 1 iki 9" → "1-9"
 - Lists: "26, 28" → "26,28" (no spaces), "114, 114A,114B" → "114,114A,114B"
-- Combined: "nuo Nr.1 iki 31A, nuo 2 iki 14B" → "1-31A,2-14B"
-- Special: "nuo 107" (no end) → "≥107", "iki Nr.5" → "≤5"
+- Combined ranges: "nuo Nr.1 iki 31A, nuo 2 iki 14B" → "1-31A,2-14B"
+- Complex ranges: "nuo Nr.103, 103A iki 119" → "103,103A-119" (start value + range, not "≥103")
+- Special (only when no range follows): "nuo 107" (no "iki" after) → "≥107", "iki Nr.5" → "≤5"
 - Single values: "26" → "26"
 - If house numbers are unclear/invalid (single letter, typo), set to null
 
-CRITICAL PATTERN RECOGNITION:
-- When you see: "Street1 g., Street2 g., (house numbers)"
-  → Street1 has NO house numbers (null)
-  → Street2 HAS the house numbers (from parentheses)
-- The comma after Street2 is NOT separating streets - it's indicating house numbers follow
-- Always assign parentheses house numbers to the street immediately preceding them
-
-EXAMPLE - Multiple streets with trailing comma pattern:
-Input: "Didžioji Riešė (Molėtų g.,(nuo Nr. 40 iki 48), Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A, nuo 2 iki 14B), Veneros g.(nuo Nr. 7))"
+EXAMPLE - All house number patterns:
+Input: "Didžioji Riešė (Kaštonų g. ( nuo Nr. 1 iki 9 ), Parko g. 2 ,4, 4A, 6, 8 ), Alyvų g., Riešės g., Rožių g., Rūtų g., Žalioji g.,( Nr. 19, 23, 25, 27, 29, 31), Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A, nuo 2 iki 14B), Akmenų g., Lauko g.,(nuo Nr. 2 iki 20A, nuo 1 iki 19), Veneros g.(nuo Nr. 7))"
 Output:
 {{
   "village": "Didžioji Riešė",
   "streets": [
-    {{"street": "Molėtų g.", "house_numbers": "40-48"}},
+    {{"street": "Kaštonų g.", "house_numbers": "1-9"}},
+    {{"street": "Parko g.", "house_numbers": "2,4,4A,6,8"}},
+    {{"street": "Alyvų g.", "house_numbers": null}},
+    {{"street": "Riešės g.", "house_numbers": null}},
+    {{"street": "Rožių g.", "house_numbers": null}},
+    {{"street": "Rūtų g.", "house_numbers": null}},
+    {{"street": "Žalioji g.", "house_numbers": "19,23,25,27,29,31"}},
     {{"street": "Svajonės g.", "house_numbers": null}},
     {{"street": "Vanaginės g.", "house_numbers": "1-31A,2-14B"}},
-    {{"street": "Veneros g.", "house_numbers": "7"}}
+    {{"street": "Akmenų g.", "house_numbers": null}},
+    {{"street": "Lauko g.", "house_numbers": "2-20A,1-19"}},
+    {{"street": "Veneros g.", "house_numbers": "≥7"}}
   ]
 }}
-Note: 
-- Molėtų g. gets "40-48" (comma before parentheses, numbers belong to Molėtų g.)
-- Svajonės g. has NO house numbers (null)
-- Vanaginės g. gets "1-31A,2-14B" (comma before parentheses, numbers belong to Vanaginės g.)
-- Veneros g. gets "7" (no comma, but parentheses still indicate house numbers)
+Key patterns:
+- "Kaštonų g. ( numbers)" → Direct parentheses, no comma
+- "Parko g. 2 ,4, 4A" → Direct numbers, no parentheses
+- "Alyvų g., Riešės g., Rožių g., Rūtų g., Žalioji g.,( numbers)" → Žalioji g. gets ALL numbers (even with many streets before it)
+- "Svajonės g., Vanaginės g., (numbers)" → Vanaginės g. gets ALL numbers (trailing comma pattern, Svajonės gets null)
+- "Akmenų g., Lauko g.,(nuo Nr. 2 iki 20A, nuo 1 iki 19)" → Lauko g. gets "2-20A,1-19" (combined range), Akmenų g. gets null
+- "Molėtų g.,(40-48), ... Vanaginės g., (1-31A)" → TWO separate ",(" patterns: Molėtų g. gets "40-48", Vanaginės g. gets "1-31A"
+- "Veneros g.(nuo Nr. 7)" → "≥7" (special case: "nuo X" with no end means "from X onwards")
 
 Return JSON in this exact format:
 {{
@@ -123,31 +141,45 @@ def normalize_house_numbers(house_numbers: Optional[str]) -> Optional[str]:
         rest = house_numbers.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
         return f"≥{rest}" if rest else None
     
+    # Handle special cases first
+    if house_numbers.startswith("iki ") and " iki " not in house_numbers[4:]:
+        return f"≤{house_numbers[4:].replace('Nr.', '').replace('Nr', '').strip()}"
+    
+    if house_numbers.startswith("nuo ") and " iki " not in house_numbers:
+        return f"≥{house_numbers[4:].replace('Nr.', '').replace('Nr', '').strip()}"
+    
     # Handle ranges: "nuo X iki Y" → "X-Y"
     if " iki " in house_numbers:
-        # Extract range parts
-        parts = house_numbers.split(" iki ", 1)
-        if len(parts) == 2:
-            start = parts[0].replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
-            end = parts[1].strip()
-            # Remove any trailing commas or other parts
+        # Split by ", nuo " to handle multiple ranges
+        if ", nuo " in house_numbers:
+            parts = house_numbers.split(", nuo ")
+            normalized_parts = []
+            for i, part in enumerate(parts):
+                if i > 0:
+                    part = "nuo " + part
+                if " iki " in part:
+                    start, end = part.split(" iki ", 1)
+                    start = start.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
+                    end = end.split(",")[0].strip()
+                    start = start.replace(", ", ",")
+                    normalized_parts.append(f"{start}-{end}")
+            return ",".join(normalized_parts) if normalized_parts else None
+        else:
+            # Single range
+            start, end = house_numbers.split(" iki ", 1)
+            start = start.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
             end = end.split(",")[0].strip()
+            start = start.replace(", ", ",")
             return f"{start}-{end}"
     
-    # Remove common prefixes
+    # Basic cleanup: remove prefixes, clean spacing
     normalized = house_numbers.replace("nuo ", "").replace("iki ", "").replace("Nr.", "").replace("Nr", "").strip()
-    
-    # Remove spaces around commas
     normalized = normalized.replace(", ", ",").replace(" ,", ",")
-    
-    # If already has special prefix, return as-is
-    if normalized.startswith("≥") or normalized.startswith("≤"):
-        return normalized
     
     return normalized if normalized else None
 
 
-def validate_ai_output(parsed_json: dict, original_kaimai: str) -> Tuple[bool, Optional[str]]:
+def validate_ai_output(parsed_json: dict) -> Tuple[bool, Optional[str]]:
     """
     Validate AI parser output structure
     
@@ -223,7 +255,8 @@ def convert_to_parser_format(parsed_json: dict) -> List[Tuple[str, Optional[str]
             continue
         
         house_numbers = street_entry.get('house_numbers')
-        # Normalize house numbers format
+        # Normalize house numbers format (safety net - AI should return normalized values per prompt,
+        # but we normalize here to handle cases where AI returns raw values like "nuo Nr. 2 iki 20A, nuo 1 iki 19")
         house_numbers_str = normalize_house_numbers(house_numbers) if house_numbers else None
         
         result.append((street_name, house_numbers_str))
@@ -279,7 +312,7 @@ def parse_with_ai(kaimai_str: str) -> List[Tuple[str, Optional[str]]]:
                     "content": create_parsing_prompt(kaimai_str)
                 }
             ],
-            temperature=0.1,  # Low temperature for consistent parsing
+            temperature=0.0,  # Zero temperature for maximum consistency
             response_format={"type": "json_object"}  # Force JSON output
         )
         
@@ -303,7 +336,7 @@ def parse_with_ai(kaimai_str: str) -> List[Tuple[str, Optional[str]]]:
                 raise ValueError(f"Failed to parse JSON from AI response: {e}")
         
         # Validate output
-        is_valid, error_msg = validate_ai_output(parsed_json, kaimai_str)
+        is_valid, error_msg = validate_ai_output(parsed_json)
         if not is_valid:
             raise ValueError(f"AI output validation failed: {error_msg}")
         

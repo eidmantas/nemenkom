@@ -48,8 +48,8 @@
                         <datalist id="streetList"></datalist>
                         <div id="streetDropdown" class="dropdown-list"></div>
                     </div>
-                </div>
-                
+        </div>
+
                 <div class="select-group" id="houseNumberSelectGroup" style="display: none;">
                     <label for="houseNumberInput">Namo numeris:</label>
                     <div class="searchable-dropdown">
@@ -60,8 +60,8 @@
                         <div id="houseNumberDropdown" class="dropdown-list"></div>
                     </div>
                 </div>
+                </div>
             </div>
-        </div>
 
         <div class="main-content">
             <div class="calendar-panel">
@@ -376,7 +376,7 @@
             if (!currentVillage) {
                 return;
             }
-            
+
             // Load house numbers
             loadHouseNumbers(currentVillage, street);
         }

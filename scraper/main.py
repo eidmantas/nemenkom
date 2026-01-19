@@ -21,7 +21,7 @@ def run_scraper(simple_subset=False, file_path=None, url=None, year=2026):
     
     # Use default URL if not provided
     if url is None:
-        url = DEFAULT_URL
+    url = DEFAULT_URL
     
     print("=" * 60)
     print("Waste Schedule Scraper")
@@ -38,8 +38,8 @@ def run_scraper(simple_subset=False, file_path=None, url=None, year=2026):
                 print(f"❌ File not found: {file_path}")
                 return 1
         else:
-            print(f"\n1. Fetching xlsx from: {url}")
-            file_path = fetch_xlsx(url)
+        print(f"\n1. Fetching xlsx from: {url}")
+        file_path = fetch_xlsx(url)
         
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")

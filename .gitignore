@@ -35,3 +35,4 @@ Thumbs.db
 
 # Configuration (contains API keys)
 config.py
+docker-compose.override.yaml

@@ -1,7 +1,6 @@
 """
 Unit tests for parser router (AI parser decision logic)
 """
-import pytest
 from scraper.ai.router import should_use_ai_parser
 
 
@@ -37,7 +36,6 @@ class TestShouldUseAIParser:
     def test_missing_commas_use_ai(self):
         """Missing commas between items SHOULD use AI"""
         # This would need a real example from CSV
-        pass
     
     def test_streets_outside_parens_use_ai(self):
         """Streets outside parentheses SHOULD use AI"""
