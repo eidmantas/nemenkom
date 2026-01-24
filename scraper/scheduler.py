@@ -6,6 +6,7 @@ Also runs background worker for calendar sync
 import sys
 import time
 import threading
+import random
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
@@ -57,6 +58,8 @@ def calendar_sync_worker():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Calendar sync worker started")
     
     RETRY_INTERVAL_SECONDS = 300  # 5 minutes
+    CALENDAR_DELAY_MIN = 15  # Minimum delay between calendars (seconds)
+    CALENDAR_DELAY_MAX = 45  # Maximum delay between calendars (seconds)
     
     while True:
         try:
@@ -78,6 +81,11 @@ def calendar_sync_worker():
                         if result and result.get('success'):
                             calendar_id = result['calendar_id']
                             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Calendar created: {calendar_id}")
+                            
+                            # Add delay between calendar creations (30s +/- 15s)
+                            delay = random.uniform(CALENDAR_DELAY_MIN, CALENDAR_DELAY_MAX)
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Waiting {delay:.1f}s before next calendar...")
+                            time.sleep(delay)
                         else:
                             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to create calendar for {schedule_group_id} - will retry in 5 minutes")
                             # Will retry on next cycle (every 5 minutes)

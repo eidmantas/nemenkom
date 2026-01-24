@@ -308,6 +308,29 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
             logger.debug(f"Row {idx + 1}: Using traditional parser for: {kaimai_str[:80]}")
             parsed_items = parse_village_and_streets(kaimai_str)
             traditional_parse_count += 1
+            
+            # Validate traditional parser output - if village contains complex patterns, retry with AI
+            if parsed_items:
+                village = parsed_items[0][0] if parsed_items else ""
+                # Check if village field contains street-like patterns (indicates parsing failure)
+                # Patterns like: parentheses with streets, multiple "g." endings, complex structures
+                if village and (
+                    '(' in village and 'g.' in village or  # Village contains parentheses with streets
+                    village.count('g.') > 1 or  # Multiple street endings in village
+                    (',' in village and 'g.' in village and not village.strip().startswith('('))  # Streets mixed in village
+                ):
+                    logger.warning(f"Traditional parser produced suspicious village '{village[:50]}...' - retrying with AI")
+                    print(f"⚠️  Traditional parser produced invalid output for '{kaimai_str[:50]}...' - retrying with AI")
+                    try:
+                        from scraper.ai.parser import parse_with_ai
+                        parsed_items = parse_with_ai(kaimai_str)
+                        ai_parse_count += 1
+                        traditional_parse_count -= 1  # Adjust counts
+                        logger.debug(f"AI retry successful for: {kaimai_str[:80]}")
+                    except Exception as e:
+                        logger.warning(f"AI retry also failed for '{kaimai_str[:50]}...': {e}, keeping traditional result")
+                        print(f"⚠️  AI retry also failed, keeping traditional parser result")
+        
         if not parsed_items:
             continue
         

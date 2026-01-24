@@ -8,6 +8,7 @@ import datetime
 import os.path
 import logging
 import time
+import random
 from typing import Optional, Dict, List
 
 from google.oauth2 import service_account
@@ -564,6 +565,11 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 
                 logger.debug(f"Created event {event_id} for date {date_str}")
                 
+                # Add delay between event creations (2-3 seconds)
+                if date_str != list(dates_to_add)[-1]:  # Don't delay after last event
+                    delay = random.uniform(2.0, 3.0)
+                    time.sleep(delay)
+                
             except Exception as e:
                 logger.error(f"Failed to create event for {date_str}: {e}")
                 # Store error in calendar_events
@@ -633,6 +639,12 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 conn.close()
                 
                 logger.debug(f"Retried event {event_id} for date {date_str}")
+                
+                # Add delay between event retries (2-3 seconds)
+                retry_list = list(dates_to_retry)
+                if date_str != retry_list[-1]:  # Don't delay after last event
+                    delay = random.uniform(2.0, 3.0)
+                    time.sleep(delay)
                 
             except Exception as e:
                 logger.error(f"Failed to retry event for {date_str}: {e}")
