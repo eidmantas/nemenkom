@@ -243,3 +243,23 @@ run-all: run-scraper
 	@echo ""
 	@echo "✅ Scraper completed. Starting API server..."
 	@$(MAKE) run-api
+
+# Calendar cleanup
+clean-calendars-dry-run:
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo "🔍 Checking for orphaned calendars (dry run)..."
+	venv/bin/python -c "from services.calendar import cleanup_orphaned_calendars; cleanup_orphaned_calendars(dry_run=True)"
+
+clean-calendars:
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo "⚠️  WARNING: This will DELETE orphaned calendars from Google Calendar!"
+	@echo "   Orphaned calendars are those that exist in Google but not in the database."
+	@read -p "   Are you sure? Type 'yes' to continue: " confirm && [ "$$confirm" = "yes" ] || exit 1
+	@echo "🗑️  Deleting orphaned calendars..."
+	venv/bin/python -c "from services.calendar import cleanup_orphaned_calendars; cleanup_orphaned_calendars(dry_run=False)"

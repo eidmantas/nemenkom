@@ -351,6 +351,98 @@ def generate_calendar_subscription_link(calendar_id: str) -> str:
     return f"https://calendar.google.com/calendar/render?cid={calendar_id}"
 
 
+def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
+    """
+    Find and optionally delete calendars that exist in Google Calendar but not in database
+    
+    Orphaned calendars are those that:
+    - Exist in Google Calendar (created by our service account)
+    - Do NOT have a corresponding entry in schedule_groups.calendar_id
+    
+    Args:
+        dry_run: If True, only list orphaned calendars without deleting (default: True)
+    
+    Returns:
+        List of orphaned calendar dictionaries with calendar_id and calendar_name
+    """
+    try:
+        service = get_google_calendar_service()
+        
+        # Get all calendars from Google Calendar
+        calendars_result = service.calendarList().list().execute()
+        all_calendars = calendars_result.get('items', [])
+        
+        # Filter for our waste schedule calendars (by naming pattern)
+        # Current naming: "[Village/Seniūnija] - [Waste Type] - [hash]"
+        # Old naming: "Nemenčinė Atliekos - ..." (from before)
+        our_calendars = []
+        for calendar in all_calendars:
+            summary = calendar.get('summary', '')
+            # Match our calendar naming patterns:
+            # - Current: "[Village] - Bendros atliekos - sg_xxx" or "[Seniūnija] - Bendros atliekos - sg_xxx"
+            # - Old: "Nemenčinė Atliekos - ..." (test/old calendars)
+            # - Also match calendars with "Atliekų surinkimas" in description
+            if (' - Bendros atliekos' in summary or \
+                ' - Plastikas' in summary or \
+                ' - Stiklas' in summary) and \
+               (' - sg_' in summary or 'Nemenčinė Atliekos' in summary):
+                our_calendars.append({
+                    'calendar_id': calendar['id'],
+                    'calendar_name': summary,
+                    'description': calendar.get('description', '')
+                })
+        
+        # Get all calendar_ids from database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT calendar_id
+            FROM schedule_groups
+            WHERE calendar_id IS NOT NULL
+        """)
+        db_calendar_ids = {row[0] for row in cursor.fetchall()}
+        conn.close()
+        
+        # Find orphaned calendars (exist in Google but not in DB)
+        orphaned = []
+        for cal in our_calendars:
+            if cal['calendar_id'] not in db_calendar_ids:
+                orphaned.append(cal)
+        
+        if dry_run:
+            if orphaned:
+                print(f"\n🔍 Found {len(orphaned)} orphaned calendar(s):")
+                for cal in orphaned:
+                    print(f"   - {cal['calendar_name']} ({cal['calendar_id'][:30]}...)")
+                print(f"\n⚠️  This is a DRY RUN - no calendars were deleted")
+                print(f"   Run 'make clean-calendars' to actually delete them")
+            else:
+                print(f"✅ No orphaned calendars found - all calendars in Google Calendar have corresponding database entries")
+        else:
+            # Actually delete orphaned calendars
+            deleted_count = 0
+            error_count = 0
+            for cal in orphaned:
+                try:
+                    service.calendars().delete(calendarId=cal['calendar_id']).execute()
+                    deleted_count += 1
+                    print(f"🗑️  Deleted orphaned calendar: {cal['calendar_name']}")
+                except Exception as e:
+                    error_count += 1
+                    print(f"❌ Failed to delete calendar {cal['calendar_name']}: {e}")
+            
+            print(f"\n✅ Cleanup complete: {deleted_count} deleted, {error_count} errors")
+        
+        return orphaned
+        
+    except HttpError as error:
+        print(f"❌ Error during calendar cleanup: {error}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected error during calendar cleanup: {e}")
+        return []
+
+
 def get_location_name_for_schedule_group(schedule_group_id: str) -> str:
     """
     Get human-readable location name for a schedule group
