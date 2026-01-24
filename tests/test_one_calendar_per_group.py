@@ -228,3 +228,124 @@ def test_calendar_not_recreated_on_date_change(temp_db):
         
         # Verify calendar creation was only called once
         assert mock_service.calendars().insert().execute.call_count == 1, "Calendar should not be recreated"
+
+
+def test_calendar_creation_only_for_schedule_groups_not_villages(temp_db):
+    """Test that calendars are created per schedule_group_id, not per village"""
+    conn, db_path = temp_db
+    
+    # Same kaimai_hash = same schedule group = ONE calendar
+    kaimai_hash = "k1_test_one_calendar_multiple_villages"
+    waste_type = "bendros"
+    dates = [date(2026, 1, 8)]
+    
+    # Create schedule group (one per kaimai_hash + waste_type)
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    conn.commit()
+    
+    # Create multiple villages with SAME kaimai_hash (they share the schedule)
+    cursor = conn.cursor()
+    villages = ["Village1", "Village2", "Village3"]
+    for village in villages:
+        cursor.execute("""
+            INSERT INTO locations (seniunija, village, street, kaimai_hash)
+            VALUES (?, ?, ?, ?)
+        """, ("Test", village, "", kaimai_hash))
+    conn.commit()
+    
+    # Create calendar (should be ONE calendar for all villages)
+    mock_service = MagicMock()
+    mock_calendar = {'id': 'one_calendar@google.com', 'summary': 'One Calendar'}
+    mock_service.calendars().insert().execute.return_value = mock_calendar
+    
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+        result = create_calendar_for_schedule_group(schedule_group_id)
+        calendar_id = result['calendar_id']
+    
+    # Verify only ONE calendar was created (not one per village)
+    assert mock_service.calendars().insert().execute.call_count == 1, "Should create only ONE calendar for all villages with same schedule"
+    
+    # Verify all villages share the same calendar_id
+    group_info = get_schedule_group_info(schedule_group_id)
+    assert group_info['calendar_id'] == calendar_id, "All villages should share the same calendar"
+
+
+def test_no_duplicate_calendar_creation_on_retry(temp_db):
+    """Test that retrying calendar creation doesn't create duplicates"""
+    conn, db_path = temp_db
+    
+    kaimai_hash = "k1_test_no_duplicates"
+    waste_type = "bendros"
+    dates = [date(2026, 1, 8)]
+    
+    # Create schedule group
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    conn.commit()
+    
+    # Create location
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO locations (seniunija, village, street, kaimai_hash)
+        VALUES (?, ?, ?, ?)
+    """, ("Test", "Village", "Street", kaimai_hash))
+    conn.commit()
+    
+    # Mock calendar creation
+    mock_service = MagicMock()
+    mock_calendar = {'id': 'stable_calendar@google.com', 'summary': 'Test Calendar'}
+    mock_service.calendars().insert().execute.return_value = mock_calendar
+    
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+        # Create calendar first time
+        result1 = create_calendar_for_schedule_group(schedule_group_id)
+        assert result1['success'] is True
+        calendar_id1 = result1['calendar_id']
+        
+        # Simulate multiple retry attempts (e.g., from background worker)
+        for i in range(5):
+            result = create_calendar_for_schedule_group(schedule_group_id)
+            assert result['success'] is True
+            assert result['calendar_id'] == calendar_id1, f"Retry {i+1} should return same calendar"
+            assert result.get('existing') is True, f"Retry {i+1} should indicate existing calendar"
+        
+        # Verify calendar was created only ONCE (not 6 times)
+        assert mock_service.calendars().insert().execute.call_count == 1, "Calendar should be created only once, even with multiple retries"
+
+
+def test_calendar_creation_handles_database_update_failure(temp_db):
+    """Test that calendar creation handles database update failures gracefully"""
+    conn, db_path = temp_db
+    
+    kaimai_hash = "k1_test_db_failure"
+    waste_type = "bendros"
+    dates = [date(2026, 1, 8)]
+    
+    # Create schedule group
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    conn.commit()
+    
+    # Create location
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO locations (seniunija, village, street, kaimai_hash)
+        VALUES (?, ?, ?, ?)
+    """, ("Test", "Village", "Street", kaimai_hash))
+    conn.commit()
+    
+    # Mock calendar creation
+    mock_service = MagicMock()
+    mock_calendar = {'id': 'calendar_created@google.com', 'summary': 'Test Calendar'}
+    mock_service.calendars().insert().execute.return_value = mock_calendar
+    
+    # Mock database update failure
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+        with patch('services.calendar.update_schedule_group_calendar_id', return_value=False):
+            result = create_calendar_for_schedule_group(schedule_group_id)
+            
+            # Should still return success (calendar was created)
+            assert result['success'] is True
+            assert result['calendar_id'] == 'calendar_created@google.com'
+            assert 'warning' in result, "Should include warning about database update failure"
+            
+            # Calendar should still be created in Google Calendar
+            assert mock_service.calendars().insert().execute.call_count == 1

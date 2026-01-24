@@ -108,18 +108,21 @@ python -c "import config; print('✅ All secrets loaded successfully')"
 
 ### Volume Mounts
 
-The `secrets/` directory is mounted as a **read-only volume** in Docker containers. This means:
-- Secrets are **not** copied into Docker images (more secure)
-- Secrets must exist on the host machine
-- Changes to secrets require container restart
+Both the `secrets/` directory and `config.py` are mounted as **read-only volumes** in Docker containers. This means:
+- Secrets and config are **not** copied into Docker images (more secure)
+- Secrets and config must exist on the host machine
+- Changes to secrets/config require container restart
 
 ### Docker Compose Configuration
 
-The `docker-compose.yaml` mounts the secrets directory:
+The `docker-compose.yaml` mounts both the secrets directory and config file:
 ```yaml
 volumes:
   - ./secrets:/app/secrets:ro  # Read-only mount
+  - ./config.py:/app/config.py:ro  # Read-only mount (not baked into image)
 ```
+
+**Note**: `config.py` is also in `.gitignore` and should not be committed. Copy `config.example.py` to `config.py` and customize it for your environment.
 
 ## Development Setup
 

@@ -95,18 +95,19 @@ def calendar_sync_worker():
             for group in groups:
                 schedule_group_id = group["id"]
                 calendar_id = group.get("calendar_id")
+                kaimai_hash = group.get("kaimai_hash", "unknown")  # Added for logging
 
                 try:
                     # Phase 1: Create calendar if needed
                     if calendar_id is None:
                         print(
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Creating calendar for {schedule_group_id}..."
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Creating calendar for schedule_group_id={schedule_group_id} (kaimai_hash={kaimai_hash})..."
                         )
                         result = create_calendar_for_schedule_group(schedule_group_id)
                         if result and result.get("success"):
                             calendar_id = result["calendar_id"]
                             print(
-                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Calendar created: {calendar_id}"
+                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Calendar created for schedule_group_id={schedule_group_id}: {calendar_id}"
                             )
 
                             # Add delay between calendar creations (30s +/- 15s)
@@ -119,32 +120,32 @@ def calendar_sync_worker():
                             time.sleep(delay)
                         else:
                             print(
-                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to create calendar for {schedule_group_id} - will retry in 5 minutes"
+                                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to create calendar for schedule_group_id={schedule_group_id} (kaimai_hash={kaimai_hash}) - will retry in 5 minutes"
                             )
                             # Will retry on next cycle (every 5 minutes)
                             continue
 
                     # Phase 2: Sync events
                     print(
-                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Syncing events for {schedule_group_id}..."
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Syncing events for schedule_group_id={schedule_group_id}..."
                     )
                     sync_result = sync_calendar_for_schedule_group(schedule_group_id)
                     if sync_result.get("success"):
                         print(
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Events synced: "
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Events synced for schedule_group_id={schedule_group_id}: "
                             f"added={sync_result.get('events_added', 0)}, "
                             f"deleted={sync_result.get('events_deleted', 0)}, "
                             f"retried={sync_result.get('events_retried', 0)}"
                         )
                     else:
                         print(
-                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to sync events: {sync_result.get('error')} - will retry in 5 minutes"
+                            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Failed to sync events for schedule_group_id={schedule_group_id}: {sync_result.get('error')} - will retry in 5 minutes"
                         )
                         # Will retry on next cycle (every 5 minutes)
 
                 except Exception as e:
                     print(
-                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing {schedule_group_id}: {e}"
+                        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error processing schedule_group_id={schedule_group_id} (kaimai_hash={kaimai_hash}): {e}"
                     )
                     import traceback
 

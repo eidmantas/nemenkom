@@ -9,6 +9,7 @@ services:
       - ./database:/app/database
       - ./web:/app/web
       - ./secrets:/app/secrets:ro  # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro  # Mount config as read-only (not baked into image)
     environment:
       - FLASK_ENV=production
       - TZ=Europe/Vilnius
@@ -21,6 +22,7 @@ services:
     volumes:
       - ./database:/app/database
       - ./secrets:/app/secrets:ro  # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro  # Mount config as read-only (not baked into image)
     environment:
       - TZ=Europe/Vilnius
       - PYTHONUNBUFFERED=1
