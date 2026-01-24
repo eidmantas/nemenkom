@@ -166,54 +166,43 @@ def create_calendar_for_schedule_group(
         
         existing_calendar_id = group_info.get('calendar_id')
         
-        # If calendar exists, verify it's still valid, ensure it's public, and update name if needed
+        # If calendar exists, verify it's still valid and ensure it's public
         if existing_calendar_id:
             logger.debug(f"Found existing calendar_id: {existing_calendar_id}, verifying...")
             try:
-                service = get_google_calendar_service()
-                existing_calendar = service.calendars().get(calendarId=existing_calendar_id).execute()
-                current_calendar_name = existing_calendar.get('summary', '')
-                
-                # Update calendar name if it doesn't match expected name
-                if current_calendar_name != expected_calendar_name:
-                    logger.info(f"Updating calendar name from '{current_calendar_name}' to '{expected_calendar_name}'")
-                    existing_calendar['summary'] = expected_calendar_name
-                    service.calendars().update(
-                        calendarId=existing_calendar_id,
-                        body=existing_calendar
-                    ).execute()
-                    print(f"✅ Updated calendar name to: {expected_calendar_name}")
-                
-                # Ensure calendar is public
-                try:
-                    acl_rule = {
-                        'scope': {
-                            'type': 'default'
-                        },
-                        'role': 'reader'
-                    }
-                    # Check if public ACL exists, if not add it
+                calendar_info = get_existing_calendar_info(existing_calendar_id)
+                if calendar_info:
+                    # Ensure calendar is public
                     try:
-                        service.acl().get(calendarId=existing_calendar_id, ruleId='default').execute()
-                        logger.debug(f"Calendar already public: {existing_calendar_id}")
-                    except HttpError:
-                        # Public ACL doesn't exist, add it
-                        service.acl().insert(calendarId=existing_calendar_id, body=acl_rule).execute()
-                        logger.info(f"Made existing calendar public: {existing_calendar_id}")
-                        print(f"✅ Made existing calendar public: {existing_calendar_id}")
-                except Exception as e:
-                    logger.warning(f"Could not ensure calendar is public: {e}")
-                
-                conn.close()
-                logger.info(f"Using existing calendar: {existing_calendar_id}")
-                print(f"✅ Using existing calendar: {existing_calendar_id}")
-                return {
-                    'calendar_id': existing_calendar_id,
-                    'calendar_name': expected_calendar_name,
-                    'subscription_link': f"https://calendar.google.com/calendar/render?cid={existing_calendar_id}",
-                    'success': True,
-                    'existing': True
-                }
+                        service = get_google_calendar_service()
+                        acl_rule = {
+                            'scope': {
+                                'type': 'default'
+                            },
+                            'role': 'reader'
+                        }
+                        # Check if public ACL exists, if not add it
+                        try:
+                            service.acl().get(calendarId=existing_calendar_id, ruleId='default').execute()
+                            logger.debug(f"Calendar already public: {existing_calendar_id}")
+                        except HttpError:
+                            # Public ACL doesn't exist, add it
+                            service.acl().insert(calendarId=existing_calendar_id, body=acl_rule).execute()
+                            logger.info(f"Made existing calendar public: {existing_calendar_id}")
+                            print(f"✅ Made existing calendar public: {existing_calendar_id}")
+                    except Exception as e:
+                        logger.warning(f"Could not ensure calendar is public: {e}")
+                    
+                    conn.close()
+                    logger.info(f"Using existing calendar: {existing_calendar_id}")
+                    print(f"✅ Using existing calendar: {existing_calendar_id}")
+                    return {
+                        'calendar_id': existing_calendar_id,
+                        'calendar_name': calendar_info['calendar_name'],
+                        'subscription_link': calendar_info['subscription_link'],
+                        'success': True,
+                        'existing': True
+                    }
             except Exception as e:
                 logger.warning(f"Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
                 print(f"⚠️  Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
@@ -221,6 +210,8 @@ def create_calendar_for_schedule_group(
         # Create new calendar
         logger.debug("Getting Google Calendar service...")
         service = get_google_calendar_service()
+        
+        # Use the expected calendar name we already determined
         calendar_name = expected_calendar_name
 
         # Create the calendar
