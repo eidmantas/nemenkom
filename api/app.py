@@ -3,11 +3,40 @@ Flask API application for waste schedule data
 """
 from flask import Flask, jsonify, request, render_template, redirect
 from flasgger import Swagger
+from functools import wraps
 from api.db import (
     get_all_locations, get_location_schedule, get_schedule_group_schedule, search_locations,
     get_unique_villages, get_streets_for_village, get_house_numbers_for_street, get_location_by_selection,
     village_has_streets, street_has_house_numbers
 )
+from api.google_calendar import (
+    create_calendar_for_schedule_group, get_existing_calendar_info,
+    list_available_calendars, generate_calendar_subscription_link
+)
+import config
+
+def require_api_key(f):
+    """
+    Decorator to require API key authentication for protected endpoints
+    Automatically handles API key checking with helpful error messages
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Check multiple possible locations for API key
+        api_key = (
+            request.headers.get(config.API_KEY_HEADER) or
+            request.args.get('api_key')  # Also allow in query params
+        )
+
+        if not api_key or api_key != config.API_KEY:
+            return jsonify({
+                'error': 'Authentication required',
+                'details': f'Please provide a valid API key in {config.API_KEY_HEADER} header or api_key parameter',
+                'example': f'curl -H "{config.API_KEY_HEADER}: YOUR_API_KEY" http://localhost:3333/api/v1/endpoint'
+            }), 401
+
+        return f(*args, **kwargs)
+    return decorated_function
 
 app = Flask(__name__, 
             template_folder='../web/templates',
@@ -391,6 +420,173 @@ def api_house_numbers():
     # street can be empty string for whole village
     house_numbers = get_house_numbers_for_street(seniūnija, village, street or '')
     return jsonify({'house_numbers': house_numbers})
+
+@app.route('/api/v1/available-calendars', methods=['GET'])
+@require_api_key
+def api_available_calendars():
+    """
+    List all available Google Calendars
+    ---
+    tags:
+      - Google Calendar
+    parameters:
+      - name: X-API-KEY
+        in: header
+        type: string
+        required: true
+        description: API key for authentication
+    responses:
+      200:
+        description: List of available calendars
+        schema:
+          type: object
+          properties:
+            calendars:
+              type: array
+              items:
+                type: object
+                properties:
+                  calendar_id:
+                    type: string
+                  calendar_name:
+                    type: string
+                  description:
+                    type: string
+                  subscription_link:
+                    type: string
+                  timeZone:
+                    type: string
+      401:
+        description: Invalid or missing API key
+    """
+    calendars = list_available_calendars()
+    return jsonify({'calendars': calendars})
+
+@app.route('/api/v1/generate-calendar/<schedule_group_id>', methods=['GET'])
+@require_api_key
+def api_generate_calendar(schedule_group_id):
+    """
+    Generate Google Calendar for a schedule group
+    ---
+    tags:
+      - Google Calendar
+    parameters:
+      - name: schedule_group_id
+        in: path
+        type: string
+        required: true
+        description: Schedule group ID to generate calendar for
+      - name: location_name
+        in: query
+        type: string
+        required: true
+        description: Human-readable location name for calendar title
+      - name: waste_type
+        in: query
+        type: string
+        required: false
+        default: bendros
+        description: Waste type (bendros, plastikas, stiklas)
+      - name: X-API-KEY
+        in: header
+        type: string
+        required: true
+        description: API key for authentication
+    responses:
+      200:
+        description: Calendar created successfully
+        schema:
+          type: object
+          properties:
+            calendar_id:
+              type: string
+            calendar_name:
+              type: string
+            subscription_link:
+              type: string
+            events_created:
+              type: integer
+            success:
+              type: boolean
+      400:
+        description: Missing required parameters
+      401:
+        description: Invalid or missing API key
+      500:
+        description: Calendar creation failed
+    """
+    location_name = request.args.get('location_name', '')
+    waste_type = request.args.get('waste_type', 'bendros')
+
+    if not location_name:
+        return jsonify({'error': 'location_name parameter is required'}), 400
+
+    # Get schedule group info to extract dates
+    schedule_info = get_schedule_group_schedule(schedule_group_id, waste_type)
+    if not schedule_info or 'dates' not in schedule_info:
+        return jsonify({'error': 'Schedule group not found or has no dates'}), 404
+
+    # Extract date strings from schedule
+    date_strings = [date_info['date'] for date_info in schedule_info['dates']]
+
+    # Generate calendar
+    result = create_calendar_for_schedule_group(
+        schedule_group_id=schedule_group_id,
+        location_name=location_name,
+        dates=date_strings,
+        waste_type=waste_type
+    )
+
+    if not result:
+        return jsonify({'error': 'Failed to create calendar'}), 500
+
+    return jsonify(result)
+
+@app.route('/api/v1/calendar-info/<calendar_id>', methods=['GET'])
+@require_api_key
+def api_calendar_info(calendar_id):
+    """
+    Get information about a specific calendar
+    ---
+    tags:
+      - Google Calendar
+    parameters:
+      - name: calendar_id
+        in: path
+        type: string
+        required: true
+        description: Google Calendar ID
+      - name: X-API-KEY
+        in: header
+        type: string
+        required: true
+        description: API key for authentication
+    responses:
+      200:
+        description: Calendar information
+        schema:
+          type: object
+          properties:
+            calendar_id:
+              type: string
+            calendar_name:
+              type: string
+            description:
+              type: string
+            subscription_link:
+              type: string
+            timeZone:
+              type: string
+      401:
+        description: Invalid or missing API key
+      404:
+        description: Calendar not found
+    """
+    calendar_info = get_existing_calendar_info(calendar_id)
+    if not calendar_info:
+        return jsonify({'error': 'Calendar not found'}), 404
+
+    return jsonify(calendar_info)
 
 if __name__ == '__main__':
     # Initialize database if needed

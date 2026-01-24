@@ -20,3 +20,22 @@ GROQ_RATE_LIMIT_TPD = 500000  # Tokens per day
 
 # Safety margin (use 90% of limits to avoid hitting them)
 GROQ_SAFETY_MARGIN = 0.9
+
+# Google Calendar API Configuration
+GOOGLE_CALENDAR_CREDENTIALS_FILE = "credentials.json"  # Path to Google OAuth credentials file
+GOOGLE_CALENDAR_TOKEN_FILE = "token.json"  # Path to store OAuth tokens
+GOOGLE_CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar"
+]
+GOOGLE_CALENDAR_TIMEZONE = "Europe/Vilnius"  # Timezone for calendar events
+GOOGLE_CALENDAR_EVENT_START_HOUR = 7  # Collection starts at 07:00
+GOOGLE_CALENDAR_EVENT_END_HOUR = 9   # Collection ends at 09:00
+GOOGLE_CALENDAR_REMINDERS = [
+    {'method': 'email', 'minutes': 720},    # 12 hours before (19:00 previous evening)
+    {'method': 'popup', 'minutes': 10}     # 10 minutes before
+]
+
+# API Authentication
+API_KEY = "your_secure_api_key_here"  # Generate a strong random key for production
+API_KEY_HEADER = "X-API-KEY"  # Custom header for API key authentication

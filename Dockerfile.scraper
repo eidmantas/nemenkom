@@ -22,7 +22,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 
 # Copy application code
 COPY . .
