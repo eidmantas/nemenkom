@@ -137,26 +137,35 @@ def create_calendar_for_schedule_group(
                 logger.warning(f"Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
                 print(f"⚠️  Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
         
-        # Get seniunija for this schedule group (all locations share same seniunija)
+        # Get location info for this schedule group
         kaimai_hash = group_info['kaimai_hash']
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # Get seniunija and location counts
         cursor.execute("""
-            SELECT DISTINCT seniunija, COUNT(DISTINCT id) as location_count
+            SELECT DISTINCT seniunija, COUNT(DISTINCT id) as location_count,
+                   COUNT(DISTINCT village) as village_count
             FROM locations
             WHERE kaimai_hash = ?
             GROUP BY seniunija
             LIMIT 1
         """, (kaimai_hash,))
         row = cursor.fetchone()
-        conn.close()
         
         if row:
             seniunija = row[0]
             location_count = row[1]
+            village_count = row[2]
         else:
             seniunija = "Nemenčinė"
             location_count = 0
+            village_count = 0
+        
+        # Check total number of schedule groups to decide naming strategy
+        cursor.execute("SELECT COUNT(*) FROM schedule_groups")
+        total_schedule_groups = cursor.fetchone()[0]
+        conn.close()
         
         waste_type = group_info['waste_type']
         
@@ -164,17 +173,43 @@ def create_calendar_for_schedule_group(
         logger.debug("Getting Google Calendar service...")
         service = get_google_calendar_service()
 
-        # Create calendar name using seniunija (all locations in group share same seniunija)
-        # Format: "[Seniūnija] - [Waste Type]"
+        # Create calendar name - use village when there are few calendars and single village
+        # Format: "[Village] - [Waste Type]" for small groups, "[Seniūnija] - [Waste Type]" for large groups
         waste_type_display = {
             'bendros': 'Bendros atliekos',
             'plastikas': 'Plastikas',
             'stiklas': 'Stiklas'
         }.get(waste_type, waste_type)
         
-        # Use seniunija for calendar name (more stable and meaningful than village+count)
-        calendar_name = f"{seniunija} - {waste_type_display}"
-        calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
+        # Use village name if:
+        # 1. Total schedule groups is small (<= 20 calendars total)
+        # 2. This group has only one village
+        # 3. Location count is reasonable (not too many)
+        if total_schedule_groups <= 20 and village_count == 1 and location_count <= 50:
+            # Get the village name
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT village
+                FROM locations
+                WHERE kaimai_hash = ?
+                LIMIT 1
+            """, (kaimai_hash,))
+            village_row = cursor.fetchone()
+            conn.close()
+            
+            if village_row:
+                village_name = village_row[0]
+                calendar_name = f"{village_name} - {waste_type_display}"
+                calendar_description = f"Buitinių atliekų surinkimo grafikas: {village_name}, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
+            else:
+                # Fallback to seniunija
+                calendar_name = f"{seniunija} - {waste_type_display}"
+                calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
+        else:
+            # Use seniunija for calendar name (more stable and meaningful for large groups)
+            calendar_name = f"{seniunija} - {waste_type_display}"
+            calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
 
         # Create the calendar
         logger.debug(f"Creating calendar: {calendar_name}")
