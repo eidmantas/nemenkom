@@ -167,11 +167,12 @@ def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = Fa
                'should retry with ai' in err.lower()
         ]
         
-        # If we found parsing failure errors and AI was skipped, retry with AI enabled
-        if parsing_failure_errors and skip_ai:
+        # If we found parsing failure errors, retry with AI enabled (force AI on)
+        # This handles cases where router incorrectly chose traditional parser
+        if parsing_failure_errors:
             print(f"\n⚠️  Found {len(parsing_failure_errors)} parsing failure(s) - retrying with AI parser enabled...")
             try:
-                # Retry parsing with AI enabled
+                # Retry parsing with AI enabled (force AI, even if it was used before)
                 parsed_data_retry = parse_xlsx(file_path, year, skip_ai=False)
                 data_valid_retry, data_errors_retry = validate_parsed_data(parsed_data_retry)
                 
@@ -185,7 +186,7 @@ def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = Fa
                     data_valid = data_valid_retry
                     all_errors = struct_errors + data_errors_retry
                 else:
-                    print(f"⚠️  AI retry didn't improve parsing, using original result")
+                    print(f"⚠️  AI retry didn't improve parsing ({len(critical_errors_retry)} errors), using original result")
             except Exception as e:
                 print(f"⚠️  AI retry failed: {e}, using original parsed data")
         
