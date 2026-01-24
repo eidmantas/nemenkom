@@ -3,7 +3,6 @@ Main script to run the scraper - can be used for daily cron jobs
 """
 import sys
 import argparse
-import json
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -68,10 +67,7 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         print(f"\n3. Writing {len(parsed_data)} locations to database...")
         success = write_parsed_data(parsed_data, url, errors if not is_valid else None)
 
-        # Create calendars after successful database write (always)
-        if success:
-            print(f"\n4. Creating Google Calendars for schedule groups...")
-            create_calendars_for_schedule_groups()
+        # Note: Calendar creation is handled by background worker in scheduler.py
 
         # Cleanup
         if file_path.exists() and str(file_path).startswith(tempfile.gettempdir()):
