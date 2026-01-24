@@ -162,33 +162,23 @@ def create_calendar_for_schedule_group(
             location_count = 0
             village_count = 0
         
-        # Check total number of schedule groups to decide naming strategy
-        cursor.execute("SELECT COUNT(*) FROM schedule_groups")
-        total_schedule_groups = cursor.fetchone()[0]
-        conn.close()
-        
         waste_type = group_info['waste_type']
         
         # Create new calendar
         logger.debug("Getting Google Calendar service...")
         service = get_google_calendar_service()
 
-        # Create calendar name - use village when there are few calendars and single village
-        # Format: "[Village] - [Waste Type]" for small groups, "[Seniūnija] - [Waste Type]" for large groups
+        # Create calendar name - use village name when schedule group has only one village
+        # Format: "[Village] - [Waste Type]" for single-village groups, "[Seniūnija] - [Waste Type]" for multi-village groups
         waste_type_display = {
             'bendros': 'Bendros atliekos',
             'plastikas': 'Plastikas',
             'stiklas': 'Stiklas'
         }.get(waste_type, waste_type)
         
-        # Use village name if:
-        # 1. Total schedule groups is small (<= 20 calendars total)
-        # 2. This group has only one village
-        # 3. Location count is reasonable (not too many)
-        if total_schedule_groups <= 20 and village_count == 1 and location_count <= 50:
+        # Use village name if this schedule group covers only one village
+        if village_count == 1:
             # Get the village name
-            conn = get_db_connection()
-            cursor = conn.cursor()
             cursor.execute("""
                 SELECT DISTINCT village
                 FROM locations
@@ -196,7 +186,6 @@ def create_calendar_for_schedule_group(
                 LIMIT 1
             """, (kaimai_hash,))
             village_row = cursor.fetchone()
-            conn.close()
             
             if village_row:
                 village_name = village_row[0]
@@ -207,9 +196,11 @@ def create_calendar_for_schedule_group(
                 calendar_name = f"{seniunija} - {waste_type_display}"
                 calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
         else:
-            # Use seniunija for calendar name (more stable and meaningful for large groups)
+            # Use seniunija for calendar name when multiple villages share the schedule
             calendar_name = f"{seniunija} - {waste_type_display}"
             calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
+        
+        conn.close()
 
         # Create the calendar
         logger.debug(f"Creating calendar: {calendar_name}")
