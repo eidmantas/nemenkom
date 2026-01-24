@@ -368,7 +368,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
     try:
         service = get_google_calendar_service()
         
-        # Get all calendars from Google Calendar
+        # Get all calendars from Google Calendar that the service account can access
         calendars_result = service.calendarList().list().execute()
         all_calendars = calendars_result.get('items', [])
         
@@ -377,6 +377,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         our_calendars = []
         for calendar in all_calendars:
             # Skip primary calendar (usually the service account's main calendar)
+            # This is the default calendar and shouldn't be deleted
             if calendar.get('primary', False):
                 continue
             our_calendars.append({
@@ -415,16 +416,32 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
             # Actually delete orphaned calendars
             deleted_count = 0
             error_count = 0
-            for cal in orphaned:
+            for idx, cal in enumerate(orphaned):
                 try:
                     service.calendars().delete(calendarId=cal['calendar_id']).execute()
                     deleted_count += 1
                     print(f"🗑️  Deleted orphaned calendar: {cal['calendar_name']}")
+                    
+                    # Add delay between deletions to avoid rate limits (2-3 seconds)
+                    if idx < len(orphaned) - 1:  # Don't delay after last calendar
+                        delay = random.uniform(2.0, 3.0)
+                        time.sleep(delay)
+                except HttpError as e:
+                    if 'rateLimitExceeded' in str(e) or 'quotaExceeded' in str(e):
+                        error_count += 1
+                        print(f"⚠️  Rate limit hit - will retry later: {cal['calendar_name']}")
+                        # Wait longer on rate limit (5 seconds)
+                        time.sleep(5)
+                    else:
+                        error_count += 1
+                        print(f"❌ Failed to delete calendar {cal['calendar_name']}: {e}")
                 except Exception as e:
                     error_count += 1
                     print(f"❌ Failed to delete calendar {cal['calendar_name']}: {e}")
             
             print(f"\n✅ Cleanup complete: {deleted_count} deleted, {error_count} errors")
+            if error_count > 0:
+                print(f"   Run 'make clean-calendars' again to retry failed deletions")
         
         return orphaned
         
