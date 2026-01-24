@@ -328,8 +328,9 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                         traditional_parse_count -= 1  # Adjust counts
                         logger.debug(f"AI retry successful for: {kaimai_str[:80]}")
                     except Exception as e:
-                        logger.warning(f"AI retry also failed for '{kaimai_str[:50]}...': {e}, keeping traditional result")
-                        print(f"⚠️  AI retry also failed, keeping traditional parser result")
+                        logger.warning(f"AI retry also failed for '{kaimai_str[:50]}...': {e}, skipping this entry")
+                        print(f"⚠️  AI retry also failed for '{kaimai_str[:50]}...', skipping this malformed entry")
+                        parsed_items = []  # Skip this entry - don't write bad data
         
         if not parsed_items:
             continue
