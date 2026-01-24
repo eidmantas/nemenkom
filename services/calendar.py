@@ -176,6 +176,9 @@ def create_calendar_for_schedule_group(
             'stiklas': 'Stiklas'
         }.get(waste_type, waste_type)
         
+        # Generate short hash from schedule_group_id for internal identification (first 6 chars)
+        short_hash = schedule_group_id[:6] if len(schedule_group_id) >= 6 else schedule_group_id
+        
         # Use village name if this schedule group covers only one village
         if village_count == 1:
             # Get the village name
@@ -189,15 +192,15 @@ def create_calendar_for_schedule_group(
             
             if village_row:
                 village_name = village_row[0]
-                calendar_name = f"{village_name} - {waste_type_display}"
+                calendar_name = f"{village_name} - {waste_type_display} - {short_hash}"
                 calendar_description = f"Buitinių atliekų surinkimo grafikas: {village_name}, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
             else:
                 # Fallback to seniunija
-                calendar_name = f"{seniunija} - {waste_type_display}"
+                calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
                 calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
         else:
             # Use seniunija for calendar name when multiple villages share the schedule
-            calendar_name = f"{seniunija} - {waste_type_display}"
+            calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
             calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
         
         conn.close()
