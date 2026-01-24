@@ -372,25 +372,18 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         calendars_result = service.calendarList().list().execute()
         all_calendars = calendars_result.get('items', [])
         
-        # Filter for our waste schedule calendars (by naming pattern)
-        # Current naming: "[Village/Seniūnija] - [Waste Type] - [hash]"
-        # Old naming: "Nemenčinė Atliekos - ..." (from before)
+        # Include ALL calendars (don't filter by naming pattern)
+        # We'll check against database to find orphans
         our_calendars = []
         for calendar in all_calendars:
-            summary = calendar.get('summary', '')
-            # Match our calendar naming patterns:
-            # - Current: "[Village] - Bendros atliekos - sg_xxx" or "[Seniūnija] - Bendros atliekos - sg_xxx"
-            # - Old: "Nemenčinė Atliekos - ..." (test/old calendars)
-            # - Also match calendars with "Atliekų surinkimas" in description
-            if (' - Bendros atliekos' in summary or \
-                ' - Plastikas' in summary or \
-                ' - Stiklas' in summary) and \
-               (' - sg_' in summary or 'Nemenčinė Atliekos' in summary):
-                our_calendars.append({
-                    'calendar_id': calendar['id'],
-                    'calendar_name': summary,
-                    'description': calendar.get('description', '')
-                })
+            # Skip primary calendar (usually the service account's main calendar)
+            if calendar.get('primary', False):
+                continue
+            our_calendars.append({
+                'calendar_id': calendar['id'],
+                'calendar_name': calendar.get('summary', ''),
+                'description': calendar.get('description', '')
+            })
         
         # Get all calendar_ids from database
         conn = get_db_connection()
