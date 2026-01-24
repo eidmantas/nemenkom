@@ -85,12 +85,25 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
             critical_errors.append(f"Item {i} has empty seniunija")
         
         # Validate village is not empty
-        if not item.get('village', '').strip():
+        village = item.get('village', '').strip()
+        if not village:
             critical_errors.append(f"Item {i} has empty village")
+        else:
+            # Check if village contains street-like patterns (indicates parsing failure)
+            # This happens when traditional parser fails to properly separate village from streets
+            if (
+                '(' in village and 'g.' in village or  # Village contains parentheses with streets
+                village.count('g.') > 1 or  # Multiple street endings in village
+                (',' in village and 'g.' in village and not village.strip().startswith('('))  # Streets mixed in village
+            ):
+                critical_errors.append(
+                    f"Item {i} has invalid village format (contains street patterns): '{village[:50]}...' "
+                    f"- indicates parsing failure, should retry with AI parser"
+                )
         
         # Street can be empty (means whole village), but must be present
         if 'street' not in item:
-            critical_errors.append(f"Item {i} missing 'street' key (can be empty string)")
+            critical_errors.append(f"Item {i} missing 'street' key (can be empty string)")(f"Item {i} missing 'street' key (can be empty string)")
         
         # Validate dates
         dates = item.get('dates', [])
