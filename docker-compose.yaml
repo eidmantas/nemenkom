@@ -11,6 +11,7 @@ services:
       - ./secrets:/app/secrets:ro  # Mount secrets as read-only
     environment:
       - FLASK_ENV=production
+      - TZ=Europe/Vilnius
     restart: unless-stopped
 
   scraper:
