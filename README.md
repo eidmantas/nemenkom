@@ -235,12 +235,10 @@ See `database/schema.sql` for full schema.
 ## Documentation
 
 - **`documentation/ARCHITECTURE.md`** - System architecture and design
+- **`documentation/DESIGN-CHANGE.md`** - Option B: Stable Calendar IDs design (current implementation)
 - **`documentation/HYBRID_PARSER.md`** - Hybrid parser implementation (traditional + AI)
 - **`documentation/AI-AGENT.md`** - Full context for AI agents (for continuation)
-- **`documentation/DECISION_SCHEDULE_GROUPS.md`** - Database schema decisions
-- **`documentation/DESIGN-CHANGE.md`** - Option B: Stable Calendar IDs design (current implementation)
 - **`documentation/TESTING.md`** - Testing strategy and setup
-- **`documentation/AI_COST_ANALYSIS.md`** - Historical: AI options analysis (we chose Groq)
 
 ## Development Notes
 

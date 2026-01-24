@@ -15,10 +15,12 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
   - `scraper/validator.py` - Validates data structure and format
   - `scraper/db_writer.py` - Writes validated data to SQLite
 - **Database Schema** (SQLite):
-  - `schedule_groups` table: `id` (hash-based), `waste_type`, `dates` (JSON), `kaimai_hashes` (JSON)
-  - `locations` table: `id`, `village`, `street`, `kaimai_hash` (no FK - query by hash match)
+  - `schedule_groups` table: `id` (stable hash of `kaimai_hash + waste_type`), `waste_type`, `dates` (JSON), `kaimai_hash` (single TEXT), `dates_hash`, `calendar_id`, `calendar_synced_at`
+  - `locations` table: `id`, `seniunija`, `village`, `street`, `house_numbers`, `kaimai_hash` (links to schedule_groups)
+  - `calendar_events` table: Tracks Google Calendar events per date for resume-on-failure
   - `data_fetches` table: `id`, `fetch_date`, `source_url`, `status`, `validation_errors`
   - **Note**: No `pickup_dates` table - dates stored in `schedule_groups.dates` JSON (eliminates 95% duplication)
+  - **See**: `documentation/DESIGN-CHANGE.md` for full schema details (Option B: Stable Calendar IDs)
 
 ### 2. API Module (`api/`)
 
@@ -45,14 +47,18 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
   - **Calendar View**: Displays pickup dates for selected location
   - **Responsive Design**: Basic responsive layout
 
-### 4. Calendar Generator (`calendar/`)
+### 4. Google Calendar Service (`services/`)
 
-- **Purpose**: Generate Google Calendar events for all locations
+- **Purpose**: Automatic Google Calendar creation and synchronization
 - **Files**:
-  - `calendar/generator.py` - Reads from DB and creates calendar events
-  - `calendar/google_calendar.py` - Google Calendar API integration (refactored from existing)
-- **API Endpoint**:
-  - `POST /api/v1/generate-calendars` - Generate calendars for all schedule groups
+  - `services/calendar.py` - Google Calendar API integration, calendar creation, event sync
+- **Features**:
+  - Background worker for asynchronous calendar creation and event sync
+  - Stable calendar IDs (calendars remain stable when dates change)
+  - In-place event updates (delete old, add new) - maintains user subscriptions
+  - Public calendar access - calendars automatically made publicly readable
+  - Calendar cleanup tools for orphaned calendars
+- **See**: `documentation/DESIGN-CHANGE.md` for full design details
 
 ### 5. Database (`database/`)
 
@@ -69,10 +75,10 @@ Scraper (daily cron) → Validator → SQLite DB → API → Web Interface
 
 ## Module Dependencies
 
-- `scraper/` → `database/` (writes data)
-- `api/` → `database/` (reads data)
-- `web/` → `api/` (via HTTP requests or shared Flask app)
-- `calendar/` → `database/` (reads data), `google_calendar.py` (creates events)
+- `scraper/` → `database/` (writes data), `services/calendar.py` (calendar sync)
+- `api/` → `database/` (reads data), `services/calendar.py` (calendar status)
+- `web/` → `api/` (via HTTP requests)
+- `services/calendar.py` → `database/` (reads/writes calendar data), Google Calendar API
 
 ## Key Design Decisions
 
@@ -104,10 +110,8 @@ nemenkom/
 │       │   └── style.css
 │       └── js/
 │           └── calendar.js
-├── calendar/
-│   ├── __init__.py
-│   ├── generator.py
-│   └── google_calendar.py
+├── services/
+│   └── calendar.py          # Google Calendar API integration
 ├── database/
 │   ├── schema.sql
 │   ├── init.py
@@ -120,20 +124,20 @@ nemenkom/
 ├── docker-compose.yml
 └── documentation/
     ├── ARCHITECTURE.md          # System architecture overview
+    ├── DESIGN-CHANGE.md        # Option B: Stable Calendar IDs design (current implementation)
     ├── HYBRID_PARSER.md         # Hybrid parser implementation details
-    ├── AI-AGENT.md              # Full context for AI agents
-    ├── DECISION_SCHEDULE_GROUPS.md  # Database schema decisions
-    ├── TESTING.md               # Testing strategy and setup
-    └── AI_COST_ANALYSIS.md      # Historical: AI options analysis (we chose Groq)
+    ├── AI-AGENT.md              # Full context for AI agents (for continuation)
+    └── TESTING.md               # Testing strategy and setup
 ```
 
 ## Implementation Phases
 
-1. **Phase 1**: Database schema + scraper module (fetcher, parser, validator, db_writer)
-2. **Phase 2**: API module (POST/GET endpoints)
-3. **Phase 3**: Web interface (Flask templates with calendar)
-4. **Phase 4**: Calendar generator (batch generation for all locations)
-5. **Phase 5**: Web scraping for dynamic URL discovery (V1.1)
+1. **Phase 1**: Database schema + scraper module (fetcher, parser, validator, db_writer) ✅
+2. **Phase 2**: API module (GET endpoints) ✅
+3. **Phase 3**: Web interface (Flask templates with calendar) ✅
+4. **Phase 4**: Google Calendar integration (stable IDs, background sync, in-place updates) ✅
+5. **Phase 5**: Multi-waste-type support (future)
+6. **Phase 6**: Web scraping for dynamic URL discovery (future)
 
 ## Data Validation Strategy
 
@@ -210,7 +214,9 @@ nemenkom/
         │ schedule_groups (id TEXT,          │
         │                  waste_type,       │
         │                  dates JSON,       │
-        │                  kaimai_hashes JSON)│
+        │                  kaimai_hash TEXT, │
+        │                  calendar_id,     │
+        │                  calendar_synced_at)│
         └─────────────────────────────────────┘
 ```
 

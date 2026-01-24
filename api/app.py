@@ -1,25 +1,32 @@
 """
 Flask API application for waste schedule data
 """
-from flask import Flask, jsonify, request, render_template, redirect
+
 from flasgger import Swagger
-from functools import wraps
+from flask import Flask, jsonify, redirect, render_template, request
+
 from api.db import (
-    get_all_locations, get_location_schedule, get_schedule_group_schedule, search_locations,
-    get_unique_villages, get_streets_for_village, get_house_numbers_for_street, get_location_by_selection,
-    village_has_streets, street_has_house_numbers
+    get_all_locations,
+    get_house_numbers_for_street,
+    get_location_by_selection,
+    get_location_schedule,
+    get_schedule_group_schedule,
+    get_streets_for_village,
+    get_unique_villages,
+    search_locations,
+    street_has_house_numbers,
+    village_has_streets,
 )
 from services.calendar import (
+    generate_calendar_subscription_link,
     get_existing_calendar_info,
-    list_available_calendars, generate_calendar_subscription_link
+    list_available_calendars,
 )
 
 # Note: API is read-only (all GET endpoints) - no authentication needed
 # All writes (data ingestion, calendar creation) are handled by the scraper service
 
-app = Flask(__name__, 
-            template_folder='../web/templates',
-            static_folder='../web/static')
+app = Flask(__name__, template_folder="../web/templates", static_folder="../web/static")
 
 # Initialize Swagger
 swagger_config = {
@@ -28,13 +35,13 @@ swagger_config = {
         {
             "endpoint": "apispec",
             "route": "/apispec.json",
-            "rule_filter": lambda rule: True,
-            "model_filter": lambda tag: True,
+            "rule_filter": lambda _rule: True,
+            "model_filter": lambda _tag: True,
         }
     ],
     "static_url_path": "/flasgger_static",
     "swagger_ui": True,
-    "specs_route": "/api-docs"
+    "specs_route": "/api-docs",
 }
 
 swagger_template = {
@@ -42,7 +49,7 @@ swagger_template = {
     "info": {
         "title": "Waste Schedule API",
         "description": "REST API for waste collection schedules. All endpoints are read-only (GET only).",
-        "version": "1.0.0"
+        "version": "1.0.0",
     },
     "host": "localhost:3333",
     "basePath": "/api/v1",
@@ -55,24 +62,28 @@ swagger = Swagger(app, config=swagger_config, template=swagger_template)
 # Default URL for fetching
 DEFAULT_XLSX_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
 
+
 # Security: Only allow GET methods for API endpoints
 @app.before_request
 def only_get_allowed():
     """Reject all non-GET requests for security"""
-    if request.method != 'GET' and request.path.startswith('/api/'):
-        return jsonify({'error': 'Only GET method is allowed'}), 405
+    if request.method != "GET" and request.path.startswith("/api/"):
+        return jsonify({"error": "Only GET method is allowed"}), 405
 
-@app.route('/')
+
+@app.route("/")
 def index():
     """Main web page"""
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/api-docs')
+
+@app.route("/api-docs")
 def api_docs():
     """Redirect to Swagger UI"""
-    return redirect('/api-docs/index.html')
+    return redirect("/api-docs/index.html")
 
-@app.route('/api/v1/locations', methods=['GET'])
+
+@app.route("/api/v1/locations", methods=["GET"])
 def api_locations():
     """
     Get all locations or search locations
@@ -112,19 +123,17 @@ def api_locations():
             count:
               type: integer
     """
-    query = request.args.get('q', '')
-    
+    query = request.args.get("q", "")
+
     if query:
         locations = search_locations(query)
     else:
         locations = get_all_locations()
-    
-    return jsonify({
-        'locations': locations,
-        'count': len(locations)
-    })
 
-@app.route('/api/v1/schedule', methods=['GET'])
+    return jsonify({"locations": locations, "count": len(locations)})
+
+
+@app.route("/api/v1/schedule", methods=["GET"])
 def api_schedule():
     """
     Get schedule for a specific location
@@ -214,57 +223,73 @@ def api_schedule():
       404:
         description: Location not found
     """
-    location_id = request.args.get('location_id', type=int)
-    seniunija = request.args.get('seniunija', '')
-    village = request.args.get('village', '')
-    street = request.args.get('street', None)  # None if not provided, '' if empty string provided
-    house_numbers = request.args.get('house_numbers', None)  # None if not provided
-    
+    location_id = request.args.get("location_id", type=int)
+    seniunija = request.args.get("seniunija", "")
+    village = request.args.get("village", "")
+    street = request.args.get(
+        "street", None
+    )  # None if not provided, '' if empty string provided
+    house_numbers = request.args.get("house_numbers", None)  # None if not provided
+
     if location_id:
         schedule = get_location_schedule(location_id=location_id)
     elif seniunija and village:
-        
+
         # Validate based on what exists in database:
         # 1. If village has streets, street parameter must be provided
         # 2. If street has house numbers, house_numbers parameter must be provided
-        
+
         if village_has_streets(seniunija, village):
             # Village has streets, so street must be provided
             if street is None:
-                return jsonify({
-                    'error': 'This village has streets. Please select a street.'
-                }), 400
+                return (
+                    jsonify(
+                        {"error": "This village has streets. Please select a street."}
+                    ),
+                    400,
+                )
             street_value = street
         else:
             # Village has no streets, use empty string
-            street_value = ''
-        
+            street_value = ""
+
         # Check if street has house numbers
         if street_has_house_numbers(seniunija, village, street_value):
             # Street has house numbers, so house_numbers must be provided
             if house_numbers is None:
-                return jsonify({
-                    'error': 'This street has specific house numbers. Please select a house number.'
-                }), 400
-        
-        location = get_location_by_selection(seniunija, village, street_value, house_numbers)
+                return (
+                    jsonify(
+                        {
+                            "error": "This street has specific house numbers. Please select a house number."
+                        }
+                    ),
+                    400,
+                )
+
+        location = get_location_by_selection(
+            seniunija, village, street_value, house_numbers
+        )
         if location:
-            schedule = get_location_schedule(location_id=location['id'])
+            schedule = get_location_schedule(location_id=location["id"])
         else:
             schedule = None
     else:
-        return jsonify({
-            'error': 'Must provide either location_id or both seniunija and village'
-        }), 400
-    
+        return (
+            jsonify(
+                {
+                    "error": "Must provide either location_id or both seniunija and village"
+                }
+            ),
+            400,
+        )
+
     if not schedule:
-        return jsonify({
-            'error': 'Location not found'
-        }), 404
-    
+        return jsonify({"error": "Location not found"}), 404
+
     return jsonify(schedule)
 
-@app.route('/api/v1/schedule-group/<schedule_group_id>', methods=['GET'])
+
+@app.route("/api/v1/schedule-group/<schedule_group_id>", methods=["GET"])
 def api_schedule_group(schedule_group_id):
     """
     Get schedule for a schedule group (hash-based ID)
@@ -302,17 +327,18 @@ def api_schedule_group(schedule_group_id):
       404:
         description: Schedule group not found
     """
-    waste_type = request.args.get('waste_type', 'bendros')
+    waste_type = request.args.get("waste_type", "bendros")
     schedule = get_schedule_group_schedule(schedule_group_id, waste_type)
-    
+
     # Add subscription_link if calendar_id exists
-    if schedule.get('metadata', {}).get('calendar_id'):
-        calendar_id = schedule['metadata']['calendar_id']
-        schedule['subscription_link'] = generate_calendar_subscription_link(calendar_id)
-    
+    if schedule.get("metadata", {}).get("calendar_id"):
+        calendar_id = schedule["metadata"]["calendar_id"]
+        schedule["subscription_link"] = generate_calendar_subscription_link(calendar_id)
+
     return jsonify(schedule)
 
-@app.route('/api/v1/villages', methods=['GET'])
+
+@app.route("/api/v1/villages", methods=["GET"])
 def api_villages():
     """
     Get list of unique villages with their seniunija
@@ -336,9 +362,10 @@ def api_villages():
                     type: string
     """
     villages = get_unique_villages()
-    return jsonify({'villages': villages})
+    return jsonify({"villages": villages})
 
-@app.route('/api/v1/streets', methods=['GET'])
+
+@app.route("/api/v1/streets", methods=["GET"])
 def api_streets():
     """
     Get list of streets for a village
@@ -369,16 +396,17 @@ def api_streets():
       400:
         description: Missing required parameters
     """
-    seniunija = request.args.get('seniunija', '')
-    village = request.args.get('village', '')
-    
-    if not seniunija or not village:
-        return jsonify({'error': 'seniunija and village parameters required'}), 400
-    
-    streets = get_streets_for_village(seniunija, village)
-    return jsonify({'streets': streets})
+    seniunija = request.args.get("seniunija", "")
+    village = request.args.get("village", "")
 
-@app.route('/api/v1/house-numbers', methods=['GET'])
+    if not seniunija or not village:
+        return jsonify({"error": "seniunija and village parameters required"}), 400
+
+    streets = get_streets_for_village(seniunija, village)
+    return jsonify({"streets": streets})
+
+
+@app.route("/api/v1/house-numbers", methods=["GET"])
 def api_house_numbers():
     """
     Get list of house numbers for a street
@@ -414,18 +442,19 @@ def api_house_numbers():
       400:
         description: Missing required parameters
     """
-    seniunija = request.args.get('seniunija', '')
-    village = request.args.get('village', '')
-    street = request.args.get('street', '')
-    
-    if not seniunija or not village:
-        return jsonify({'error': 'seniunija and village parameters required'}), 400
-    
-    # street can be empty string for whole village
-    house_numbers = get_house_numbers_for_street(seniunija, village, street or '')
-    return jsonify({'house_numbers': house_numbers})
+    seniunija = request.args.get("seniunija", "")
+    village = request.args.get("village", "")
+    street = request.args.get("street", "")
 
-@app.route('/api/v1/available-calendars', methods=['GET'])
+    if not seniunija or not village:
+        return jsonify({"error": "seniunija and village parameters required"}), 400
+
+    # street can be empty string for whole village
+    house_numbers = get_house_numbers_for_street(seniunija, village, street or "")
+    return jsonify({"house_numbers": house_numbers})
+
+
+@app.route("/api/v1/available-calendars", methods=["GET"])
 def api_available_calendars():
     """
     List all available Google Calendars (GET - public)
@@ -457,9 +486,10 @@ def api_available_calendars():
         description: Invalid or missing API key
     """
     calendars = list_available_calendars()
-    return jsonify({'calendars': calendars})
+    return jsonify({"calendars": calendars})
 
-@app.route('/api/v1/calendar-info/<calendar_id>', methods=['GET'])
+
+@app.route("/api/v1/calendar-info/<calendar_id>", methods=["GET"])
 def api_calendar_info(calendar_id):
     """
     Get information about a specific calendar (GET - public)
@@ -495,13 +525,15 @@ def api_calendar_info(calendar_id):
     """
     calendar_info = get_existing_calendar_info(calendar_id)
     if not calendar_info:
-        return jsonify({'error': 'Calendar not found'}), 404
+        return jsonify({"error": "Calendar not found"}), 404
 
     return jsonify(calendar_info)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Initialize database if needed
     from database.init import init_database
+
     init_database()
-    
-    app.run(host='0.0.0.0', port=3333, debug=True)
+
+    app.run(host="0.0.0.0", port=3333, debug=True)

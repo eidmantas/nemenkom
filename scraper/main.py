@@ -1,22 +1,25 @@
 """
 Main script to run the scraper - can be used for daily cron jobs
 """
-import sys
+
 import argparse
+import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraper.core.fetcher import fetch_xlsx, DEFAULT_URL
-from scraper.core.validator import validate_file_and_data
-from scraper.core.db_writer import write_parsed_data
-from database.init import init_database, get_db_connection
 import tempfile
+
+from database.init import get_db_connection, init_database
+from scraper.core.db_writer import write_parsed_data
+from scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
+from scraper.core.validator import validate_file_and_data
+
 
 def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
     """Run the scraper with given parameters
-    
+
     Args:
         skip_ai: If True, skip AI parsing (use traditional parser only)
         file_path: Path to local xlsx file (if not provided, will fetch from URL)
@@ -51,7 +54,9 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
 
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
-        is_valid, errors, parsed_data = validate_file_and_data(file_path, year, skip_ai=skip_ai)
+        is_valid, errors, parsed_data = validate_file_and_data(
+            file_path, year, skip_ai=skip_ai
+        )
 
         if errors:
             print(f"\n⚠️  Validation warnings/errors:")
@@ -83,23 +88,29 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 
+
 def main():
     """Main scraper function (CLI entry point)"""
-    parser = argparse.ArgumentParser(description='Waste Schedule Scraper')
-    parser.add_argument('--skip-ai', action='store_true',
-                        help='Skip AI parsing (use traditional parser only). Default: AI parsing enabled')
-    parser.add_argument('--file', type=str, default=None,
-                        help='Path to local xlsx file (if not provided, will fetch from URL)')
+    parser = argparse.ArgumentParser(description="Waste Schedule Scraper")
+    parser.add_argument(
+        "--skip-ai",
+        action="store_true",
+        help="Skip AI parsing (use traditional parser only). Default: AI parsing enabled",
+    )
+    parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="Path to local xlsx file (if not provided, will fetch from URL)",
+    )
     args = parser.parse_args()
 
-    return run_scraper(
-        skip_ai=args.skip_ai,
-        file_path=args.file
-    )
+    return run_scraper(skip_ai=args.skip_ai, file_path=args.file)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

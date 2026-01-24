@@ -2,25 +2,30 @@
 AI Parser - Uses Groq LLM to parse complex Kaimai strings
 Returns same format as traditional parser for seamless integration
 """
+
 import json
+import logging
 import re
-from typing import List, Tuple, Optional
+import sys
+from pathlib import Path
+from typing import List, Optional, Tuple
+
 from groq import Groq
 
 from scraper.ai.cache import get_cache
 from scraper.ai.rate_limiter import get_rate_limiter
-import sys
-from pathlib import Path
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
 
+logger = logging.getLogger(__name__)
+
 
 def create_parsing_prompt(kaimai_str: str, error_context: Optional[str] = None) -> str:
     """
     Create prompt for Groq to parse Kaimai string into structured format
-    
+
     Args:
         kaimai_str: The location string to parse
         error_context: Optional context about previous parsing failures (for retries)
@@ -28,7 +33,7 @@ def create_parsing_prompt(kaimai_str: str, error_context: Optional[str] = None) 
     error_note = ""
     if error_context:
         error_note = f"\n\n⚠️ RETRY ATTEMPT - Previous parsing failed:\n{error_context}\n\nPlease pay special attention to correctly separating the village name from street names. The village name should NOT contain parentheses, street names, or house numbers.\n"
-    
+
     return f"""Parse this Lithuanian location string into structured JSON format.{error_note}
 
 TASK: Extract the village/city name, street names, and house numbers from this Lithuanian location string. House numbers may appear in various formats: explicit lists ("26, 28"), ranges with "nuo...iki" ("nuo 18 iki 18U"), special cases ("nuo 107", "iki 5"), or directly after street names.
@@ -121,7 +126,7 @@ Return ONLY valid JSON, no explanations."""
 def normalize_house_numbers(house_numbers: Optional[str]) -> Optional[str]:
     """
     Normalize house numbers to compact format
-    
+
     Rules:
     - Remove "nuo", "iki", "Nr." prefixes
     - Remove spaces around commas
@@ -131,31 +136,41 @@ def normalize_house_numbers(house_numbers: Optional[str]) -> Optional[str]:
     """
     if not house_numbers:
         return None
-    
+
     house_numbers = house_numbers.strip()
-    
+
     # Reject obviously invalid formats (single letter, very short)
     if len(house_numbers) <= 1 and not house_numbers.isdigit():
         return None
-    
+
     # Handle special cases first
     if house_numbers.startswith("iki "):
         # "iki X" → "≤X"
-        rest = house_numbers.replace("iki ", "").replace("Nr.", "").replace("Nr", "").strip()
+        rest = (
+            house_numbers.replace("iki ", "")
+            .replace("Nr.", "")
+            .replace("Nr", "")
+            .strip()
+        )
         return f"≤{rest}" if rest else None
-    
+
     if house_numbers.startswith("nuo ") and " iki " not in house_numbers:
         # "nuo X" (no end) → "≥X"
-        rest = house_numbers.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
+        rest = (
+            house_numbers.replace("nuo ", "")
+            .replace("Nr.", "")
+            .replace("Nr", "")
+            .strip()
+        )
         return f"≥{rest}" if rest else None
-    
+
     # Handle special cases first
     if house_numbers.startswith("iki ") and " iki " not in house_numbers[4:]:
         return f"≤{house_numbers[4:].replace('Nr.', '').replace('Nr', '').strip()}"
-    
+
     if house_numbers.startswith("nuo ") and " iki " not in house_numbers:
         return f"≥{house_numbers[4:].replace('Nr.', '').replace('Nr', '').strip()}"
-    
+
     # Handle ranges: "nuo X iki Y" → "X-Y"
     if " iki " in house_numbers:
         # Split by ", nuo " to handle multiple ranges
@@ -167,7 +182,12 @@ def normalize_house_numbers(house_numbers: Optional[str]) -> Optional[str]:
                     part = "nuo " + part
                 if " iki " in part:
                     start, end = part.split(" iki ", 1)
-                    start = start.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
+                    start = (
+                        start.replace("nuo ", "")
+                        .replace("Nr.", "")
+                        .replace("Nr", "")
+                        .strip()
+                    )
                     end = end.split(",")[0].strip()
                     start = start.replace(", ", ",")
                     normalized_parts.append(f"{start}-{end}")
@@ -175,179 +195,208 @@ def normalize_house_numbers(house_numbers: Optional[str]) -> Optional[str]:
         else:
             # Single range
             start, end = house_numbers.split(" iki ", 1)
-            start = start.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
+            start = (
+                start.replace("nuo ", "").replace("Nr.", "").replace("Nr", "").strip()
+            )
             end = end.split(",")[0].strip()
             start = start.replace(", ", ",")
             return f"{start}-{end}"
-    
+
     # Basic cleanup: remove prefixes, clean spacing
-    normalized = house_numbers.replace("nuo ", "").replace("iki ", "").replace("Nr.", "").replace("Nr", "").strip()
+    normalized = (
+        house_numbers.replace("nuo ", "")
+        .replace("iki ", "")
+        .replace("Nr.", "")
+        .replace("Nr", "")
+        .strip()
+    )
     normalized = normalized.replace(", ", ",").replace(" ,", ",")
-    
+
     return normalized if normalized else None
 
 
 def validate_ai_output(parsed_json: dict) -> Tuple[bool, Optional[str]]:
     """
     Validate AI parser output structure
-    
+
     Returns:
         (is_valid, error_message)
     """
     # Check required keys
     if not isinstance(parsed_json, dict):
         return (False, "Output is not a dictionary")
-    
-    if 'village' not in parsed_json:
+
+    if "village" not in parsed_json:
         return (False, "Missing 'village' key")
-    
-    if 'streets' not in parsed_json:
+
+    if "streets" not in parsed_json:
         return (False, "Missing 'streets' key")
-    
+
     # Validate village
-    village = parsed_json.get('village', '')
+    village = parsed_json.get("village", "")
     if not isinstance(village, str) or not village.strip():
         return (False, "Village must be a non-empty string")
-    
+
     # Validate streets
-    streets = parsed_json.get('streets', [])
+    streets = parsed_json.get("streets", [])
     if not isinstance(streets, list):
         return (False, "'streets' must be a list")
-    
+
     # Validate each street entry
     for i, street_entry in enumerate(streets):
         if not isinstance(street_entry, dict):
             return (False, f"Street entry {i} is not a dictionary")
-        
-        if 'street' not in street_entry:
+
+        if "street" not in street_entry:
             return (False, f"Street entry {i} missing 'street' key")
-        
-        street_name = street_entry.get('street', '')
+
+        street_name = street_entry.get("street", "")
         if not isinstance(street_name, str) or not street_name.strip():
             return (False, f"Street entry {i} has invalid street name")
-        
-        house_numbers = street_entry.get('house_numbers')
+
+        house_numbers = street_entry.get("house_numbers")
         if house_numbers is not None:
             if not isinstance(house_numbers, str):
-                return (False, f"Street entry {i} has invalid house_numbers (must be string or null)")
-            
+                return (
+                    False,
+                    f"Street entry {i} has invalid house_numbers (must be string or null)",
+                )
+
             # Reject obviously invalid house numbers (single letter, very short)
             house_numbers_stripped = house_numbers.strip()
-            if len(house_numbers_stripped) <= 1 and not house_numbers_stripped.isdigit():
-                return (False, f"Street entry {i} has invalid house_numbers format: '{house_numbers}' (too short/invalid)")
-    
+            if (
+                len(house_numbers_stripped) <= 1
+                and not house_numbers_stripped.isdigit()
+            ):
+                return (
+                    False,
+                    f"Street entry {i} has invalid house_numbers format: '{house_numbers}' (too short/invalid)",
+                )
+
     return (True, None)
 
 
 def convert_to_parser_format(parsed_json: dict) -> List[Tuple[str, Optional[str]]]:
     """
     Convert AI output to same format as parse_village_and_streets()
-    
+
     Returns:
         List of tuples: [(village_name, None), (street1, house_nums1), ...]
     """
     result = []
-    
-    village = parsed_json.get('village', '').strip()
+
+    village = parsed_json.get("village", "").strip()
     if not village:
         return []
-    
+
     # First tuple is always (village, None)
     result.append((village, None))
-    
+
     # Add streets
-    streets = parsed_json.get('streets', [])
+    streets = parsed_json.get("streets", [])
     for street_entry in streets:
-        street_name = street_entry.get('street', '').strip()
+        street_name = street_entry.get("street", "").strip()
         if not street_name:
             continue
-        
-        house_numbers = street_entry.get('house_numbers')
+
+        house_numbers = street_entry.get("house_numbers")
         # Normalize house numbers format (safety net - AI should return normalized values per prompt,
         # but we normalize here to handle cases where AI returns raw values like "nuo Nr. 2 iki 20A, nuo 1 iki 19")
-        house_numbers_str = normalize_house_numbers(house_numbers) if house_numbers else None
-        
+        house_numbers_str = (
+            normalize_house_numbers(house_numbers) if house_numbers else None
+        )
+
         result.append((street_name, house_numbers_str))
-    
+
     return result
 
 
-def parse_with_ai(kaimai_str: str, error_context: Optional[str] = None, max_retries: int = 2) -> List[Tuple[str, Optional[str]]]:
+def parse_with_ai(
+    kaimai_str: str, error_context: Optional[str] = None, max_retries: int = 2
+) -> List[Tuple[str, Optional[str]]]:
     """
     Parse complex Kaimai string using Groq AI with retry logic
-    
+
     Uses cache and rate limiter for efficiency.
     Returns same format as parse_village_and_streets() for seamless integration.
-    
+
     Args:
         kaimai_str: Location string from Kaimai column
         error_context: Optional context about previous parsing failures (for retries)
         max_retries: Maximum number of retry attempts (default: 2)
-    
+
     Returns:
         List of tuples: [(village_name, None), (street1, house_nums1), ...]
         Same format as traditional parser
-    
+
     Raises:
         ValueError: If parsing fails or output is invalid after all retries
     """
     if not kaimai_str or not kaimai_str.strip():
         return []
-    
+
     kaimai_str = kaimai_str.strip()
-    
-    # Check cache first (only for non-retry attempts)
-    if not error_context:
-        cache = get_cache()
-        cached_result = cache.get(kaimai_str)
-        if cached_result is not None:
-            return cached_result
-    
+
+    # Check cache first - ALWAYS use cache if available (for idempotency)
+    # Even for retries, if we have a cached result, use it to ensure consistency
+    cache = get_cache()
+    cached_result = cache.get(kaimai_str)
+    if cached_result is not None:
+        # If we have error_context but also have a cached result, log a warning
+        # but still use the cache for idempotency
+        if error_context:
+            logger.warning(
+                f"Using cached result for '{kaimai_str[:50]}...' despite error_context (ensuring idempotency)"
+            )
+        return cached_result
+
     # Rate limit check
     rate_limiter = get_rate_limiter()
-    
+
     last_error = None
     last_error_context = error_context
-    
+
     for attempt in range(max_retries + 1):  # +1 for initial attempt
         try:
             rate_limiter.wait_if_needed()
-            
+
             # Call Groq API
             client = Groq(api_key=config.GROQ_API_KEY)
-            
+
             # Build error context for retry
             retry_context = last_error_context
             if attempt > 0 and last_error:
-                retry_context = f"Attempt {attempt} failed: {last_error}\n" + (last_error_context or "")
-            
+                retry_context = f"Attempt {attempt} failed: {last_error}\n" + (
+                    last_error_context or ""
+                )
+
             response = client.chat.completions.create(
                 model=config.GROQ_MODEL,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a parser for Lithuanian location strings. Return ONLY valid JSON, no explanations."
+                        "content": "You are a parser for Lithuanian location strings. Return ONLY valid JSON, no explanations.",
                     },
                     {
                         "role": "user",
-                        "content": create_parsing_prompt(kaimai_str, retry_context)
-                    }
+                        "content": create_parsing_prompt(kaimai_str, retry_context),
+                    },
                 ],
                 temperature=0.0,  # Zero temperature for maximum consistency
-                response_format={"type": "json_object"}  # Force JSON output
+                response_format={"type": "json_object"},  # Force JSON output
             )
-            
+
             # Extract JSON from response
             content = response.choices[0].message.content.strip()
-            
+
             # Parse JSON
             try:
                 parsed_json = json.loads(content)
             except json.JSONDecodeError as e:
                 # Try to extract JSON from markdown code blocks if present
-                if '```' in content:
-                    json_start = content.find('{')
-                    json_end = content.rfind('}') + 1
+                if "```" in content:
+                    json_start = content.find("{")
+                    json_end = content.rfind("}") + 1
                     if json_start >= 0 and json_end > json_start:
                         content = content[json_start:json_end]
                         parsed_json = json.loads(content)
@@ -355,28 +404,33 @@ def parse_with_ai(kaimai_str: str, error_context: Optional[str] = None, max_retr
                         raise ValueError(f"Failed to parse JSON from AI response: {e}")
                 else:
                     raise ValueError(f"Failed to parse JSON from AI response: {e}")
-            
+
             # Validate output
             is_valid, error_msg = validate_ai_output(parsed_json)
             if not is_valid:
                 raise ValueError(f"AI output validation failed: {error_msg}")
-            
+
             # Convert to parser format
             result = convert_to_parser_format(parsed_json)
-            
+
             # Get token usage before caching
-            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens') else 0
-            
+            tokens_used = (
+                response.usage.total_tokens
+                if hasattr(response, "usage")
+                and hasattr(response.usage, "total_tokens")
+                else 0
+            )
+
             # Cache the result with token usage (only for successful non-retry attempts)
             if not error_context:
                 cache = get_cache()
                 cache.set(kaimai_str, result, tokens_used=tokens_used)
-            
+
             # Update rate limiter with token usage
             rate_limiter.record_request(tokens_used)
-            
+
             return result
-            
+
         except Exception as e:
             last_error = str(e)
             if attempt < max_retries:
@@ -388,4 +442,6 @@ def parse_with_ai(kaimai_str: str, error_context: Optional[str] = None, max_retr
                 continue  # Retry
             else:
                 # All retries exhausted
-                raise ValueError(f"AI parsing failed after {max_retries + 1} attempts. Last error: {last_error}") ValueError(f"AI parsing failed for '{kaimai_str}': {str(e)}")
+                raise ValueError(
+                    f"AI parsing failed after {max_retries + 1} attempts. Last error: {last_error}"
+                )
