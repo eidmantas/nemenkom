@@ -191,10 +191,7 @@ def create_calendars_for_schedule_groups():
             
             # Create calendar (function checks database for existing calendar_id automatically)
             result = create_calendar_for_schedule_group(
-                schedule_group_id=sg_id,
-                location_name=sg_data['location'],
-                dates=sg_data['dates'],
-                waste_type=sg_data['waste_type']
+                schedule_group_id=sg_id
             )
 
             calendar_time = time.time() - calendar_start
