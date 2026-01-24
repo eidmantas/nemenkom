@@ -134,6 +134,7 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
 def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = False) -> Tuple[bool, List[str], List[Dict]]:
     """
     Complete validation: structure + parsed data
+    Automatically retries with AI parser if validation detects parsing failures
     
     Args:
         file_path: Path to xlsx file
@@ -157,6 +158,36 @@ def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = Fa
         parsed_data = parse_xlsx(file_path, year, skip_ai=skip_ai)
         data_valid, data_errors = validate_parsed_data(parsed_data)
         all_errors.extend(data_errors)
+        
+        # Check if validation errors indicate parsing failures that could be fixed with AI
+        parsing_failure_errors = [
+            err for err in data_errors 
+            if 'invalid village format' in err.lower() or 
+               'parsing failure' in err.lower() or
+               'should retry with ai' in err.lower()
+        ]
+        
+        # If we found parsing failure errors and AI was skipped, retry with AI enabled
+        if parsing_failure_errors and skip_ai:
+            print(f"\n⚠️  Found {len(parsing_failure_errors)} parsing failure(s) - retrying with AI parser enabled...")
+            try:
+                # Retry parsing with AI enabled
+                parsed_data_retry = parse_xlsx(file_path, year, skip_ai=False)
+                data_valid_retry, data_errors_retry = validate_parsed_data(parsed_data_retry)
+                
+                # Use retried data if it's better (fewer or no critical errors)
+                critical_errors_original = [e for e in data_errors if 'invalid village format' in e.lower() or 'parsing failure' in e.lower()]
+                critical_errors_retry = [e for e in data_errors_retry if 'invalid village format' in e.lower() or 'parsing failure' in e.lower()]
+                
+                if len(critical_errors_retry) < len(critical_errors_original):
+                    print(f"✅ AI retry improved parsing: {len(critical_errors_original)} -> {len(critical_errors_retry)} critical errors")
+                    parsed_data = parsed_data_retry
+                    data_valid = data_valid_retry
+                    all_errors = struct_errors + data_errors_retry
+                else:
+                    print(f"⚠️  AI retry didn't improve parsing, using original result")
+            except Exception as e:
+                print(f"⚠️  AI retry failed: {e}, using original parsed data")
         
         return (data_valid, all_errors, parsed_data)
     except Exception as e:

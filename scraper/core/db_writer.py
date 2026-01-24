@@ -204,7 +204,20 @@ def write_parsed_data(parsed_data: List[Dict], source_url: str, validation_error
         status = 'success' if not validation_errors else 'validation_error'
         log_fetch(conn, source_url, status, validation_errors)
         
-        if validation_errors:
+        # Check if validation errors indicate parsing failures that should prevent writing
+        # Only block writing if there are critical parsing errors (not just warnings)
+        critical_parsing_errors = [
+            err for err in (validation_errors or [])
+            if 'invalid village format' in err.lower() or 
+               'parsing failure' in err.lower() or
+               'missing required key' in err.lower() or
+               'empty village' in err.lower() or
+               'empty seniunija' in err.lower()
+        ]
+        
+        if critical_parsing_errors:
+            print(f"❌ Found {len(critical_parsing_errors)} critical parsing errors - not writing to database")
+            print(f"   Errors: {critical_parsing_errors[:3]}...")  # Show first 3
             conn.commit()
             return False
         
