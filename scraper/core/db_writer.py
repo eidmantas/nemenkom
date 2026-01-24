@@ -13,48 +13,81 @@ def generate_kaimai_hash(kaimai_str: str) -> str:
     hash_obj = hashlib.sha256(kaimai_str.encode())
     return f"k1_{hash_obj.hexdigest()[:12]}"
 
-def generate_schedule_group_id(dates: List[date], waste_type: str = 'bendros') -> str:
-    """Generate hash-based schedule group ID"""
-    if not dates:
-        date_str = ''
-    else:
-        date_str = ','.join(sorted([d.isoformat() if isinstance(d, date) else str(d) for d in dates]))
-    combined = f"{waste_type}:{date_str}"
+def generate_schedule_group_id(kaimai_hash: str, waste_type: str = 'bendros') -> str:
+    """
+    Generate STABLE schedule group ID from kaimai_hash + waste_type
+    
+    This ID NEVER changes, even when dates change.
+    This ensures calendar IDs remain stable for users.
+    """
+    combined = f"{waste_type}:{kaimai_hash}"
     hash_obj = hashlib.sha256(combined.encode())
     hash_hex = hash_obj.hexdigest()[:12]
     return f"sg_{hash_hex}"
 
+def generate_dates_hash(dates: List[date]) -> str:
+    """
+    Generate hash of sorted dates for change detection
+    
+    Used to detect when schedule dates have changed and calendar needs re-sync
+    """
+    if not dates:
+        return ""
+    date_str = ','.join(sorted([d.isoformat() if isinstance(d, date) else str(d) for d in dates]))
+    hash_obj = hashlib.sha256(date_str.encode())
+    return hash_obj.hexdigest()[:16]
+
 def find_or_create_schedule_group(conn: sqlite3.Connection, dates: List, waste_type: str, kaimai_hash: str) -> str:
     """
-    Find existing schedule group with same dates, or create new one
-    Uses hash-based ID for deterministic grouping
+    Find existing schedule group by stable ID (kaimai_hash + waste_type), or create new one.
+    
+    OPTION B: Uses stable ID that never changes, even when dates change.
+    Detects date changes via dates_hash and marks calendar for re-sync.
     
     Args:
         conn: Database connection
         dates: List of date objects
         waste_type: Waste type ('bendros', 'plastikas', etc.)
-        kaimai_hash: Hash of original Kaimai string
+        kaimai_hash: Hash of original Kaimai string (single value, not JSON array)
     
     Returns:
-        schedule_group_id (hash-based string like "sg_a3f8b2c1d4e5")
+        schedule_group_id (stable hash-based string like "sg_a3f8b2c1d4e5")
     """
-    schedule_group_id = generate_schedule_group_id(dates, waste_type)
+    # Generate STABLE ID (based on kaimai_hash + waste_type, NOT dates!)
+    schedule_group_id = generate_schedule_group_id(kaimai_hash, waste_type)
+    new_dates_hash = generate_dates_hash(dates)
     cursor = conn.cursor()
     
-    # Check if schedule group exists
-    cursor.execute("SELECT kaimai_hashes FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    # Check if schedule group exists (by stable ID)
+    cursor.execute("SELECT dates_hash FROM schedule_groups WHERE id = ?", (schedule_group_id,))
     row = cursor.fetchone()
     
     if row:
-        # Update kaimai_hashes (add this hash if not present)
-        existing_hashes = json.loads(row[0] or '[]')
-        if kaimai_hash not in existing_hashes:
-            existing_hashes.append(kaimai_hash)
+        # Schedule group exists - check if dates changed
+        existing_dates_hash = row[0]
+        
+        if existing_dates_hash != new_dates_hash:
+            # Dates changed! Update dates and mark calendar for re-sync
+            if not dates:
+                first_date = None
+                last_date = None
+                date_count = 0
+            else:
+                first_date = min(dates).isoformat()
+                last_date = max(dates).isoformat()
+                date_count = len(dates)
+            
+            # Convert dates to JSON array
+            dates_json = json.dumps([d.isoformat() if isinstance(d, date) else str(d) for d in sorted(dates)])
+            
             cursor.execute("""
                 UPDATE schedule_groups 
-                SET kaimai_hashes = json(?)
+                SET dates = ?, dates_hash = ?, 
+                    first_date = ?, last_date = ?, date_count = ?,
+                    calendar_synced_at = NULL,  -- Trigger re-sync!
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (json.dumps(existing_hashes), schedule_group_id))
+            """, (dates_json, new_dates_hash, first_date, last_date, date_count, schedule_group_id))
     else:
         # Create new schedule group
         if not dates:
@@ -70,19 +103,19 @@ def find_or_create_schedule_group(conn: sqlite3.Connection, dates: List, waste_t
         dates_json = json.dumps([d.isoformat() if isinstance(d, date) else str(d) for d in sorted(dates)])
         
         cursor.execute("""
-            INSERT INTO schedule_groups (id, waste_type, first_date, last_date, date_count, dates, kaimai_hashes)
-            VALUES (?, ?, ?, ?, ?, json(?), json(?))
-        """, (schedule_group_id, waste_type, first_date, last_date, date_count, dates_json, json.dumps([kaimai_hash])))
+            INSERT INTO schedule_groups (id, waste_type, kaimai_hash, dates, dates_hash, first_date, last_date, date_count, calendar_synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        """, (schedule_group_id, waste_type, kaimai_hash, dates_json, new_dates_hash, first_date, last_date, date_count))
     
-    return schedule_group_id
+    return schedule_group_id  # Always stable!
 
-def write_location_schedule(conn: sqlite3.Connection, seniūnija: str, village: str, street: str, dates: List, kaimai_str: str, house_numbers: Optional[str] = None, waste_type: str = 'bendros') -> int:
+def write_location_schedule(conn: sqlite3.Connection, seniunija: str, village: str, street: str, dates: List, kaimai_str: str, house_numbers: Optional[str] = None, waste_type: str = 'bendros') -> int:
     """
     Write or update location and its pickup dates
     
     Args:
         conn: Database connection
-        seniūnija: County/municipality name
+        seniunija: County/municipality name
         village: Village name
         street: Street name (empty string if whole village)
         dates: List of date objects
@@ -98,7 +131,7 @@ def write_location_schedule(conn: sqlite3.Connection, seniūnija: str, village: 
     # Generate kaimai_hash
     kaimai_hash = generate_kaimai_hash(kaimai_str)
     
-    # Find or create schedule group (updates kaimai_hashes)
+    # Find or create schedule group (updates kaimai_hash)
     find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
     
     # Normalize house_numbers (None -> NULL in DB)
@@ -108,19 +141,19 @@ def write_location_schedule(conn: sqlite3.Connection, seniūnija: str, village: 
     # Convert datetime to ISO format string to avoid deprecation warning (Python 3.12+)
     now_str = datetime.now().isoformat()
     cursor.execute("""
-        INSERT INTO locations (seniūnija, village, street, house_numbers, kaimai_hash, updated_at)
+        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(seniūnija, village, street, house_numbers) 
+        ON CONFLICT(seniunija, village, street, house_numbers) 
         DO UPDATE SET kaimai_hash = ?, updated_at = ?
-    """, (seniūnija, village, street, house_nums_str, kaimai_hash, now_str, kaimai_hash, now_str))
+    """, (seniunija, village, street, house_nums_str, kaimai_hash, now_str, kaimai_hash, now_str))
     
     # Dates are now stored in schedule_groups, not in pickup_dates table
     # No need to insert pickup_dates - just return location_id
     location_id = cursor.lastrowid
     if location_id == 0:
         # Location already exists, get its ID
-        cursor.execute("SELECT id FROM locations WHERE seniūnija = ? AND village = ? AND street = ? AND (house_numbers = ? OR (house_numbers IS NULL AND ? IS NULL))", 
-                      (seniūnija, village, street, house_nums_str, house_nums_str))
+        cursor.execute("SELECT id FROM locations WHERE seniunija = ? AND village = ? AND street = ? AND (house_numbers = ? OR (house_numbers IS NULL AND ? IS NULL))", 
+                      (seniunija, village, street, house_nums_str, house_nums_str))
         location_id = cursor.fetchone()[0]
     
     return location_id
@@ -179,7 +212,7 @@ def write_parsed_data(parsed_data: List[Dict], source_url: str, validation_error
         for item in parsed_data:
             write_location_schedule(
                 conn,
-                item.get('seniūnija', ''),
+                item.get('seniunija', ''),
                 item.get('village', ''),
                 item.get('street', ''),
                 item.get('dates', []),

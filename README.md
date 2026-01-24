@@ -9,7 +9,7 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 - **SQLite Database**: Efficient storage with hash-based schedule grouping
 - **REST API**: Flask-based API for data access
 - **Web Interface**: User-friendly interface for viewing schedules
-- **Google Calendar Integration**: (Planned) Generate calendar events
+- **Google Calendar Integration**: ✅ Automatic calendar creation and sync with stable subscription links
 
 ## Quick Start
 
@@ -21,12 +21,24 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 
 **Using Makefile (recommended):**
 ```bash
-make up      # Start all services
-make down    # Stop services
-make restart # Restart services
-make build   # Build images
-make clean   # Stop and remove everything
-make test    # Run tests (automatically uses venv)
+make up              # Start all services
+make down            # Stop services
+make restart         # Restart services
+make build           # Build images
+make clean           # Stop and remove containers/images
+make clean-podman    # Clean all podman containers/images
+make clean-all       # Full cleanup (podman + database)
+make test            # Run all tests (skips AI/real API tests)
+make test-all        # Run ALL tests including real API tests
+make test-stable     # Run stable ID tests
+make test-sync       # Run calendar sync tests
+make test-status     # Run calendar status tests
+make test-worker     # Run background worker tests
+make test-one-calendar # Run one calendar per group tests
+make test-in-place   # Run in-place update tests
+make clean-calendars-dry-run # Check for orphaned calendars (dry run)
+make clean-calendars # Delete orphaned calendars (requires confirmation)
+make db-reset        # Delete database file
 ```
 
 **Or directly with podman-compose:**
@@ -189,10 +201,17 @@ See `database/schema.sql` for full schema.
 - ✅ Runs at 11:00 and 18:00 daily via cron
 - ✅ Microservice architecture: web + scraper services
 
-### 3. Google Calendar Integration
-- Refactor `google_calendar.py`
-- Add API endpoint: `POST /api/v1/generate-calendars`
-- Generate events per schedule group
+### 3. Google Calendar Integration ✅ **COMPLETE**
+- ✅ Stable calendar IDs (Option B design) - calendars remain stable when dates change
+- ✅ Background worker for asynchronous calendar creation and event sync
+- ✅ In-place event updates (delete old, add new) - maintains user subscriptions
+- ✅ Calendar status tracking (synced, pending, needs_update)
+- ✅ Web UI subscription button when calendar is ready
+- ✅ Public calendar access - calendars automatically made publicly readable
+- ✅ Smart calendar naming - uses seniunija for clear, concise names
+- ✅ Calendar cleanup tools - `make clean-calendars-dry-run` and `make clean-calendars`
+- ✅ Comprehensive test coverage (94 tests passing)
+- See `documentation/DESIGN-CHANGE.md` for full design details
 
 ### 4. Multi-Waste-Type Support
 - Handle separate XLSX files for plastic, glass waste
@@ -219,13 +238,14 @@ See `database/schema.sql` for full schema.
 - **`documentation/HYBRID_PARSER.md`** - Hybrid parser implementation (traditional + AI)
 - **`documentation/AI-AGENT.md`** - Full context for AI agents (for continuation)
 - **`documentation/DECISION_SCHEDULE_GROUPS.md`** - Database schema decisions
+- **`documentation/DESIGN-CHANGE.md`** - Option B: Stable Calendar IDs design (current implementation)
 - **`documentation/TESTING.md`** - Testing strategy and setup
 - **`documentation/AI_COST_ANALYSIS.md`** - Historical: AI options analysis (we chose Groq)
 
 ## Development Notes
 
 ### Current Status
-- ✅ Database schema implemented (hash-based IDs, JSON dates)
+- ✅ Database schema implemented (hash-based IDs, JSON dates, stable calendar IDs)
 - ✅ Traditional parser working (simple patterns)
 - ✅ Parser router implemented
 - ✅ AI parser implemented (Groq LLM integration)
@@ -233,17 +253,19 @@ See `database/schema.sql` for full schema.
   - Caching and rate limiting
   - Full validation and error handling
 - ✅ API and web interface functional
-- ✅ Seniūnija support: API returns separate seniūnija/village keys, handles duplicate village names
+- ✅ Seniunija support: API returns separate seniunija/village keys, handles duplicate village names
 - ✅ House number normalization: Compact format (spaces removed, ranges normalized)
-- 🚧 Google Calendar integration
+- ✅ Google Calendar integration: Stable IDs, background sync, in-place updates, web UI subscription
 - 🚧 Multi-waste-type support
 
 ### Testing
-- Comprehensive test suite: 59 tests (parser, router, AI parser, API, E2E)
-  - 54 regular tests (`make test`) - unit, integration, E2E tests (no AI tokens used)
+- Comprehensive test suite: 94 tests passing (parser, router, AI parser, API, E2E, calendar sync)
+  - 82 regular tests (`make test`) - unit, integration, E2E tests (no AI tokens used)
   - 5 AI integration tests (`make test-ai`) - make real Groq API calls, test current code
-  - **Note:** `make test` skips AI integration tests by default (they require `--use-ai-tokens` flag)
+  - 7 real API tests (`make test-real-api`) - make real Google Calendar API calls
+  - **Note:** `make test` skips AI integration and real API tests by default
   - All tests automatically use venv (no manual activation needed)
+  - Test categories: stable IDs, calendar sync, calendar status, background worker, in-place updates
 - Use `--simple-subset` flag to test traditional parser only (skips AI-needed entries)
 - Without flag: Full hybrid parsing (traditional + AI parser)
 - Database currently has 900 locations, 10 schedule groups (simple subset)

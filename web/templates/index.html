@@ -125,7 +125,7 @@
             try {
                 const response = await fetch('/api/v1/villages');
                 const data = await response.json();
-                allVillages = data.villages || []; // Array of {seniūnija, village} objects
+                allVillages = data.villages || []; // Array of {seniunija, village} objects
                 populateVillageDatalist();
             } catch (error) {
                 console.error('Error loading villages:', error);
@@ -137,7 +137,7 @@
             datalist.innerHTML = '';
             allVillages.forEach(v => {
                 const option = document.createElement('option');
-                const displayValue = `${v.seniūnija} / ${v.village}`;
+                const displayValue = `${v.seniunija} / ${v.village}`;
                 option.value = displayValue;
                 datalist.appendChild(option);
             });
@@ -153,11 +153,11 @@
                 // Show all villages when no query
                 filtered = allVillages;
             } else {
-                // Filter by query - match either Seniūnija or Village part
+                // Filter by query - match either Seniunija or Village part
                 filtered = allVillages.filter(v => {
-                    const displayText = `${v.seniūnija} / ${v.village}`;
+                    const displayText = `${v.seniunija} / ${v.village}`;
                     return partialMatch(query, displayText) || 
-                           partialMatch(query, v.seniūnija) || 
+                           partialMatch(query, v.seniunija) || 
                            partialMatch(query, v.village);
                 });
             }
@@ -173,7 +173,7 @@
             filtered.forEach(v => {
                 const item = document.createElement('div');
                 item.className = 'dropdown-item';
-                const displayText = `${v.seniūnija} / ${v.village}`;
+                const displayText = `${v.seniunija} / ${v.village}`;
                 item.textContent = displayText;
                 item.onclick = () => {
                     input.value = displayText;
@@ -206,13 +206,13 @@
                 if (query) {
                     // Find first match - check full string or individual parts
                     const match = allVillages.find(v => {
-                        const displayText = `${v.seniūnija} / ${v.village}`;
+                        const displayText = `${v.seniunija} / ${v.village}`;
                         return partialMatch(query, displayText) || 
-                               partialMatch(query, v.seniūnija) || 
+                               partialMatch(query, v.seniunija) || 
                                partialMatch(query, v.village);
                     });
                     if (match) {
-                        input.value = `${match.seniūnija} / ${match.village}`;
+                        input.value = `${match.seniunija} / ${match.village}`;
                         document.getElementById('villageDropdown').style.display = 'none';
                         handleVillageSelection(match);
                     }
@@ -222,7 +222,7 @@
 
         async function handleVillageSelection(villageObj) {
             // Reset state
-            currentVillage = villageObj; // Store the object {seniūnija, village}
+            currentVillage = villageObj; // Store the object {seniunija, village}
             currentStreet = '';
             currentHouseNumber = '';
             villageHasStreets = false;
@@ -240,13 +240,13 @@
             // Update URL
             updateURL();
             
-            if (!villageObj || !villageObj.seniūnija || !villageObj.village) {
+            if (!villageObj || !villageObj.seniunija || !villageObj.village) {
                 return;
             }
             
             // Load streets for this village
             try {
-                const response = await fetch(`/api/v1/streets?seniūnija=${encodeURIComponent(villageObj.seniūnija)}&village=${encodeURIComponent(villageObj.village)}`);
+                const response = await fetch(`/api/v1/streets?seniunija=${encodeURIComponent(villageObj.seniunija)}&village=${encodeURIComponent(villageObj.village)}`);
                 const data = await response.json();
                 const streets = data.streets || [];
                 allStreets = streets;
@@ -383,7 +383,7 @@
 
         async function loadHouseNumbers(villageObj, street) {
             try {
-                const response = await fetch(`/api/v1/house-numbers?seniūnija=${encodeURIComponent(villageObj.seniūnija)}&village=${encodeURIComponent(villageObj.village)}&street=${encodeURIComponent(street)}`);
+                const response = await fetch(`/api/v1/house-numbers?seniunija=${encodeURIComponent(villageObj.seniunija)}&village=${encodeURIComponent(villageObj.village)}&street=${encodeURIComponent(street)}`);
                 const data = await response.json();
                 const houseNumbers = data.house_numbers || [];
                 allHouseNumbers = houseNumbers;
@@ -508,8 +508,8 @@
         // Update URL with current selections
         function updateURL() {
             const params = new URLSearchParams();
-            if (currentVillage && currentVillage.seniūnija && currentVillage.village) {
-                params.set('seniūnija', currentVillage.seniūnija);
+            if (currentVillage && currentVillage.seniunija && currentVillage.village) {
+                params.set('seniunija', currentVillage.seniunija);
                 params.set('village', currentVillage.village);
             }
             if (currentStreet) {
@@ -530,12 +530,12 @@
         // Restore selections from URL on page load
         async function restoreFromURL() {
             const params = new URLSearchParams(window.location.search);
-            const seniūnija = params.get('seniūnija');
+            const seniunija = params.get('seniunija');
             const village = params.get('village');
             const street = params.get('street');
             const house = params.get('house');
             
-            if (!seniūnija || !village) {
+            if (!seniunija || !village) {
                 return; // No URL parameters, start fresh
             }
             
@@ -550,9 +550,9 @@
             });
             
             // Find matching village object
-            const villageObj = allVillages.find(v => v.seniūnija === seniūnija && v.village === village);
+            const villageObj = allVillages.find(v => v.seniunija === seniunija && v.village === village);
             if (villageObj) {
-                document.getElementById('villageInput').value = `${villageObj.seniūnija} / ${villageObj.village}`;
+                document.getElementById('villageInput').value = `${villageObj.seniunija} / ${villageObj.village}`;
                 await handleVillageSelection(villageObj);
                 
                 // Wait a bit for streets to load
@@ -578,7 +578,7 @@
         async function loadSchedule(villageObj, street, houseNumber) {
             try {
                 const params = new URLSearchParams();
-                params.append('seniūnija', villageObj.seniūnija);
+                params.append('seniunija', villageObj.seniunija);
                 params.append('village', villageObj.village);
                 
                 // Only include street parameter if village has streets
@@ -613,12 +613,45 @@
             const container = document.getElementById('selectedLocation');
             const streetDisplay = location.street || '(visas kaimas)';
             const houseDisplay = houseNumber ? ` - ${houseNumber}` : ' - Visiems';
-            // Seniūnija is already shown in the village selection, so we don't need to show it again
+            // Seniunija is already shown in the village selection, so we don't need to show it again
             const displayName = `${location.village} - ${streetDisplay}${houseDisplay}`;
+            
+            // Check calendar status
+            const calendarStatus = location.calendar_status || {};
+            const status = calendarStatus.status || 'not_available';
+            const subscriptionLink = location.subscription_link;
+            
+            let calendarButton = '';
+            if (status === 'synced' && subscriptionLink) {
+                // Calendar is ready - show subscribe button
+                calendarButton = `
+                    <div class="calendar-subscribe-section">
+                        <a href="${subscriptionLink}" target="_blank" rel="noopener noreferrer" class="calendar-subscribe-button">
+                            📅 Prenumeruoti Google kalendorių
+                        </a>
+                        <p class="calendar-subscribe-hint">Prenumeravę kalendorių, surinkimo datos bus automatiškai atnaujinamos</p>
+                    </div>
+                `;
+            } else if (status === 'pending') {
+                // Calendar is being created
+                calendarButton = `
+                    <div class="calendar-status-message">
+                        <p>⏳ Kalendorius kuriamas. Patikrinkite vėliau.</p>
+                    </div>
+                `;
+            } else if (status === 'needs_update') {
+                // Calendar exists but needs update
+                calendarButton = `
+                    <div class="calendar-status-message">
+                        <p>🔄 Kalendorius atnaujinamas. Patikrinkite vėliau.</p>
+                    </div>
+                `;
+            }
             
             container.innerHTML = `
                 <h3>${displayName}</h3>
                 <p class="date-count">Surinkimo dienų: ${location.dates.length}</p>
+                ${calendarButton}
             `;
         }
 

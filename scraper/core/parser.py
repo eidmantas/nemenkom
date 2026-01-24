@@ -192,7 +192,7 @@ def extract_dates_from_cell(cell_value, month_name: str, year: int = 2026) -> Li
     
     return sorted(set(dates))  # Remove duplicates and sort
 
-def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -> List[Dict]:
+def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List[Dict]:
     """
     Parse xlsx file and extract all location schedules
     
@@ -204,12 +204,12 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
     Args:
         file_path: Path to xlsx file
         year: Year for the schedule
-        simple_subset: If True, only process entries that don't need AI parsing
+        skip_ai: If True, skip AI parsing (use traditional parser only). Default: False (AI enabled)
     
     Returns:
         List of dictionaries with structure:
         {
-            'seniūnija': str,      # County name
+            'seniunija': str,      # County name
             'village': str,        # Village name
             'street': str,          # Street name (empty if village has no street list)
             'house_numbers': str,   # House number restrictions (None if not specified)
@@ -217,8 +217,8 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
         }
     """
     print(f"Parsing xlsx file: {file_path}")
-    if simple_subset:
-        print("🔍 Filtering: Only processing simple entries (traditional parser)")
+    if skip_ai:
+        print("🔍 Filtering: Skipping AI parsing (traditional parser only)")
     
     # Read excel file, skip first row (header)
     df = pd.read_excel(file_path, skiprows=1)
@@ -236,22 +236,34 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
     
     print(f"Found {len(df)} rows, {len(month_columns)} month columns")
     
-    # Import parser_router for simple_subset filtering and AI parsing
+    # Import parser_router for skip_ai filtering and AI parsing
     from scraper.ai.router import should_use_ai_parser
+    import logging
+    import time
+    logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] %(levelname)s: %(message)s')
+    logger = logging.getLogger(__name__)
     
     results = []
-    current_seniūnija = None  # Track current county (handles merged cells)
+    current_seniunija = None  # Track current county (handles merged cells)
     skipped_count = 0
+    ai_parse_count = 0
+    traditional_parse_count = 0
+    parse_start_time = time.time()
+    
+    logger.info(f"Starting to parse {len(df)} rows...")
     
     # Process each row
     for idx, row in df.iterrows():
+        if (idx + 1) % 50 == 0:
+            elapsed = time.time() - parse_start_time
+            logger.debug(f"Processing row {idx + 1}/{len(df)} (elapsed: {elapsed:.1f}s, AI: {ai_parse_count}, Traditional: {traditional_parse_count})")
         # Handle Seniūnija (county) - can be merged, so track current value
-        seniūnija_value = row.get('Seniūnija', '')
-        if pd.notna(seniūnija_value) and str(seniūnija_value).strip():
-            current_seniūnija = str(seniūnija_value).strip()
+        seniunija_value = row.get('Seniūnija', '')
+        if pd.notna(seniunija_value) and str(seniunija_value).strip():
+            current_seniunija = str(seniunija_value).strip()
         
         # Skip if no county (shouldn't happen, but be safe)
-        if not current_seniūnija:
+        if not current_seniunija:
             continue
         
         # Parse Kaimai (village and streets)
@@ -264,8 +276,8 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
         if not kaimai_str:
             continue
         
-        # Filter by simple_subset flag
-        if simple_subset:
+        # Filter by skip_ai flag (inverted logic)
+        if skip_ai:
             if should_use_ai_parser(kaimai_str):
                 skipped_count += 1
                 continue
@@ -273,17 +285,29 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
         # Route to appropriate parser
         if should_use_ai_parser(kaimai_str):
             # Use AI parser for complex cases
+            ai_start = time.time()
+            logger.debug(f"Row {idx + 1}: Using AI parser for: {kaimai_str[:80]}")
             try:
                 from scraper.ai.parser import parse_with_ai
                 parsed_items = parse_with_ai(kaimai_str)
+                ai_parse_count += 1
+                ai_time = time.time() - ai_start
+                if ai_time > 1.0:
+                    logger.warning(f"AI parse took {ai_time:.2f}s for: {kaimai_str[:50]}")
+                else:
+                    logger.debug(f"AI parse completed in {ai_time:.2f}s")
             except Exception as e:
                 # Fallback to traditional parser if AI fails
+                logger.warning(f"AI parser failed for '{kaimai_str[:50]}...': {e}, falling back")
                 print(f"⚠️  AI parser failed for '{kaimai_str[:50]}...': {e}")
                 print(f"   Falling back to traditional parser")
                 parsed_items = parse_village_and_streets(kaimai_str)
+                traditional_parse_count += 1
         else:
             # Use traditional parser for simple cases
+            logger.debug(f"Row {idx + 1}: Using traditional parser for: {kaimai_str[:80]}")
             parsed_items = parse_village_and_streets(kaimai_str)
+            traditional_parse_count += 1
         if not parsed_items:
             continue
         
@@ -310,7 +334,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
         if len(parsed_items) == 1:
             # No street list - just village entry
             results.append({
-                'seniūnija': current_seniūnija,
+                'seniunija': current_seniunija,
                 'village': village,
                 'street': '',  # Empty street means whole village
                 'house_numbers': None,
@@ -323,7 +347,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
             for street, house_nums in parsed_items[1:]:  # Skip first (village)
                 if street:  # Only add if street name is not empty
                     results.append({
-                        'seniūnija': current_seniūnija,
+                        'seniunija': current_seniunija,
                         'village': village,
                         'street': street,
                         'house_numbers': house_nums,
@@ -331,10 +355,12 @@ def parse_xlsx(file_path: Path, year: int = 2026, simple_subset: bool = False) -
                         'kaimai_str': kaimai_str  # Original Kaimai string for hash
                     })
     
-    if simple_subset and skipped_count > 0:
-        print(f"Parsed {len(results)} location entries (skipped {skipped_count} AI-needed entries)")
+    total_time = time.time() - parse_start_time
+    logger.info(f"Parsing complete: {len(results)} entries in {total_time:.1f}s (AI: {ai_parse_count}, Traditional: {traditional_parse_count}, Skipped: {skipped_count})")
+    if skip_ai and skipped_count > 0:
+        print(f"Parsed {len(results)} location entries (skipped {skipped_count} AI-needed entries) in {total_time:.1f}s")
     else:
-        print(f"Parsed {len(results)} location entries")
+        print(f"Parsed {len(results)} location entries in {total_time:.1f}s")
     return results
 
 if __name__ == '__main__':
@@ -346,4 +372,4 @@ if __name__ == '__main__':
     for result in results[:5]:
         street_display = result['street'] if result['street'] else "(visas kaimas)"
         house_display = f" [{result['house_numbers']}]" if result['house_numbers'] else ""
-        print(f"  {result['seniūnija']} / {result['village']} / {street_display}{house_display}: {len(result['dates'])} dates")
+        print(f"  {result['seniunija']} / {result['village']} / {street_display}{house_display}: {len(result['dates'])} dates")

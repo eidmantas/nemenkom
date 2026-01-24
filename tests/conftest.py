@@ -14,7 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 @pytest.fixture
 def temp_db():
-    """Create a temporary database for testing"""
+    """Create a temporary database for testing and patch get_db_connection to use it"""
+    from unittest.mock import patch
+    import api.db as api_db_module
+    import database.init as db_init_module
+    import services.calendar as calendar_module
+    
     db_fd, db_path = tempfile.mkstemp(suffix='.db')
     conn = sqlite3.connect(db_path)
     
@@ -25,7 +30,14 @@ def temp_db():
     conn.executescript(schema_sql)
     conn.commit()
     
-    yield conn, db_path
+    def mock_get_conn():
+        return sqlite3.connect(db_path, check_same_thread=False)
+    
+    # Patch get_db_connection in all modules that use it
+    with patch.object(api_db_module, 'get_db_connection', mock_get_conn), \
+         patch.object(db_init_module, 'get_db_connection', mock_get_conn), \
+         patch.object(calendar_module, 'get_db_connection', mock_get_conn):
+        yield conn, db_path
     
     conn.close()
     os.unlink(db_path)
@@ -76,6 +88,7 @@ def temp_cache_db():
 def pytest_configure(config):
     """Register custom markers"""
     config.addinivalue_line("markers", "ai_integration: marks tests that use real AI tokens")
+    config.addinivalue_line("markers", "real_api: marks tests that make real API calls (Google Calendar, etc.)")
 
 
 def pytest_addoption(parser):

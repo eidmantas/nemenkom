@@ -1,21 +1,5 @@
-FROM python:3.14.1-slim as test
-
-WORKDIR /app
-
-# Install dependencies (including pytest)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
-
-# Set PYTHONPATH so imports work
-ENV PYTHONPATH=/app
-
-# Run tests
-RUN pytest -v || exit 1
-
-# Production stage
+# TODO: Add separate test stage or CI/CD pipeline for running tests
+# Tests are currently run locally via `make test` - not in Docker build
 FROM python:3.14.1-slim
 
 WORKDIR /app

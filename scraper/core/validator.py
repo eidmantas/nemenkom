@@ -70,7 +70,7 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
         return (False, critical_errors)
     
     # Check structure
-    required_keys = ['seniūnija', 'village', 'street', 'dates']
+    required_keys = ['seniunija', 'village', 'street', 'dates']
     locations_with_dates = 0
     locations_without_dates = 0
     
@@ -80,9 +80,9 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
             if key not in item:
                 critical_errors.append(f"Item {i} missing required key: {key}")
         
-        # Validate seniūnija is not empty
-        if not item.get('seniūnija', '').strip():
-            critical_errors.append(f"Item {i} has empty seniūnija")
+        # Validate seniunija is not empty
+        if not item.get('seniunija', '').strip():
+            critical_errors.append(f"Item {i} has empty seniunija")
         
         # Validate village is not empty
         if not item.get('village', '').strip():
@@ -118,14 +118,14 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
     
     return (is_valid, all_issues)
 
-def validate_file_and_data(file_path: Path, year: int = 2026, simple_subset: bool = False) -> Tuple[bool, List[str], List[Dict]]:
+def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = False) -> Tuple[bool, List[str], List[Dict]]:
     """
     Complete validation: structure + parsed data
     
     Args:
         file_path: Path to xlsx file
         year: Year for parsing
-        simple_subset: If True, only process entries that don't need AI parsing
+        skip_ai: If True, skip AI parsing (use traditional parser only). Default: False (AI enabled)
     
     Returns:
         Tuple of (is_valid, list_of_errors, parsed_data)
@@ -141,7 +141,7 @@ def validate_file_and_data(file_path: Path, year: int = 2026, simple_subset: boo
     
     # Parse and validate data
     try:
-        parsed_data = parse_xlsx(file_path, year, simple_subset=simple_subset)
+        parsed_data = parse_xlsx(file_path, year, skip_ai=skip_ai)
         data_valid, data_errors = validate_parsed_data(parsed_data)
         all_errors.extend(data_errors)
         

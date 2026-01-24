@@ -250,8 +250,8 @@ def test_api_schedule_village_without_streets(test_db_with_village_and_streets):
     try:
         from api.app import app
         with app.test_client() as client:
-            # Should work without street parameter (requires seniūnija)
-            response = client.get('/api/v1/schedule?seniūnija=Test&village=SimpleVillage')
+            # Should work without street parameter (requires seniunija)
+            response = client.get('/api/v1/schedule?seniunija=Test&village=SimpleVillage')
             assert response.status_code == 200
             data = response.get_json()
             assert data['village'] == 'SimpleVillage'
@@ -276,15 +276,15 @@ def test_api_schedule_village_with_streets_requires_street(test_db_with_village_
     try:
         from api.app import app
         with app.test_client() as client:
-            # Should fail without street parameter (requires seniūnija)
-            response = client.get('/api/v1/schedule?seniūnija=Test&village=VillageWithStreets')
+            # Should fail without street parameter (requires seniunija)
+            response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets')
             assert response.status_code == 400
             data = response.get_json()
             assert 'error' in data
             assert 'streets' in data['error'].lower() or 'street' in data['error'].lower()
             
             # Should work with street parameter
-            response = client.get('/api/v1/schedule?seniūnija=Test&village=VillageWithStreets&street=Main Street')
+            response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets&street=Main Street')
             assert response.status_code == 200
             data = response.get_json()
             assert data['village'] == 'VillageWithStreets'
@@ -309,15 +309,15 @@ def test_api_schedule_street_with_house_numbers_requires_house_numbers(test_db_w
     try:
         from api.app import app
         with app.test_client() as client:
-            # Should fail without house_numbers parameter (requires seniūnija)
-            response = client.get('/api/v1/schedule?seniūnija=Test&village=VillageWithStreets&street=Second Street')
+            # Should fail without house_numbers parameter (requires seniunija)
+            response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets&street=Second Street')
             assert response.status_code == 400
             data = response.get_json()
             assert 'error' in data
             assert 'house' in data['error'].lower() or 'number' in data['error'].lower()
             
             # Should work with house_numbers parameter
-            response = client.get('/api/v1/schedule?seniūnija=Test&village=VillageWithStreets&street=Second Street&house_numbers=1, 2, 3')
+            response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets&street=Second Street&house_numbers=1, 2, 3')
             assert response.status_code == 200
             data = response.get_json()
             assert data['village'] == 'VillageWithStreets'
@@ -348,12 +348,12 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
         assert isinstance(villages, list)
         assert len(villages) > 0
         
-        # Each village should be a dict with seniūnija and village keys
+        # Each village should be a dict with seniunija and village keys
         for village in villages:
             assert isinstance(village, dict)
-            assert 'seniūnija' in village
+            assert 'seniunija' in village
             assert 'village' in village
-            assert isinstance(village['seniūnija'], str)
+            assert isinstance(village['seniunija'], str)
             assert isinstance(village['village'], str)
         
         # Should contain our test villages
@@ -361,9 +361,9 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
         assert 'SimpleVillage' in village_names
         assert 'VillageWithStreets' in village_names
         
-        # Should have correct seniūnija
+        # Should have correct seniunija
         test_villages = [v for v in villages if v['village'] in ['SimpleVillage', 'VillageWithStreets']]
-        assert all(v['seniūnija'] == 'Test' for v in test_villages)
+        assert all(v['seniunija'] == 'Test' for v in test_villages)
     finally:
         api_db_module.get_db_connection = original_get_conn
 
@@ -394,7 +394,7 @@ def test_api_villages_endpoint(test_db_with_village_and_streets):
             if len(data['villages']) > 0:
                 village = data['villages'][0]
                 assert isinstance(village, dict)
-                assert 'seniūnija' in village
+                assert 'seniunija' in village
                 assert 'village' in village
     finally:
         api_db_module.get_db_connection = original_get_conn
@@ -416,12 +416,12 @@ def test_api_streets_endpoint_requires_seniūnija(test_db_with_village_and_stree
     try:
         from api.app import app
         with app.test_client() as client:
-            # Should fail without seniūnija
+            # Should fail without seniunija
             response = client.get('/api/v1/streets?village=VillageWithStreets')
             assert response.status_code == 400
             
-            # Should work with seniūnija
-            response = client.get('/api/v1/streets?seniūnija=Test&village=VillageWithStreets')
+            # Should work with seniunija
+            response = client.get('/api/v1/streets?seniunija=Test&village=VillageWithStreets')
             assert response.status_code == 200
             data = response.get_json()
             assert 'streets' in data
@@ -466,14 +466,14 @@ def test_duplicate_village_names_different_seniūnija(test_db_with_village_and_s
         from api.db import get_unique_villages
         villages = get_unique_villages()
         
-        # Should have both SimpleVillage entries (different seniūnija)
+        # Should have both SimpleVillage entries (different seniunija)
         simple_villages = [v for v in villages if v['village'] == 'SimpleVillage']
         assert len(simple_villages) == 2
-        assert {v['seniūnija'] for v in simple_villages} == {'Test', 'Other'}
+        assert {v['seniunija'] for v in simple_villages} == {'Test', 'Other'}
         
-        # Each should have correct seniūnija
-        test_village = next(v for v in simple_villages if v['seniūnija'] == 'Test')
-        other_village = next(v for v in simple_villages if v['seniūnija'] == 'Other')
+        # Each should have correct seniunija
+        test_village = next(v for v in simple_villages if v['seniunija'] == 'Test')
+        other_village = next(v for v in simple_villages if v['seniunija'] == 'Other')
         assert test_village['village'] == 'SimpleVillage'
         assert other_village['village'] == 'SimpleVillage'
     finally:

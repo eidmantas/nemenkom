@@ -82,7 +82,7 @@ def test_xlsx_to_api_end_to_end(sample_xlsx_path, test_db):
     is_valid, errors, parsed_data = validate_file_and_data(
         sample_xlsx_path, 
         year=2026, 
-        simple_subset=True
+        skip_ai=True
     )
     
     assert is_valid, f"Validation failed: {errors}"
@@ -108,7 +108,7 @@ def test_xlsx_to_api_end_to_end(sample_xlsx_path, test_db):
         
         location_id = write_location_schedule(
             conn,
-            item['seniūnija'],
+            item['seniunija'],
             item['village'],
             item['street'],
             item['dates'],

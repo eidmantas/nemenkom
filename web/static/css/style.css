@@ -305,6 +305,50 @@ header h1 {
     background: #27ae60;
 }
 
+/* Calendar subscription section */
+.calendar-subscribe-section {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.calendar-subscribe-button {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #4285f4;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 600;
+    transition: background 0.2s;
+    margin-bottom: 8px;
+}
+
+.calendar-subscribe-button:hover {
+    background: #357ae8;
+}
+
+.calendar-subscribe-hint {
+    margin: 8px 0 0 0;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.calendar-status-message {
+    margin-top: 20px;
+    padding: 15px;
+    background: #fff3cd;
+    border-radius: 8px;
+    border: 1px solid #ffc107;
+}
+
+.calendar-status-message p {
+    margin: 0;
+    color: #856404;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .cascading-selects {

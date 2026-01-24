@@ -37,3 +37,10 @@ Thumbs.db
 config.py
 docker-compose.override.yaml
 config-gcp-creds.json
+token.json
+
+# Secrets folder (Service Account credentials, API keys, etc.)
+# All files in secrets/ are ignored
+secrets/*
+# But keep the folder structure with .gitkeep
+!secrets/.gitkeep
