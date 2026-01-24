@@ -8,9 +8,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (exclude secrets - they will be mounted as volume)
+# Copy application code (secrets excluded via .dockerignore - mounted as volume)
 COPY . .
-# Note: secrets/ directory is mounted as volume in docker-compose.yaml, not copied here
+# Note: secrets/ directory is excluded from image via .dockerignore, mounted as volume in docker-compose.yaml
 
 # Set PYTHONPATH so imports work
 ENV PYTHONPATH=/app
