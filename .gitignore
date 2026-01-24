@@ -40,7 +40,8 @@ config-gcp-creds.json
 token.json
 
 # Secrets folder (Service Account credentials, API keys, etc.)
-# All files in secrets/ are ignored
-secrets/*
-# But keep the folder structure with .gitkeep
+# Ignore actual secret files, but keep template files (.example) and .gitkeep
+secrets/*.txt
+secrets/*.json
 !secrets/.gitkeep
+!secrets/*.example

@@ -40,9 +40,18 @@ def get_google_calendar_service():
     credentials_file = config.GOOGLE_CALENDAR_CREDENTIALS_FILE
     
     if not os.path.exists(credentials_file):
-        raise Exception(
+        raise FileNotFoundError(
             f"Google Calendar credentials file not found: {credentials_file}\n"
-            f"Please download Service Account credentials from Google Cloud Console"
+            f"Please create a Service Account JSON key file at this path.\n"
+            f"See INSTALL.md for detailed setup instructions."
+        )
+    
+    # Verify file is not empty
+    if os.path.getsize(credentials_file) == 0:
+        raise ValueError(
+            f"Google Calendar credentials file is empty: {credentials_file}\n"
+            f"Please add your Service Account JSON credentials.\n"
+            f"See INSTALL.md for detailed setup instructions."
         )
     
     try:
