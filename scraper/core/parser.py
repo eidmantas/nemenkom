@@ -323,13 +323,14 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                     print(f"⚠️  Traditional parser produced invalid output for '{kaimai_str[:50]}...' - retrying with AI")
                     try:
                         from scraper.ai.parser import parse_with_ai
-                        parsed_items = parse_with_ai(kaimai_str)
+                        error_context = f"Traditional parser incorrectly included streets in village name: '{village[:100]}'"
+                        parsed_items = parse_with_ai(kaimai_str, error_context=error_context, max_retries=2)
                         ai_parse_count += 1
                         traditional_parse_count -= 1  # Adjust counts
                         logger.debug(f"AI retry successful for: {kaimai_str[:80]}")
                     except Exception as e:
-                        logger.warning(f"AI retry also failed for '{kaimai_str[:50]}...': {e}, skipping this entry")
-                        print(f"⚠️  AI retry also failed for '{kaimai_str[:50]}...', skipping this malformed entry")
+                        logger.warning(f"AI retry failed after multiple attempts for '{kaimai_str[:50]}...': {e}, skipping this entry")
+                        print(f"⚠️  AI retry failed after multiple attempts for '{kaimai_str[:50]}...', skipping this malformed entry")
                         parsed_items = []  # Skip this entry - don't write bad data
         
         if not parsed_items:

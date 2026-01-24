@@ -17,11 +17,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
 
 
-def create_parsing_prompt(kaimai_str: str) -> str:
+def create_parsing_prompt(kaimai_str: str, error_context: Optional[str] = None) -> str:
     """
     Create prompt for Groq to parse Kaimai string into structured format
+    
+    Args:
+        kaimai_str: The location string to parse
+        error_context: Optional context about previous parsing failures (for retries)
     """
-    return f"""Parse this Lithuanian location string into structured JSON format.
+    error_note = ""
+    if error_context:
+        error_note = f"\n\n⚠️ RETRY ATTEMPT - Previous parsing failed:\n{error_context}\n\nPlease pay special attention to correctly separating the village name from street names. The village name should NOT contain parentheses, street names, or house numbers.\n"
+    
+    return f"""Parse this Lithuanian location string into structured JSON format.{error_note}
 
 TASK: Extract the village/city name, street names, and house numbers from this Lithuanian location string. House numbers may appear in various formats: explicit lists ("26, 28"), ranges with "nuo...iki" ("nuo 18 iki 18U"), special cases ("nuo 107", "iki 5"), or directly after street names.
 
@@ -264,96 +272,120 @@ def convert_to_parser_format(parsed_json: dict) -> List[Tuple[str, Optional[str]
     return result
 
 
-def parse_with_ai(kaimai_str: str) -> List[Tuple[str, Optional[str]]]:
+def parse_with_ai(kaimai_str: str, error_context: Optional[str] = None, max_retries: int = 2) -> List[Tuple[str, Optional[str]]]:
     """
-    Parse complex Kaimai string using Groq AI
+    Parse complex Kaimai string using Groq AI with retry logic
     
     Uses cache and rate limiter for efficiency.
     Returns same format as parse_village_and_streets() for seamless integration.
     
     Args:
         kaimai_str: Location string from Kaimai column
+        error_context: Optional context about previous parsing failures (for retries)
+        max_retries: Maximum number of retry attempts (default: 2)
     
     Returns:
         List of tuples: [(village_name, None), (street1, house_nums1), ...]
         Same format as traditional parser
     
     Raises:
-        ValueError: If parsing fails or output is invalid
+        ValueError: If parsing fails or output is invalid after all retries
     """
     if not kaimai_str or not kaimai_str.strip():
         return []
     
     kaimai_str = kaimai_str.strip()
     
-    # Check cache first
-    cache = get_cache()
-    cached_result = cache.get(kaimai_str)
-    if cached_result is not None:
-        return cached_result
+    # Check cache first (only for non-retry attempts)
+    if not error_context:
+        cache = get_cache()
+        cached_result = cache.get(kaimai_str)
+        if cached_result is not None:
+            return cached_result
     
     # Rate limit check
     rate_limiter = get_rate_limiter()
-    rate_limiter.wait_if_needed()
     
-    # Call Groq API
-    try:
-        client = Groq(api_key=config.GROQ_API_KEY)
-        
-        response = client.chat.completions.create(
-            model=config.GROQ_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a parser for Lithuanian location strings. Return ONLY valid JSON, no explanations."
-                },
-                {
-                    "role": "user",
-                    "content": create_parsing_prompt(kaimai_str)
-                }
-            ],
-            temperature=0.0,  # Zero temperature for maximum consistency
-            response_format={"type": "json_object"}  # Force JSON output
-        )
-        
-        # Extract JSON from response
-        content = response.choices[0].message.content.strip()
-        
-        # Parse JSON
+    last_error = None
+    last_error_context = error_context
+    
+    for attempt in range(max_retries + 1):  # +1 for initial attempt
         try:
-            parsed_json = json.loads(content)
-        except json.JSONDecodeError as e:
-            # Try to extract JSON from markdown code blocks if present
-            if '```' in content:
-                json_start = content.find('{')
-                json_end = content.rfind('}') + 1
-                if json_start >= 0 and json_end > json_start:
-                    content = content[json_start:json_end]
-                    parsed_json = json.loads(content)
+            rate_limiter.wait_if_needed()
+            
+            # Call Groq API
+            client = Groq(api_key=config.GROQ_API_KEY)
+            
+            # Build error context for retry
+            retry_context = last_error_context
+            if attempt > 0 and last_error:
+                retry_context = f"Attempt {attempt} failed: {last_error}\n" + (last_error_context or "")
+            
+            response = client.chat.completions.create(
+                model=config.GROQ_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a parser for Lithuanian location strings. Return ONLY valid JSON, no explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": create_parsing_prompt(kaimai_str, retry_context)
+                    }
+                ],
+                temperature=0.0,  # Zero temperature for maximum consistency
+                response_format={"type": "json_object"}  # Force JSON output
+            )
+            
+            # Extract JSON from response
+            content = response.choices[0].message.content.strip()
+            
+            # Parse JSON
+            try:
+                parsed_json = json.loads(content)
+            except json.JSONDecodeError as e:
+                # Try to extract JSON from markdown code blocks if present
+                if '```' in content:
+                    json_start = content.find('{')
+                    json_end = content.rfind('}') + 1
+                    if json_start >= 0 and json_end > json_start:
+                        content = content[json_start:json_end]
+                        parsed_json = json.loads(content)
+                    else:
+                        raise ValueError(f"Failed to parse JSON from AI response: {e}")
                 else:
                     raise ValueError(f"Failed to parse JSON from AI response: {e}")
+            
+            # Validate output
+            is_valid, error_msg = validate_ai_output(parsed_json)
+            if not is_valid:
+                raise ValueError(f"AI output validation failed: {error_msg}")
+            
+            # Convert to parser format
+            result = convert_to_parser_format(parsed_json)
+            
+            # Get token usage before caching
+            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens') else 0
+            
+            # Cache the result with token usage (only for successful non-retry attempts)
+            if not error_context:
+                cache = get_cache()
+                cache.set(kaimai_str, result, tokens_used=tokens_used)
+            
+            # Update rate limiter with token usage
+            rate_limiter.record_request(tokens_used)
+            
+            return result
+            
+        except Exception as e:
+            last_error = str(e)
+            if attempt < max_retries:
+                # Build context for next retry
+                if not last_error_context:
+                    last_error_context = f"Previous attempt failed: {last_error}"
+                else:
+                    last_error_context = f"{last_error_context}\nAttempt {attempt + 1} failed: {last_error}"
+                continue  # Retry
             else:
-                raise ValueError(f"Failed to parse JSON from AI response: {e}")
-        
-        # Validate output
-        is_valid, error_msg = validate_ai_output(parsed_json)
-        if not is_valid:
-            raise ValueError(f"AI output validation failed: {error_msg}")
-        
-        # Convert to parser format
-        result = convert_to_parser_format(parsed_json)
-        
-        # Get token usage before caching
-        tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens') else 0
-        
-        # Cache the result with token usage
-        cache.set(kaimai_str, result, tokens_used=tokens_used)
-        
-        # Update rate limiter with token usage
-        rate_limiter.record_request(tokens_used)
-        
-        return result
-        
-    except Exception as e:
-        # Don't cache failures
-        raise ValueError(f"AI parsing failed for '{kaimai_str}': {str(e)}")
+                # All retries exhausted
+                raise ValueError(f"AI parsing failed after {max_retries + 1} attempts. Last error: {last_error}") ValueError(f"AI parsing failed for '{kaimai_str}': {str(e)}")

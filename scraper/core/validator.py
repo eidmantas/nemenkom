@@ -171,8 +171,10 @@ def validate_file_and_data(file_path: Path, year: int = 2026, skip_ai: bool = Fa
         # This handles cases where router incorrectly chose traditional parser
         if parsing_failure_errors:
             print(f"\n⚠️  Found {len(parsing_failure_errors)} parsing failure(s) - retrying with AI parser enabled...")
+            error_context_summary = "\n".join(parsing_failure_errors[:5])  # First 5 errors as context
             try:
                 # Retry parsing with AI enabled (force AI, even if it was used before)
+                # The AI parser will use error_context internally for individual entries
                 parsed_data_retry = parse_xlsx(file_path, year, skip_ai=False)
                 data_valid_retry, data_errors_retry = validate_parsed_data(parsed_data_retry)
                 
