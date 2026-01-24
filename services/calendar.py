@@ -95,50 +95,9 @@ def create_calendar_for_schedule_group(
             print(f"❌ Schedule group not found: {schedule_group_id}")
             return None
         
-        existing_calendar_id = group_info.get('calendar_id')
-        
-        # If calendar exists, verify it's still valid and ensure it's public
-        if existing_calendar_id:
-            logger.debug(f"Found existing calendar_id: {existing_calendar_id}, verifying...")
-            try:
-                calendar_info = get_existing_calendar_info(existing_calendar_id)
-                if calendar_info:
-                    # Ensure calendar is public
-                    try:
-                        service = get_google_calendar_service()
-                        acl_rule = {
-                            'scope': {
-                                'type': 'default'
-                            },
-                            'role': 'reader'
-                        }
-                        # Check if public ACL exists, if not add it
-                        try:
-                            service.acl().get(calendarId=existing_calendar_id, ruleId='default').execute()
-                            logger.debug(f"Calendar already public: {existing_calendar_id}")
-                        except HttpError:
-                            # Public ACL doesn't exist, add it
-                            service.acl().insert(calendarId=existing_calendar_id, body=acl_rule).execute()
-                            logger.info(f"Made existing calendar public: {existing_calendar_id}")
-                            print(f"✅ Made existing calendar public: {existing_calendar_id}")
-                    except Exception as e:
-                        logger.warning(f"Could not ensure calendar is public: {e}")
-                    
-                    logger.info(f"Using existing calendar: {existing_calendar_id}")
-                    print(f"✅ Using existing calendar: {existing_calendar_id}")
-                    return {
-                        'calendar_id': existing_calendar_id,
-                        'calendar_name': calendar_info['calendar_name'],
-                        'subscription_link': calendar_info['subscription_link'],
-                        'success': True,
-                        'existing': True
-                    }
-            except Exception as e:
-                logger.warning(f"Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
-                print(f"⚠️  Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
-        
-        # Get location info for this schedule group
+        # Get location info first to determine correct calendar name
         kaimai_hash = group_info['kaimai_hash']
+        waste_type = group_info['waste_type']
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -162,14 +121,6 @@ def create_calendar_for_schedule_group(
             location_count = 0
             village_count = 0
         
-        waste_type = group_info['waste_type']
-        
-        # Create new calendar
-        logger.debug("Getting Google Calendar service...")
-        service = get_google_calendar_service()
-
-        # Create calendar name - use village name when schedule group has only one village
-        # Format: "[Village] - [Waste Type]" for single-village groups, "[Seniūnija] - [Waste Type]" for multi-village groups
         waste_type_display = {
             'bendros': 'Bendros atliekos',
             'plastikas': 'Plastikas',
@@ -179,9 +130,8 @@ def create_calendar_for_schedule_group(
         # Generate short hash from schedule_group_id for internal identification (first 6 chars)
         short_hash = schedule_group_id[:6] if len(schedule_group_id) >= 6 else schedule_group_id
         
-        # Use village name if this schedule group covers only one village
+        # Determine correct calendar name
         if village_count == 1:
-            # Get the village name
             cursor.execute("""
                 SELECT DISTINCT village
                 FROM locations
@@ -189,21 +139,89 @@ def create_calendar_for_schedule_group(
                 LIMIT 1
             """, (kaimai_hash,))
             village_row = cursor.fetchone()
-            
             if village_row:
                 village_name = village_row[0]
-                calendar_name = f"{village_name} - {waste_type_display} - {short_hash}"
+                expected_calendar_name = f"{village_name} - {waste_type_display} - {short_hash}"
+            else:
+                expected_calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
+        else:
+            expected_calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
+        
+        # Create calendar description
+        if village_count == 1:
+            cursor.execute("""
+                SELECT DISTINCT village
+                FROM locations
+                WHERE kaimai_hash = ?
+                LIMIT 1
+            """, (kaimai_hash,))
+            village_row = cursor.fetchone()
+            if village_row:
+                village_name = village_row[0]
                 calendar_description = f"Buitinių atliekų surinkimo grafikas: {village_name}, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
             else:
-                # Fallback to seniunija
-                calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
                 calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
         else:
-            # Use seniunija for calendar name when multiple villages share the schedule
-            calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
             calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. {location_count} vietų. Automatiškai atnaujinamas."
         
-        conn.close()
+        existing_calendar_id = group_info.get('calendar_id')
+        
+        # If calendar exists, verify it's still valid, ensure it's public, and update name if needed
+        if existing_calendar_id:
+            logger.debug(f"Found existing calendar_id: {existing_calendar_id}, verifying...")
+            try:
+                service = get_google_calendar_service()
+                existing_calendar = service.calendars().get(calendarId=existing_calendar_id).execute()
+                current_calendar_name = existing_calendar.get('summary', '')
+                
+                # Update calendar name if it doesn't match expected name
+                if current_calendar_name != expected_calendar_name:
+                    logger.info(f"Updating calendar name from '{current_calendar_name}' to '{expected_calendar_name}'")
+                    existing_calendar['summary'] = expected_calendar_name
+                    service.calendars().update(
+                        calendarId=existing_calendar_id,
+                        body=existing_calendar
+                    ).execute()
+                    print(f"✅ Updated calendar name to: {expected_calendar_name}")
+                
+                # Ensure calendar is public
+                try:
+                    acl_rule = {
+                        'scope': {
+                            'type': 'default'
+                        },
+                        'role': 'reader'
+                    }
+                    # Check if public ACL exists, if not add it
+                    try:
+                        service.acl().get(calendarId=existing_calendar_id, ruleId='default').execute()
+                        logger.debug(f"Calendar already public: {existing_calendar_id}")
+                    except HttpError:
+                        # Public ACL doesn't exist, add it
+                        service.acl().insert(calendarId=existing_calendar_id, body=acl_rule).execute()
+                        logger.info(f"Made existing calendar public: {existing_calendar_id}")
+                        print(f"✅ Made existing calendar public: {existing_calendar_id}")
+                except Exception as e:
+                    logger.warning(f"Could not ensure calendar is public: {e}")
+                
+                conn.close()
+                logger.info(f"Using existing calendar: {existing_calendar_id}")
+                print(f"✅ Using existing calendar: {existing_calendar_id}")
+                return {
+                    'calendar_id': existing_calendar_id,
+                    'calendar_name': expected_calendar_name,
+                    'subscription_link': f"https://calendar.google.com/calendar/render?cid={existing_calendar_id}",
+                    'success': True,
+                    'existing': True
+                }
+            except Exception as e:
+                logger.warning(f"Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
+                print(f"⚠️  Existing calendar {existing_calendar_id} invalid, creating new one: {e}")
+        
+        # Create new calendar
+        logger.debug("Getting Google Calendar service...")
+        service = get_google_calendar_service()
+        calendar_name = expected_calendar_name
 
         # Create the calendar
         logger.debug(f"Creating calendar: {calendar_name}")
