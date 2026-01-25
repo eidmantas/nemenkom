@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Service entrypoints now use shared logging setup.
 - Tidied `config.py` and `config.example.py` into clear sections.
 - Verified runtime stability: scraper + API OK; calendar retries blocked only by API quota.
+- Fixed multiline f-strings in config templates.
 
 ## [0.0.4a] - 2026-01-25
 ### Added

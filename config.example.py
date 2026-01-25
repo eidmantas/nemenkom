@@ -10,20 +10,16 @@ def _read_secret_file(filename: str) -> str:
     secrets_path = os.path.join("secrets", filename)
     if not os.path.exists(secrets_path):
         raise FileNotFoundError(
-            f"Secret file not found: {secrets_path}
-"
-            f"Please create this file with your API key/secret.
-"
+            f"Secret file not found: {secrets_path}\n"
+            f"Please create this file with your API key/secret.\n"
             f"See INSTALL.md for setup instructions."
         )
     with open(secrets_path, "r") as f:
         content = f.read().strip()
         if not content:
             raise ValueError(
-                f"Secret file is empty: {secrets_path}
-"
-                f"Please add your API key/secret to this file.
-"
+                f"Secret file is empty: {secrets_path}\n"
+                f"Please add your API key/secret to this file.\n"
                 f"See INSTALL.md for setup instructions."
             )
         return content
@@ -38,19 +34,15 @@ def _validate_secret_file(filename: str, description: str | None = None) -> None
     if not os.path.exists(secrets_path):
         desc = f" ({description})" if description else ""
         raise FileNotFoundError(
-            f"Secret file not found: {secrets_path}{desc}
-"
-            f"Please create this file with your API key/secret.
-"
+            f"Secret file not found: {secrets_path}{desc}\n"
+            f"Please create this file with your API key/secret.\n"
             f"See INSTALL.md for setup instructions."
         )
     if os.path.getsize(secrets_path) == 0:
         desc = f" ({description})" if description else ""
         raise ValueError(
-            f"Secret file is empty: {secrets_path}{desc}
-"
-            f"Please add your API key/secret to this file.
-"
+            f"Secret file is empty: {secrets_path}{desc}\n"
+            f"Please add your API key/secret to this file.\n"
             f"See INSTALL.md for setup instructions."
         )
 
@@ -110,11 +102,7 @@ try:
     _validate_secret_file("credentials.json", "Google Calendar Service Account credentials")
 except (FileNotFoundError, ValueError) as e:
     raise RuntimeError(
-        f"Configuration validation failed:
-{e}
-
-"
-        f"Please ensure all required secret files exist and are not empty.
-"
+        f"Configuration validation failed:\n{e}\n\n"
+        f"Please ensure all required secret files exist and are not empty.\n"
         f"See INSTALL.md for detailed setup instructions."
     ) from e
