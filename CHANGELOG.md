@@ -7,9 +7,12 @@ All notable changes to this project will be documented in this file.
 ## [0.1.0a] - 2026-01-25
 ### Added
 - Yoyo migrations as the SQLite migration runner.
+- `services/common/calendar_client.py` for shared, read-only calendar helpers.
 
 ### Changed
 - Service migrations moved to yoyo `step` files.
+- Web API now imports calendar helpers from `services/common`.
+- Scraper applies its migrations on container startup.
 
 ## [0.0.4a] - 2026-01-25
 ### Added

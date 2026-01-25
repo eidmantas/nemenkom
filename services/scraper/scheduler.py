@@ -12,6 +12,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from services.common.migrations import init_database
 from services.scraper.main import run_scraper
 
 
@@ -63,6 +64,10 @@ def should_run_now():
 def main():
     """Main scheduler loop"""
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scheduler started")
+
+    # Ensure scraper-owned migrations are applied on container start.
+    migrations_dir = Path(__file__).parent / "migrations"
+    init_database(migrations_dir=migrations_dir)
 
     # Run immediately on startup
     print(
