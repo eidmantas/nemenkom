@@ -7,9 +7,17 @@ import tempfile
 from pathlib import Path
 import sys
 import os
+import warnings
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Silence sqlite3 adapter deprecation warnings from yoyo on Python 3.12+.
+warnings.filterwarnings(
+    "ignore",
+    message="The default .* adapter is deprecated as of Python 3.12.*",
+    category=DeprecationWarning,
+)
 
 
 @pytest.fixture
@@ -24,9 +32,9 @@ def temp_db():
     db_fd, db_path = tempfile.mkstemp(suffix='.db')
     conn = sqlite3.connect(db_path)
     
-    from services.common.migrations import apply_migrations
-    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
-    apply_migrations(conn, Path(__file__).parent.parent / "services" / "calendar" / "migrations")
+    from services.common.migrations import run_migrations
+    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations")
+    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "calendar" / "migrations")
     conn.commit()
     
     def mock_get_conn():

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services.scraper.core.validator import validate_file_and_data
 from services.api.db import get_location_schedule, search_locations
-from services.common.migrations import apply_migrations
+from services.common.migrations import run_migrations
 import sqlite3
 import tempfile
 import os
@@ -30,7 +30,7 @@ def test_db():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
+    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     conn.close()
     

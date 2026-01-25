@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0a] - 2026-01-25
+### Added
+- Yoyo migrations as the SQLite migration runner.
+
+### Changed
+- Service migrations moved to yoyo `step` files.
+
 ## [0.0.4a] - 2026-01-25
 ### Added
 - Services layout under `services/` (api, scraper, calendar, common, database, web).

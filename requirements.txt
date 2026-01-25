@@ -9,3 +9,4 @@ schedule>=1.2.0
 flasgger>=0.9.7
 google-auth>=2.0.0
 google-api-python-client>=2.0.0
+yoyo-migrations>=8.2.0

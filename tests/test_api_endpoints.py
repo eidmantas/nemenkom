@@ -15,7 +15,7 @@ from services.api.db import (
     village_has_streets, street_has_house_numbers
 )
 from services.scraper.core.db_writer import write_location_schedule
-from services.common.migrations import apply_migrations
+from services.common.migrations import run_migrations
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def test_db_with_data():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
+    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     
     # Add test data
@@ -126,7 +126,7 @@ def test_db_with_village_and_streets():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
+    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     
     # Add test data: village with streets
