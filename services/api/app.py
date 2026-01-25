@@ -19,7 +19,7 @@ from services.api.db import (
     street_has_house_numbers,
     village_has_streets,
 )
-from services.calendar import (
+from services.common.calendar_client import (
     generate_calendar_subscription_link,
     get_existing_calendar_info,
     list_available_calendars,

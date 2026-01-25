@@ -7,7 +7,6 @@ Uses Service Account for headless authentication (standard Gmail, no Workspace)
 
 import datetime
 import logging
-import os.path
 
 # Import configuration
 import sys
@@ -15,8 +14,6 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -28,7 +25,14 @@ from services.common.db_helpers import (
     update_schedule_group_calendar_synced,
 )
 from services.common.db import get_db_connection
-from services.common.throttle import backoff, throttle
+from services.common.calendar_client import (
+    _throttle_calendar,
+    generate_calendar_subscription_link,
+    get_existing_calendar_info,
+    get_google_calendar_service,
+    list_available_calendars,
+)
+from services.common.throttle import backoff
 
 # Setup logging
 logging.basicConfig(
@@ -37,43 +41,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _throttle_calendar():
-    throttle("calendar")
-
-
-def get_google_calendar_service():
-    """
-    Get authenticated Google Calendar service using Service Account
-    Fully headless authentication - no tokens needed
-    """
-    credentials_file = config.GOOGLE_CALENDAR_CREDENTIALS_FILE
-
-    if not os.path.exists(credentials_file):
-        raise FileNotFoundError(
-            f"Google Calendar credentials file not found: {credentials_file}\n"
-            f"Please create a Service Account JSON key file at this path.\n"
-            f"See INSTALL.md for detailed setup instructions."
-        )
-
-    # Verify file is not empty
-    if os.path.getsize(credentials_file) == 0:
-        raise ValueError(
-            f"Google Calendar credentials file is empty: {credentials_file}\n"
-            f"Please add your Service Account JSON credentials.\n"
-            f"See INSTALL.md for detailed setup instructions."
-        )
-
-    try:
-        # Service Account: Direct authentication, fully headless
-        creds = service_account.Credentials.from_service_account_file(
-            credentials_file, scopes=config.GOOGLE_CALENDAR_SCOPES
-        )
-        return build("calendar", "v3", credentials=creds)
-    except Exception as e:
-        raise Exception(
-            f"Failed to authenticate with Google Calendar: {e}\n"
-            f"Make sure {credentials_file} is a valid Service Account JSON key file"
-        )
 
 
 def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]:
@@ -266,90 +233,6 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
         import traceback
         traceback.print_exc()
         return None
-
-
-def get_existing_calendar_info(calendar_id: str) -> Optional[Dict]:
-    """
-    Get information about an existing calendar
-
-    Args:
-        calendar_id: Google Calendar ID
-
-    Returns:
-        Dictionary with calendar info, or None if not found
-    """
-    try:
-        service = get_google_calendar_service()
-        _throttle_calendar()
-        calendar = service.calendars().get(calendarId=calendar_id).execute()
-
-        return {
-            "calendar_id": calendar["id"],
-            "calendar_name": calendar["summary"],
-            "description": calendar.get("description", ""),
-            "subscription_link": f"https://calendar.google.com/calendar/render?cid={calendar['id']}",
-            "timeZone": calendar["timeZone"],
-        }
-
-    except HttpError as error:
-        print(f"❌ Error getting calendar info: {error}")
-        return None
-    except Exception as e:
-        print(f"❌ Unexpected error getting calendar info: {e}")
-        return None
-
-
-def list_available_calendars() -> List[Dict]:
-    """
-    List all calendars created by this application
-
-    Returns:
-        List of calendar dictionaries
-    """
-    try:
-        service = get_google_calendar_service()
-
-        # Get all calendars
-        _throttle_calendar()
-        calendars_result = service.calendarList().list().execute()
-        calendars = calendars_result.get("items", [])
-
-        # Filter for our waste schedule calendars
-        waste_calendars = []
-        for calendar in calendars:
-            summary = calendar.get("summary", "")
-            if "Atliekų surinkimas" in summary or "Nemenčinė Atliekos" in summary:
-                waste_calendars.append(
-                    {
-                        "calendar_id": calendar["id"],
-                        "calendar_name": calendar["summary"],
-                        "description": calendar.get("description", ""),
-                        "subscription_link": f"https://calendar.google.com/calendar/render?cid={calendar['id']}",
-                        "timeZone": calendar["timeZone"],
-                    }
-                )
-
-        return waste_calendars
-
-    except HttpError as error:
-        print(f"❌ Error listing calendars: {error}")
-        return []
-    except Exception as e:
-        print(f"❌ Unexpected error listing calendars: {e}")
-        return []
-
-
-def generate_calendar_subscription_link(calendar_id: str) -> str:
-    """
-    Generate a subscription link for a calendar
-
-    Args:
-        calendar_id: Google Calendar ID
-
-    Returns:
-        Subscription URL
-    """
-    return f"https://calendar.google.com/calendar/render?cid={calendar_id}"
 
 
 def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:

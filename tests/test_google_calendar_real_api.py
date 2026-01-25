@@ -15,9 +15,11 @@ from unittest.mock import patch
 from services.calendar import (
     create_calendar_for_schedule_group,
     sync_calendar_for_schedule_group,
+)
+from services.common.calendar_client import (
+    generate_calendar_subscription_link,
     get_existing_calendar_info,
     list_available_calendars,
-    generate_calendar_subscription_link
 )
 from services.scraper.core.db_writer import generate_schedule_group_id, generate_dates_hash
 
