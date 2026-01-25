@@ -43,7 +43,16 @@ def test_one_calendar_per_schedule_group(temp_db):
     mock_calendar = {'id': 'stable_calendar@google.com', 'summary': 'Test Calendar'}
     mock_service.calendars().insert().execute.return_value = mock_calendar
     
-    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+    existing_info = {
+        "calendar_id": mock_calendar["id"],
+        "calendar_name": mock_calendar["summary"],
+        "description": "",
+        "subscription_link": f"https://calendar.google.com/calendar/render?cid={mock_calendar['id']}",
+        "timeZone": "Europe/Vilnius",
+    }
+
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service), \
+         patch('services.calendar.get_existing_calendar_info', return_value=existing_info):
         # Create calendar first time
         result1 = create_calendar_for_schedule_group(schedule_group_id)
         assert result1['success'] is True
@@ -89,7 +98,16 @@ def test_calendar_id_stable_when_dates_change(temp_db):
     mock_calendar = {'id': 'stable_calendar@google.com', 'summary': 'Test Calendar'}
     mock_service.calendars().insert().execute.return_value = mock_calendar
     
-    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+    existing_info = {
+        "calendar_id": mock_calendar["id"],
+        "calendar_name": mock_calendar["summary"],
+        "description": "",
+        "subscription_link": f"https://calendar.google.com/calendar/render?cid={mock_calendar['id']}",
+        "timeZone": "Europe/Vilnius",
+    }
+
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service), \
+         patch('services.calendar.get_existing_calendar_info', return_value=existing_info):
         result = create_calendar_for_schedule_group(schedule_group_id)
         calendar_id = result['calendar_id']
     
@@ -211,7 +229,16 @@ def test_calendar_not_recreated_on_date_change(temp_db):
     mock_calendar = {'id': 'stable_calendar@google.com', 'summary': 'Test Calendar'}
     mock_service.calendars().insert().execute.return_value = mock_calendar
     
-    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+    existing_info = {
+        "calendar_id": mock_calendar["id"],
+        "calendar_name": mock_calendar["summary"],
+        "description": "",
+        "subscription_link": f"https://calendar.google.com/calendar/render?cid={mock_calendar['id']}",
+        "timeZone": "Europe/Vilnius",
+    }
+
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service), \
+         patch('services.calendar.get_existing_calendar_info', return_value=existing_info):
         result1 = create_calendar_for_schedule_group(schedule_group_id)
         calendar_id1 = result1['calendar_id']
         
@@ -295,7 +322,16 @@ def test_no_duplicate_calendar_creation_on_retry(temp_db):
     mock_calendar = {'id': 'stable_calendar@google.com', 'summary': 'Test Calendar'}
     mock_service.calendars().insert().execute.return_value = mock_calendar
     
-    with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
+    existing_info = {
+        "calendar_id": mock_calendar["id"],
+        "calendar_name": mock_calendar["summary"],
+        "description": "",
+        "subscription_link": f"https://calendar.google.com/calendar/render?cid={mock_calendar['id']}",
+        "timeZone": "Europe/Vilnius",
+    }
+
+    with patch('services.calendar.get_google_calendar_service', return_value=mock_service), \
+         patch('services.calendar.get_existing_calendar_info', return_value=existing_info):
         # Create calendar first time
         result1 = create_calendar_for_schedule_group(schedule_group_id)
         assert result1['success'] is True

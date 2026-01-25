@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY services/api services/api
 COPY services/common services/common
-COPY services/calendar services/calendar
 COPY services/web services/web
 
 ENV PYTHONPATH=/app
