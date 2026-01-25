@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Scraper applies its migrations on container startup.
 - Service entrypoints now use shared logging setup.
 - Tidied `config.py` and `config.example.py` into clear sections.
+- Verified runtime stability: scraper + API OK; calendar retries blocked only by API quota.
 
 ## [0.0.4a] - 2026-01-25
 ### Added
