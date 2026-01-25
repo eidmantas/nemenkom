@@ -2,10 +2,12 @@
 Flask API application for waste schedule data
 """
 
+from pathlib import Path
+
 from flasgger import Swagger
 from flask import Flask, jsonify, redirect, render_template, request
 
-from api.db import (
+from services.api.db import (
     get_all_locations,
     get_house_numbers_for_street,
     get_location_by_selection,
@@ -23,10 +25,12 @@ from services.calendar import (
     list_available_calendars,
 )
 
-# Note: API is read-only (all GET endpoints) - no authentication needed
-# All writes (data ingestion, calendar creation) are handled by the scraper service
-
-app = Flask(__name__, template_folder="../web/templates", static_folder="../web/static")
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+app = Flask(
+    __name__,
+    template_folder=str(REPO_ROOT / "services" / "web" / "templates"),
+    static_folder=str(REPO_ROOT / "services" / "web" / "static"),
+)
 
 # Initialize Swagger
 swagger_config = {
@@ -531,9 +535,4 @@ def api_calendar_info(calendar_id):
 
 
 if __name__ == "__main__":
-    # Initialize database if needed
-    from database.init import init_database
-
-    init_database()
-
     app.run(host="0.0.0.0", port=3333, debug=True)

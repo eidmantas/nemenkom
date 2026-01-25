@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
-from scraper.core.parser import MONTH_MAPPING, parse_xlsx
+from services.scraper.core.parser import MONTH_MAPPING, parse_xlsx
 
 
 def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:

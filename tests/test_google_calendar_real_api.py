@@ -19,12 +19,12 @@ from services.calendar import (
     list_available_calendars,
     generate_calendar_subscription_link
 )
-from scraper.core.db_writer import generate_schedule_group_id, generate_dates_hash
+from services.scraper.core.db_writer import generate_schedule_group_id, generate_dates_hash
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from database.init import get_db_connection
-from api.db import update_schedule_group_calendar_id
+from services.common.db import get_db_connection
+from services.api.db import update_schedule_group_calendar_id
 
 # Test configuration
 TEST_PREFIX = "[TEST] "  # Prefix for all test calendars
@@ -205,7 +205,7 @@ def test_real_calendar_creation_and_cleanup():
     print(f"🔗 Subscription link: {result['subscription_link']}")
 
     # Verify calendar_id is stored in database
-    from api.db import get_schedule_group_info
+    from services.api.db import get_schedule_group_info
     group_info = get_schedule_group_info(test_sg_id)
     assert group_info is not None, "Schedule group not found in database"
     assert group_info['calendar_id'] == calendar_id, "Calendar ID not stored in database"

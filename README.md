@@ -18,6 +18,7 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 **Microservice Architecture:**
 - `web` service: Flask API and web interface (port 3333)
 - `scraper` service: Scheduled scraper (runs at 11:00 and 18:00 daily)
+- `calendar` service: Calendar creation + event sync worker
 
 **Using Makefile (recommended):**
 ```bash
@@ -65,7 +66,7 @@ podman-compose down
 
 Web server: **http://localhost:3333**
 
-The database is stored in `./database/` and persists between restarts. The scraper automatically updates it twice daily.
+The database is stored in `./services/database/` and persists between restarts. The scraper automatically updates it twice daily.
 
 ### Option 2: Manual Setup
 
@@ -77,26 +78,32 @@ make venv-install  # Or: python3 -m venv venv && venv/bin/pip install -r require
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Initialize database
-python database/init.py
+python services/database/init.py
 ```
 
 ### Run Scraper
 
 ```bash
 # Simple subset only (traditional parser, no AI needed)
-python scraper/main.py --simple-subset
+python services/scraper/main.py --simple-subset
 
 # Full parsing (traditional + AI parser) - processes all entries
-python scraper/main.py
+python services/scraper/main.py
 ```
 
 ### Run Web Server
 
 ```bash
-python api/app.py
+python services/api/app.py
 ```
 
 Server runs on **http://localhost:3333**
+
+### Run Calendar Worker
+
+```bash
+python services/calendar/worker.py
+```
 
 ## API Testing
 
@@ -160,42 +167,35 @@ curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=ben
 
 ```
 nemenkom/
-├── scraper/          # Data scraping and parsing
-│   ├── fetcher.py    # Download XLSX from URL
-│   ├── parser.py     # Parse XLSX (traditional + AI router)
-│   ├── parser_router.py  # Decide traditional vs AI parsing
-│   ├── validator.py  # Validate data structure
-│   ├── db_writer.py  # Write to SQLite
-│   └── main.py       # CLI entry point
-├── api/              # Flask REST API
-│   ├── app.py        # Flask application
-│   └── db.py         # Database queries
-├── web/              # Web interface
-│   ├── templates/    # HTML templates
-│   └── static/       # CSS, JS
-├── database/         # Database schema and init
-│   ├── schema.sql    # SQLite schema
-│   └── init.py       # Database initialization
-└── documentation/    # Project documentation
+├── services/
+│   ├── api/                # Flask REST API
+│   ├── scraper/            # Data scraping and parsing
+│   ├── calendar/           # Calendar sync worker
+│   ├── common/             # Shared helpers (DB helpers, types)
+│   └── database/           # SQLite schema and init
+├── services/web/                     # Web interface
+│   ├── templates/           # HTML templates
+│   └── static/              # CSS, JS
+└── documentation/           # Project documentation
 ```
 
 ## Database Schema
 
 ### Key Tables
 
-- **`schedule_groups`**: Hash-based groups with JSON dates and kaimai_hashes
+- **`schedule_groups`**: Hash-based groups with JSON dates and kaimai_hash
 - **`locations`**: Village/street combinations with kaimai_hash
 - **`data_fetches`**: Track scraping runs
 
-See `database/schema.sql` for full schema.
+See `services/scraper/migrations/` and `services/calendar/migrations/` for schema history.
 
 ## Next Steps
 
 ### 1. Implement AI Parser (Groq) ✅ **COMPLETE**
-- ✅ Created `scraper/ai/parser.py` with Groq API integration
+- ✅ Created `services/scraper/ai/parser.py` with Groq API integration
 - ✅ Integrates Groq API for complex "Kaimai" patterns
-- ✅ Rate limiting (`scraper/ai/rate_limiter.py`) - respects 15 RPM, 14,400 RPD free tier
-- ✅ Caching (`scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
+- ✅ Rate limiting (`services/scraper/ai/rate_limiter.py`) - respects 15 RPM, 14,400 RPD free tier
+- ✅ Caching (`services/scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
 - ✅ Full validation and error handling
 - ✅ Updated `parser.py` to use AI parser via router
 - ✅ Test coverage: 59 tests (including 5 AI integration tests with real API calls)
@@ -215,7 +215,6 @@ See `database/schema.sql` for full schema.
 - ✅ Smart calendar naming - uses seniunija for clear, concise names
 - ✅ Calendar cleanup tools - `make clean-calendars-dry-run` and `make clean-calendars`
 - ✅ Comprehensive test coverage (94 tests passing)
-- See `documentation/DESIGN-CHANGE.md` for full design details
 
 ### 4. Multi-Waste-Type Support
 - Handle separate XLSX files for plastic, glass waste
@@ -239,9 +238,6 @@ See `database/schema.sql` for full schema.
 ## Documentation
 
 - **`documentation/ARCHITECTURE.md`** - System architecture and design
-- **`documentation/DESIGN-CHANGE.md`** - Option B: Stable Calendar IDs design (current implementation)
-- **`documentation/HYBRID_PARSER.md`** - Hybrid parser implementation (traditional + AI)
-- **`documentation/AI-AGENT.md`** - Full context for AI agents (for continuation)
 - **`documentation/TESTING.md`** - Testing strategy and setup
 
 ## Development Notes

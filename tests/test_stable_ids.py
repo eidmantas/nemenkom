@@ -4,13 +4,13 @@ Tests that schedule_group_id remains stable when dates change
 """
 import pytest
 from datetime import date, datetime
-from scraper.core.db_writer import (
+from services.scraper.core.db_writer import (
     generate_schedule_group_id,
     generate_dates_hash,
     find_or_create_schedule_group,
     generate_kaimai_hash
 )
-from database.init import get_db_connection
+from services.common.db import get_db_connection
 import json
 
 

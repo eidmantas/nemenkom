@@ -21,7 +21,10 @@ class AIParserCache:
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
             db_path = (
-                Path(__file__).parent.parent.parent / "database" / "waste_schedule.db"
+                Path(__file__).parent.parent.parent.parent
+                / "services"
+                / "database"
+                / "waste_schedule.db"
             )
 
         self.db_path = db_path

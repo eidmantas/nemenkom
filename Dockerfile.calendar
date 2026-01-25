@@ -6,10 +6,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/scraper services/scraper
+COPY services/calendar services/calendar
 COPY services/common services/common
-COPY services/scraper/migrations services/scraper/migrations
+COPY services/calendar/migrations services/calendar/migrations
 
 ENV PYTHONPATH=/app
 
-CMD ["python", "services/scraper/scheduler.py"]
+CMD ["python", "services/calendar/worker.py"]

@@ -6,64 +6,67 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
 
 ## Architecture Components
 
-### 1. Data Scraper Module (`scraper/`)
+### 1. Data Scraper Module (`services/scraper/`)
 
 - **Purpose**: Daily fetch of xlsx schedule from nemenkom.lt
-- **Files**:
-  - `scraper/fetcher.py` - Downloads xlsx from URL (direct link for now, web scraping later)
-  - `scraper/parser.py` - Parses xlsx and extracts all street/village combos with dates
-  - `scraper/validator.py` - Validates data structure and format
-  - `scraper/db_writer.py` - Writes validated data to SQLite
+**Files**:
+  - `services/scraper/core/fetcher.py` - Downloads xlsx from URL (direct link for now, web scraping later)
+  - `services/scraper/core/parser.py` - Parses xlsx and extracts all street/village combos with dates
+  - `services/scraper/core/validator.py` - Validates data structure and format
+  - `services/scraper/core/db_writer.py` - Writes validated data to SQLite
 - **Database Schema** (SQLite):
   - `schedule_groups` table: `id` (stable hash of `kaimai_hash + waste_type`), `waste_type`, `dates` (JSON), `kaimai_hash` (single TEXT), `dates_hash`, `calendar_id`, `calendar_synced_at`
   - `locations` table: `id`, `seniunija`, `village`, `street`, `house_numbers`, `kaimai_hash` (links to schedule_groups)
   - `calendar_events` table: Tracks Google Calendar events per date for resume-on-failure
   - `data_fetches` table: `id`, `fetch_date`, `source_url`, `status`, `validation_errors`
   - **Note**: No `pickup_dates` table - dates stored in `schedule_groups.dates` JSON (eliminates 95% duplication)
-  - **See**: `documentation/DESIGN-CHANGE.md` for full schema details (Option B: Stable Calendar IDs)
+  - **See**: `services/database/migrations/` for schema history
 
-### 2. API Module (`api/`)
+### 2. API Module (`services/api/`)
 
 - **Purpose**: REST API for data ingestion and public queries
 - **Files**:
-  - `api/app.py` - Flask application with routes
-  - `api/db.py` - Database connection and queries
+  - `services/api/app.py` - Flask application with routes
+  - `services/api/db.py` - Database connection and queries
 - **Endpoints**:
   - `POST /api/v1/data` - Accept scraped data from fetcher (internal)
   - `GET /api/v1/locations` - List all street/village combos
   - `GET /api/v1/schedule?street=X&village=Y` - Get schedule for specific location
   - `GET /api/v1/schedule-group/:id` - Get schedule for a schedule group
 
-### 3. Web Interface (`web/`)
+### 3. Web Interface (`services/web/`)
 
 - **Purpose**: User-facing website for viewing schedules
 - **Files**:
-  - `web/templates/index.html` - Main page with cascading searchable selectors and calendar view
-  - `web/static/css/style.css` - Styling
-  - `web/static/js/calendar.js` - Calendar rendering logic
+  - `services/web/templates/index.html` - Main page with cascading searchable selectors and calendar view
+  - `services/web/static/css/style.css` - Styling
+  - `services/web/static/js/calendar.js` - Calendar rendering logic
 - **Features**:
   - **Searchable Dropdowns**: Type-to-search with partial matching and Lithuanian character normalization
   - **Cascading Selection**: Village → Street → House Number with smart validation
   - **Calendar View**: Displays pickup dates for selected location
   - **Responsive Design**: Basic responsive layout
 
-### 4. Google Calendar Service (`services/`)
+### 4. Google Calendar Service (`services/calendar/`)
 
 - **Purpose**: Automatic Google Calendar creation and synchronization
-- **Files**:
-  - `services/calendar.py` - Google Calendar API integration, calendar creation, event sync
+**Files**:
+  - `services/calendar/__init__.py` - Google Calendar API integration (creation + sync)
+  - `services/calendar/worker.py` - Calendar sync worker entrypoint
 - **Features**:
   - Background worker for asynchronous calendar creation and event sync
   - Stable calendar IDs (calendars remain stable when dates change)
   - In-place event updates (delete old, add new) - maintains user subscriptions
   - Public calendar access - calendars automatically made publicly readable
   - Calendar cleanup tools for orphaned calendars
-- **See**: `documentation/DESIGN-CHANGE.md` for full design details
+- **See**: `services/calendar/` for calendar worker implementation
 
-### 5. Database (`database/`)
+### 5. Database (`services/database/`)
 
-- **File**: `database/schema.sql` - SQLite schema definition
-- **File**: `database/init.py` - Database initialization script
+- **Folder**: SQLite schema migrations
+  - `services/scraper/migrations/` - Core tables owned by scraper
+  - `services/calendar/migrations/` - Calendar tables owned by calendar service
+- **File**: `services/database/init.py` - Migration runner and DB initialization
 
 ## Data Flow
 
@@ -75,10 +78,10 @@ Scraper (daily cron) → Validator → SQLite DB → API → Web Interface
 
 ## Module Dependencies
 
-- `scraper/` → `database/` (writes data), `services/calendar.py` (calendar sync)
-- `api/` → `database/` (reads data), `services/calendar.py` (calendar status)
-- `web/` → `api/` (via HTTP requests)
-- `services/calendar.py` → `database/` (reads/writes calendar data), Google Calendar API
+- `services/scraper/` → `services/database/` (writes data)
+- `services/api/` → `services/database/` (reads data), `services/common/` (shared helpers)
+- `services/calendar/` → `services/database/` (reads/writes calendar data), `services/common/`
+- `services/web/` → `services/api/` (via HTTP requests)
 
 ## Key Design Decisions
 
@@ -92,42 +95,26 @@ Scraper (daily cron) → Validator → SQLite DB → API → Web Interface
 
 ```
 nemenkom/
-├── scraper/
-│   ├── __init__.py
-│   ├── fetcher.py
-│   ├── parser.py
-│   ├── validator.py
-│   └── db_writer.py
-├── api/
-│   ├── __init__.py
-│   ├── app.py
-│   └── db.py
-├── web/
-│   ├── templates/
-│   │   └── index.html
-│   └── static/
-│       ├── css/
-│       │   └── style.css
-│       └── js/
-│           └── calendar.js
 ├── services/
-│   └── calendar.py          # Google Calendar API integration
-├── database/
-│   ├── schema.sql
-│   ├── init.py
-│   └── waste_schedule.db (generated)
-├── main.py (legacy - to be deprecated)
-├── api-test.py (legacy - to be deprecated)
-├── google_calendar.py (legacy - move to calendar/)
+│   ├── api/
+│   ├── scraper/
+│   │   └── core/
+│   ├── calendar/
+│   ├── common/
+│   └── database/
+├── services/web/
+│   ├── templates/
+│   └── static/
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile.scraper
+├── Dockerfile.calendar
+├── docker-compose.yaml
 └── documentation/
-    ├── ARCHITECTURE.md          # System architecture overview
-    ├── DESIGN-CHANGE.md        # Option B: Stable Calendar IDs design (current implementation)
-    ├── HYBRID_PARSER.md         # Hybrid parser implementation details
-    ├── AI-AGENT.md              # Full context for AI agents (for continuation)
-    └── TESTING.md               # Testing strategy and setup
+    ├── ARCHITECTURE.md
+    ├── ARCHITECTURE.md
+    ├── TESTING.md
+    └── TESTING.md
 ```
 
 ## Implementation Phases
@@ -160,7 +147,7 @@ nemenkom/
 - **AI parser (Groq)**: Handles complex cases (house numbers, missing commas, nested structures)
 - **Decision logic**: `should_use_ai_parser()` function determines which parser to use
 - **Cost**: Free tier Groq API (30 RPM, 14,400 RPD) - sufficient for ~700 rows/day
-- **See**: `documentation/HYBRID_PARSER.md` for parsing examples and implementation details
+- **See**: `services/scraper/` for parsing implementation
 
 ## Option 2: Hybrid Parser Architecture & Wireframes
 

@@ -9,7 +9,7 @@ the AI parser directly and don't require pre-populated database data.
 """
 import pytest
 from unittest.mock import patch
-from scraper.ai.parser import (
+from services.scraper.ai.parser import (
     parse_with_ai,
     validate_ai_output,
     convert_to_parser_format,
@@ -198,7 +198,7 @@ class TestAIParserIntegration:
         """Test that AI parser returns same format as traditional parser"""
         # This test verifies the format is correct when we have cached results
         # The actual API calls are tested in manual integration tests
-        from scraper.core.parser import parse_village_and_streets
+        from services.scraper.core.parser import parse_village_and_streets
         
         # Simple case that traditional parser can handle
         simple_kaimai = "Aleksandravas"
@@ -288,7 +288,7 @@ class TestAIParserIntegration:
         
         # Use temporary cache DB to ensure fresh API calls
         with patch('scraper.ai.parser.get_cache') as mock_get_cache:
-            from scraper.ai.cache import AIParserCache
+            from services.scraper.ai.cache import AIParserCache
             mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
             
             test_case = "Didžioji Riešė (Ąžuolų g., Gegužinės g., Kampinė g.,  Kiparisų g., Lelijų g., Merkurijaus g., Miglės g., Molėtų g.,(nuo Nr. 40 iki 48), Paukščių Tako g., Saturno g., Senoji g., Svajonės g., Vanaginės g., (nuo Nr.1 iki 31A, nuo 2 iki 14B), Veneros g.(nuo Nr. 7))"
@@ -318,7 +318,7 @@ class TestAIParserIntegration:
         
         # Use temporary cache DB to ensure fresh API calls
         with patch('scraper.ai.parser.get_cache') as mock_get_cache:
-            from scraper.ai.cache import AIParserCache
+            from services.scraper.ai.cache import AIParserCache
             mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
             
             test_case = "Didžioji Riešė (Akmenų g., Lauko g.,(nuo Nr. 2 iki 20A, nuo 1 iki 19), Lygumų g., Mėtų g., Molėtų g., Molėtų pl. (114, 114A,114B), Parko g., Pavasario g., Samanų g., Snieguolių g., Šiaurinės g., Veneros g. (iki Nr.5), Vanaginės Sodų g., Vanaginės g. (nuo 33A iki 101),"
@@ -342,7 +342,7 @@ class TestAIParserIntegration:
         
         # Use temporary cache DB to ensure fresh API calls
         with patch('scraper.ai.parser.get_cache') as mock_get_cache:
-            from scraper.ai.cache import AIParserCache
+            from services.scraper.ai.cache import AIParserCache
             mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
             
             test_case = "Didžioji Riešė (Alyvų g., Ateities g., Kooperatyvų g., Mokyklos g., Molėtų g., Kaštonų g. ( nuo Nr. 1 iki 9 ), Parko g. 2 ,4, 4A, 6, 8 ), Riešės g., Rožių g., Rūtų g., Žalioji g.,( Nr. 19, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 50, 54, 56, 58, 60),  Žvėrališkių g.)"
@@ -373,7 +373,7 @@ class TestAIParserIntegration:
         
         # Use temporary cache DB to ensure fresh API calls
         with patch('scraper.ai.parser.get_cache') as mock_get_cache:
-            from scraper.ai.cache import AIParserCache
+            from services.scraper.ai.cache import AIParserCache
             mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
             
             test_case = "Didžioji Riešė (Gėlyno g., Indrajos g., Kaštonų g., (nuo Nr. 10), Lauko g.,  Molėtų g. (nuo Nr. 32A iki 20, 20A, 22 ) Parko g.,(nuo Nr.40 iki 65),  Rasų g., Raudonikių g., Vakarų g., Vanaginės g.,(nuo Nr.103, 103A iki 119, nuo 68,68A,68B iki 80), Verbų g., Vieversių g., Žalioji g., ( nuo Nr. 1 iki Nr. 48 ), Žemoji g., Riešės k., Smilčių g."
@@ -401,7 +401,7 @@ class TestAIParserIntegration:
         
         # Use temporary cache DB to ensure fresh API calls
         with patch('scraper.ai.parser.get_cache') as mock_get_cache:
-            from scraper.ai.cache import AIParserCache
+            from services.scraper.ai.cache import AIParserCache
             mock_get_cache.return_value = AIParserCache(db_path=temp_cache_db)
             
             # Test case 1: Žalioji g. with list of numbers (line 462)

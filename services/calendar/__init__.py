@@ -8,7 +8,6 @@ Uses Service Account for headless authentication (standard Gmail, no Workspace)
 import datetime
 import logging
 import os.path
-import random
 
 # Import configuration
 import sys
@@ -20,21 +19,26 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
-from api.db import (
+from services.common.db_helpers import (
     get_schedule_group_info,
     get_schedule_groups_needing_sync,
     update_schedule_group_calendar_id,
     update_schedule_group_calendar_synced,
 )
-from database.init import get_db_connection
+from services.common.db import get_db_connection
+from services.common.throttle import backoff, throttle
 
 # Setup logging
 logging.basicConfig(
     level=logging.DEBUG, format="[%(asctime)s] %(levelname)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _throttle_calendar():
+    throttle("calendar")
 
 
 def get_google_calendar_service():
@@ -110,12 +114,14 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
                         service = get_google_calendar_service()
                         acl_rule = {"scope": {"type": "default"}, "role": "reader"}
                         try:
+                            _throttle_calendar()
                             service.acl().get(
                                 calendarId=existing_calendar_id, ruleId="default"
                             ).execute()
                             logger.debug(f"Calendar already public: {existing_calendar_id}")
                         except HttpError:
                             # Public ACL doesn't exist, add it
+                            _throttle_calendar()
                             service.acl().insert(
                                 calendarId=existing_calendar_id, body=acl_rule
                             ).execute()
@@ -193,6 +199,7 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
             "timeZone": config.GOOGLE_CALENDAR_TIMEZONE,
         }
 
+        _throttle_calendar()
         created_calendar = service.calendars().insert(body=calendar).execute()
         calendar_id = created_calendar["id"]
         logger.debug(f"Calendar created: {calendar_id} for schedule_group_id={schedule_group_id}")
@@ -204,6 +211,7 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
                 "scope": {"type": "default"},
                 "role": "reader",  # Public read access
             }
+            _throttle_calendar()
             service.acl().insert(calendarId=calendar_id, body=acl_rule).execute()
             logger.info(f"Calendar made public: {calendar_id}")
             print(f"✅ Calendar made public: {calendar_id}")
@@ -249,6 +257,8 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
     except HttpError as error:
         logger.error(f"Google Calendar API error for schedule_group_id={schedule_group_id}: {error}")
         print(f"❌ Google Calendar API error for schedule_group_id={schedule_group_id}: {error}")
+        if "rateLimitExceeded" in str(error) or "quotaExceeded" in str(error):
+            backoff("calendar_rate_limit")
         return None
     except Exception as e:
         logger.error(f"Unexpected error creating calendar for schedule_group_id={schedule_group_id}: {e}", exc_info=True)
@@ -270,6 +280,7 @@ def get_existing_calendar_info(calendar_id: str) -> Optional[Dict]:
     """
     try:
         service = get_google_calendar_service()
+        _throttle_calendar()
         calendar = service.calendars().get(calendarId=calendar_id).execute()
 
         return {
@@ -299,6 +310,7 @@ def list_available_calendars() -> List[Dict]:
         service = get_google_calendar_service()
 
         # Get all calendars
+        _throttle_calendar()
         calendars_result = service.calendarList().list().execute()
         calendars = calendars_result.get("items", [])
 
@@ -358,6 +370,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         service = get_google_calendar_service()
 
         # Get all calendars from Google Calendar that the service account can access
+        _throttle_calendar()
         calendars_result = service.calendarList().list().execute()
         all_calendars = calendars_result.get("items", [])
 
@@ -411,22 +424,18 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
             error_count = 0
             for idx, cal in enumerate(orphaned):
                 try:
+                    _throttle_calendar()
                     service.calendars().delete(calendarId=cal["calendar_id"]).execute()
                     deleted_count += 1
                     print(f"🗑️  Deleted orphaned calendar: {cal['calendar_name']}")
 
-                    # Add delay between deletions to avoid rate limits (2-3 seconds)
-                    if idx < len(orphaned) - 1:  # Don't delay after last calendar
-                        delay = random.uniform(2.0, 3.0)
-                        time.sleep(delay)
                 except HttpError as e:
                     if "rateLimitExceeded" in str(e) or "quotaExceeded" in str(e):
                         error_count += 1
                         print(
                             f"⚠️  Rate limit hit - will retry later: {cal['calendar_name']}"
                         )
-                        # Wait longer on rate limit (5 seconds)
-                        time.sleep(5)
+                        backoff("calendar_rate_limit")
                     else:
                         error_count += 1
                         print(
@@ -558,6 +567,7 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
             event_id = existing_events[date_str]["event_id"]
             if event_id:
                 try:
+                    _throttle_calendar()
                     service.events().delete(
                         calendarId=calendar_id, eventId=event_id
                     ).execute()
@@ -617,6 +627,7 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                     },
                 }
 
+                _throttle_calendar()
                 created_event = (
                     service.events()
                     .insert(calendarId=calendar_id, body=event)
@@ -642,11 +653,6 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 conn.close()
 
                 logger.debug(f"Created event {event_id} for date {date_str}")
-
-                # Add delay between event creations (2-3 seconds)
-                if date_str != list(dates_to_add)[-1]:  # Don't delay after last event
-                    delay = random.uniform(2.0, 3.0)
-                    time.sleep(delay)
 
             except Exception as e:
                 logger.error(f"Failed to create event for {date_str}: {e}")
@@ -700,6 +706,7 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                     },
                 }
 
+                _throttle_calendar()
                 created_event = (
                     service.events()
                     .insert(calendarId=calendar_id, body=event)
@@ -724,12 +731,6 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 conn.close()
 
                 logger.debug(f"Retried event {event_id} for date {date_str}")
-
-                # Add delay between event retries (2-3 seconds)
-                retry_list = list(dates_to_retry)
-                if date_str != retry_list[-1]:  # Don't delay after last event
-                    delay = random.uniform(2.0, 3.0)
-                    time.sleep(delay)
 
             except Exception as e:
                 logger.error(f"Failed to retry event for {date_str}: {e}")

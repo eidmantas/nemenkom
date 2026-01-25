@@ -16,18 +16,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def temp_db():
     """Create a temporary database for testing and patch get_db_connection to use it"""
     from unittest.mock import patch
-    import api.db as api_db_module
-    import database.init as db_init_module
+    import services.api.db as api_db_module
+    import services.common.db as db_module
     import services.calendar as calendar_module
+    import services.common.db_helpers as db_helpers_module
     
     db_fd, db_path = tempfile.mkstemp(suffix='.db')
     conn = sqlite3.connect(db_path)
     
-    # Read and execute schema
-    schema_path = Path(__file__).parent.parent / 'database' / 'schema.sql'
-    with open(schema_path, 'r', encoding='utf-8') as f:
-        schema_sql = f.read()
-    conn.executescript(schema_sql)
+    from services.common.migrations import apply_migrations
+    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
+    apply_migrations(conn, Path(__file__).parent.parent / "services" / "calendar" / "migrations")
     conn.commit()
     
     def mock_get_conn():
@@ -35,12 +34,19 @@ def temp_db():
     
     # Patch get_db_connection in all modules that use it
     with patch.object(api_db_module, 'get_db_connection', mock_get_conn), \
-         patch.object(db_init_module, 'get_db_connection', mock_get_conn), \
-         patch.object(calendar_module, 'get_db_connection', mock_get_conn):
+         patch.object(db_module, 'get_db_connection', mock_get_conn), \
+         patch.object(calendar_module, 'get_db_connection', mock_get_conn), \
+         patch.object(db_helpers_module, 'get_db_connection', mock_get_conn):
         yield conn, db_path
     
     conn.close()
     os.unlink(db_path)
+
+
+@pytest.fixture(autouse=True)
+def disable_throttle_env():
+    os.environ.setdefault("THROTTLE_DISABLED", "1")
+    yield
 
 
 @pytest.fixture

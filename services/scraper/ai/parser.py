@@ -12,11 +12,11 @@ from typing import List, Optional, Tuple
 
 from groq import Groq
 
-from scraper.ai.cache import get_cache
-from scraper.ai.rate_limiter import get_rate_limiter
+from services.scraper.ai.cache import get_cache
+from services.common.throttle import backoff, throttle
 
 # Add parent directory to path for config import
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import config
 
 logger = logging.getLogger(__name__)
@@ -350,15 +350,12 @@ def parse_with_ai(
             )
         return cached_result
 
-    # Rate limit check
-    rate_limiter = get_rate_limiter()
-
     last_error = None
     last_error_context = error_context
 
     for attempt in range(max_retries + 1):  # +1 for initial attempt
         try:
-            rate_limiter.wait_if_needed()
+            throttle("ai")
 
             # Call Groq API
             client = Groq(api_key=config.GROQ_API_KEY)
@@ -426,12 +423,12 @@ def parse_with_ai(
                 cache = get_cache()
                 cache.set(kaimai_str, result, tokens_used=tokens_used)
 
-            # Update rate limiter with token usage
-            rate_limiter.record_request(tokens_used)
-
             return result
 
         except Exception as e:
+            msg = str(e).lower()
+            if "rate limit" in msg or "429" in msg:
+                backoff("ai_rate_limit")
             last_error = str(e)
             if attempt < max_retries:
                 # Build context for next retry

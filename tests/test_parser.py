@@ -2,12 +2,12 @@
 Unit tests for parser functions
 """
 from datetime import date
-from scraper.core.parser import (
+from services.scraper.core.parser import (
     parse_village_and_streets,
     parse_street_with_house_numbers,
     extract_dates_from_cell
 )
-from scraper.ai.router import should_use_ai_parser
+from services.scraper.ai.router import should_use_ai_parser
 
 
 class TestParseVillageAndStreets:

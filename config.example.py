@@ -50,7 +50,6 @@ def _validate_secret_file(filename: str, description: str = None) -> None:
 GROQ_API_KEY = _read_secret_file("groq_api_key.txt")  # Read from secrets/groq_api_key.txt
 GROQ_MODEL = "llama-3.3-70b-versatile"  # Higher quality model for better parsing of complex cases
 # Alternative: "llama-3.1-8b-instant" for faster processing with better rate limits (14.4k RPD, 6k TPM, 500k TPD)
-# Note: Instant model can be used temporarily for bug fixing to save tokens
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Rate Limiting (Groq free tier limits)
@@ -65,7 +64,6 @@ GROQ_SAFETY_MARGIN = 0.9
 
 # Google Calendar API Configuration
 GOOGLE_CALENDAR_CREDENTIALS_FILE = "secrets/credentials.json"  # Path to Service Account JSON key file
-# Note: credentials.json is validated below with all other secrets
 GOOGLE_CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar"

@@ -248,7 +248,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
     import logging
     import time
 
-    from scraper.ai.router import should_use_ai_parser
+    from services.scraper.ai.router import should_use_ai_parser
 
     logging.basicConfig(
         level=logging.DEBUG, format="[%(asctime)s] %(levelname)s: %(message)s"
@@ -302,7 +302,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
             ai_start = time.time()
             logger.debug(f"Row {idx + 1}: Using AI parser for: {kaimai_str[:80]}")
             try:
-                from scraper.ai.parser import parse_with_ai
+                from services.scraper.ai.parser import parse_with_ai
 
                 parsed_items = parse_with_ai(kaimai_str)
                 ai_parse_count += 1
@@ -352,7 +352,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                         f"⚠️  Traditional parser produced invalid output for '{kaimai_str[:50]}...' - retrying with AI"
                     )
                     try:
-                        from scraper.ai.parser import parse_with_ai
+                        from services.scraper.ai.parser import parse_with_ai
 
                         error_context = f"Traditional parser incorrectly included streets in village name: '{village[:100]}'"
                         parsed_items = parse_with_ai(
@@ -436,7 +436,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
 
 if __name__ == "__main__":
     # Test parser
-    from scraper.core.fetcher import fetch_xlsx
+    from services.scraper.core.fetcher import fetch_xlsx
 
     file_path = fetch_xlsx()
     results = parse_xlsx(file_path)

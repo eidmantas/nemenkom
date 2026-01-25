@@ -8,14 +8,14 @@ from datetime import date, datetime
 import json
 import time
 from unittest.mock import patch, MagicMock, call
-from database.init import get_db_connection
-from scraper.core.db_writer import (
+from services.common.db import get_db_connection
+from services.scraper.core.db_writer import (
     generate_schedule_group_id,
     generate_dates_hash,
     find_or_create_schedule_group,
     generate_kaimai_hash
 )
-from api.db import (
+from services.api.db import (
     get_schedule_groups_needing_sync,
     update_schedule_group_calendar_id,
     update_schedule_group_calendar_synced

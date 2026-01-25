@@ -10,11 +10,12 @@ import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.db import (
+from services.api.db import (
     get_all_locations, get_location_schedule, search_locations,
     village_has_streets, street_has_house_numbers
 )
-from scraper.core.db_writer import write_location_schedule
+from services.scraper.core.db_writer import write_location_schedule
+from services.common.migrations import apply_migrations
 
 
 @pytest.fixture
@@ -24,10 +25,7 @@ def test_db_with_data():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    schema_path = Path(__file__).parent.parent / 'database' / 'schema.sql'
-    with open(schema_path, 'r', encoding='utf-8') as f:
-        schema_sql = f.read()
-    conn.executescript(schema_sql)
+    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     
     # Add test data
@@ -58,7 +56,7 @@ def test_get_all_locations(test_db_with_data):
     db_path, location_id = test_db_with_data
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -79,7 +77,7 @@ def test_get_location_schedule(test_db_with_data):
     db_path, location_id = test_db_with_data
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -102,7 +100,7 @@ def test_search_locations(test_db_with_data):
     db_path, location_id = test_db_with_data
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -128,10 +126,7 @@ def test_db_with_village_and_streets():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    schema_path = Path(__file__).parent.parent / 'database' / 'schema.sql'
-    with open(schema_path, 'r', encoding='utf-8') as f:
-        schema_sql = f.read()
-    conn.executescript(schema_sql)
+    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     
     # Add test data: village with streets
@@ -187,7 +182,7 @@ def test_village_has_streets(test_db_with_village_and_streets):
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -213,7 +208,7 @@ def test_street_has_house_numbers(test_db_with_village_and_streets):
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -239,7 +234,7 @@ def test_api_schedule_village_without_streets(test_db_with_village_and_streets):
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -248,7 +243,7 @@ def test_api_schedule_village_without_streets(test_db_with_village_and_streets):
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.app import app
+        from services.api.app import app
         with app.test_client() as client:
             # Should work without street parameter (requires seniunija)
             response = client.get('/api/v1/schedule?seniunija=Test&village=SimpleVillage')
@@ -265,7 +260,7 @@ def test_api_schedule_village_with_streets_requires_street(test_db_with_village_
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -274,7 +269,7 @@ def test_api_schedule_village_with_streets_requires_street(test_db_with_village_
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.app import app
+        from services.api.app import app
         with app.test_client() as client:
             # Should fail without street parameter (requires seniunija)
             response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets')
@@ -298,7 +293,7 @@ def test_api_schedule_street_with_house_numbers_requires_house_numbers(test_db_w
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -307,7 +302,7 @@ def test_api_schedule_street_with_house_numbers_requires_house_numbers(test_db_w
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.app import app
+        from services.api.app import app
         with app.test_client() as client:
             # Should fail without house_numbers parameter (requires seniunija)
             response = client.get('/api/v1/schedule?seniunija=Test&village=VillageWithStreets&street=Second Street')
@@ -332,7 +327,7 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -341,7 +336,7 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.db import get_unique_villages
+        from services.api.db import get_unique_villages
         villages = get_unique_villages()
         
         # Should return list of dicts
@@ -373,7 +368,7 @@ def test_api_villages_endpoint(test_db_with_village_and_streets):
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -382,7 +377,7 @@ def test_api_villages_endpoint(test_db_with_village_and_streets):
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.app import app
+        from services.api.app import app
         with app.test_client() as client:
             response = client.get('/api/v1/villages')
             assert response.status_code == 200
@@ -405,7 +400,7 @@ def test_api_streets_endpoint_requires_seniūnija(test_db_with_village_and_stree
     db_path = test_db_with_village_and_streets
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -414,7 +409,7 @@ def test_api_streets_endpoint_requires_seniūnija(test_db_with_village_and_stree
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.app import app
+        from services.api.app import app
         with app.test_client() as client:
             # Should fail without seniunija
             response = client.get('/api/v1/streets?village=VillageWithStreets')
@@ -437,7 +432,7 @@ def test_duplicate_village_names_different_seniūnija(test_db_with_village_and_s
     # Add duplicate village name in different seniūnija
     conn = sqlite3.connect(db_path, check_same_thread=False)
     from datetime import date
-    from scraper.core.db_writer import write_location_schedule
+    from services.scraper.core.db_writer import write_location_schedule
     
     # Add same village name in different seniūnija
     write_location_schedule(
@@ -454,7 +449,7 @@ def test_duplicate_village_names_different_seniūnija(test_db_with_village_and_s
     conn.close()
     
     # Mock get_db_connection
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():
@@ -463,7 +458,7 @@ def test_duplicate_village_names_different_seniūnija(test_db_with_village_and_s
     api_db_module.get_db_connection = mock_get_conn
     
     try:
-        from api.db import get_unique_villages
+        from services.api.db import get_unique_villages
         villages = get_unique_villages()
         
         # Should have both SimpleVillage entries (different seniunija)

@@ -26,6 +26,7 @@ help:
 	@echo "  make prepare-fixture - Regenerate test fixture from real XLSX"
 	@echo "  make run-scraper   - Run scraper (fetches data, parses, writes to DB)"
 	@echo "  make run-api       - Start API server (Flask on port 3333)"
+	@echo "  make run-calendar  - Start calendar worker"
 	@echo "  make run-all       - Run scraper then start API server"
 	@echo ""
 	@echo "Docker/Podman:"
@@ -66,7 +67,7 @@ test:
 		exit 1; \
 	fi
 	@echo "🧪 Running all tests (excluding AI and real API tests)..."
-	venv/bin/pytest tests/ -v -m "not ai_integration and not real_api"
+	THROTTLE_DISABLED=1 venv/bin/pytest tests/ -v -m "not ai_integration and not real_api"
 
 test-all:
 	@if [ ! -d "venv" ]; then \
@@ -89,7 +90,7 @@ test-coverage:
 		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
 		exit 1; \
 	fi
-	venv/bin/pytest tests/ --cov=scraper --cov=api --cov=services --cov-report=term-missing -m "not ai_integration and not real_api"
+	venv/bin/pytest tests/ --cov=services --cov-report=term-missing -m "not ai_integration and not real_api"
 
 test-ai:
 	@if [ ! -d "venv" ]; then \
@@ -207,8 +208,8 @@ clean-all: clean-podman db-reset
 
 # Database
 db-reset:
-	@if [ -f database/waste_schedule.db ]; then \
-		rm database/waste_schedule.db; \
+	@if [ -f services/database/waste_schedule.db ]; then \
+		rm services/database/waste_schedule.db; \
 		echo "✅ Database deleted"; \
 	else \
 		echo "⚠️  Database file not found"; \
@@ -220,8 +221,8 @@ run-scraper:
 		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
 		exit 1; \
 	fi
-	@echo "🚀 Running scraper (with AI parsing and calendar creation)..."
-	venv/bin/python scraper/main.py
+	@echo "🚀 Running scraper (with AI parsing)..."
+	venv/bin/python services/scraper/main.py
 
 run-scraper-skip-ai:
 	@if [ ! -d "venv" ]; then \
@@ -229,7 +230,7 @@ run-scraper-skip-ai:
 		exit 1; \
 	fi
 	@echo "🚀 Running scraper (skip AI, traditional parser only)..."
-	venv/bin/python scraper/main.py --skip-ai
+	venv/bin/python services/scraper/main.py --skip-ai
 
 run-api:
 	@if [ ! -d "venv" ]; then \
@@ -237,7 +238,15 @@ run-api:
 		exit 1; \
 	fi
 	@echo "🚀 Starting API server on http://localhost:3333..."
-	venv/bin/python api/app.py
+	venv/bin/python services/api/app.py
+
+run-calendar:
+	@if [ ! -d "venv" ]; then \
+		echo "⚠️  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting calendar worker..."
+	venv/bin/python services/calendar/worker.py
 
 run-all: run-scraper
 	@echo ""

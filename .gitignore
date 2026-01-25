@@ -6,8 +6,8 @@ env/
 .venv/
 
 # Database
-database/*.db
-database/*.db-journal
+services/database/*.db
+services/database/*.db-journal
 
 # Python cache
 __pycache__/

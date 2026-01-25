@@ -6,15 +6,15 @@ import pytest
 import sqlite3
 from datetime import date, datetime
 import json
-from database.init import get_db_connection
-from scraper.core.db_writer import (
+from services.common.db import get_db_connection
+from services.scraper.core.db_writer import (
     generate_schedule_group_id,
     generate_dates_hash,
     find_or_create_schedule_group,
     generate_kaimai_hash
 )
 from services.calendar import create_calendar_for_schedule_group
-from api.db import get_schedule_group_info, update_schedule_group_calendar_id
+from services.api.db import get_schedule_group_info, update_schedule_group_calendar_id
 from unittest.mock import patch, MagicMock
 
 
@@ -179,7 +179,7 @@ def test_same_location_different_streets_same_calendar_if_same_schedule(temp_db)
     location_ids = [row[0] for row in cursor.fetchall()]
     
     for location_id in location_ids:
-        from api.db import get_location_schedule
+        from services.api.db import get_location_schedule
         schedule = get_location_schedule(location_id=location_id, waste_type=waste_type)
         if schedule and schedule.get('calendar_id'):
             assert schedule['calendar_id'] == calendar_id, "All locations should share same calendar"

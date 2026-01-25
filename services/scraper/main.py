@@ -7,14 +7,15 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import tempfile
 
-from database.init import get_db_connection, init_database
-from scraper.core.db_writer import write_parsed_data
-from scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
-from scraper.core.validator import validate_file_and_data
+from services.common.db import get_db_connection
+from services.common.migrations import init_database
+from services.scraper.core.db_writer import write_parsed_data
+from services.scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
+from services.scraper.core.validator import validate_file_and_data
 
 
 def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
@@ -26,8 +27,9 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         url: URL to fetch xlsx from (uses default if not provided)
         year: Year for date validation
     """
-    # Initialize database
-    init_database()
+    # Initialize database (scraper-owned migrations)
+    migrations_dir = Path(__file__).parent / "migrations"
+    init_database(migrations_dir=migrations_dir)
 
     # Use default URL if not provided
     if url is None:
@@ -72,7 +74,6 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         print(f"\n3. Writing {len(parsed_data)} locations to database...")
         success = write_parsed_data(parsed_data, url, errors if not is_valid else None)
 
-        # Note: Calendar creation is handled by background worker in scheduler.py
 
         # Cleanup
         if file_path.exists() and str(file_path).startswith(tempfile.gettempdir()):

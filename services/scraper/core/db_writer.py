@@ -8,7 +8,7 @@ import sqlite3
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
-from database.init import get_db_connection
+from services.common.db import get_db_connection
 
 
 def generate_kaimai_hash(kaimai_str: str) -> str:

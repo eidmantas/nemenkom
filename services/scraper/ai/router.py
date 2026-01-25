@@ -23,7 +23,6 @@ def should_use_ai_parser(kaimai_str: str) -> bool:
         True if AI parser should be used, False for traditional parser
     """
     # Check for house number indicators
-    # Note: Ordinal street names (X-oji g.) are part of street names and handled by traditional parser
     # Only match actual house numbers (numbers after street names, nuo/iki, Nr., etc.)
     has_house_numbers = (
         re.search(r"\bnuo\b.*\biki\b", kaimai_str, re.IGNORECASE)  # "nuo X iki Y"

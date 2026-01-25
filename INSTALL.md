@@ -144,10 +144,13 @@ For local development without Docker:
 4. **Run locally**
    ```bash
    # Run API server
-   python api/app.py
+   python services/api/app.py
 
    # Run scraper
-   python scraper/scheduler.py
+   python services/scraper/scheduler.py
+
+   # Run calendar worker
+   python services/calendar/worker.py
    ```
 
 ## Troubleshooting
@@ -205,5 +208,4 @@ After installation:
 ## Additional Resources
 
 - [Architecture Documentation](documentation/ARCHITECTURE.md)
-- [Design Change Documentation](documentation/DESIGN-CHANGE.md)
 - [API Documentation](http://localhost:3333/apidocs) (when running)

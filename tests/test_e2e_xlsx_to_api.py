@@ -15,8 +15,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraper.core.validator import validate_file_and_data
-from api.db import get_location_schedule, search_locations
+from services.scraper.core.validator import validate_file_and_data
+from services.api.db import get_location_schedule, search_locations
+from services.common.migrations import apply_migrations
 import sqlite3
 import tempfile
 import os
@@ -29,10 +30,7 @@ def test_db():
     
     # Initialize schema
     conn = sqlite3.connect(db_path)
-    schema_path = Path(__file__).parent.parent / 'database' / 'schema.sql'
-    with open(schema_path, 'r', encoding='utf-8') as f:
-        schema_sql = f.read()
-    conn.executescript(schema_sql)
+    apply_migrations(conn, Path(__file__).parent.parent / "services" / "scraper" / "migrations")
     conn.commit()
     conn.close()
     
@@ -94,7 +92,7 @@ def test_xlsx_to_api_end_to_end(sample_xlsx_path, test_db):
     conn = sqlite3.connect(test_db)
     
     # Write data using db_writer
-    from scraper.core.db_writer import write_location_schedule
+    from services.scraper.core.db_writer import write_location_schedule
     
     locations_written = 0
     for item in parsed_data:
@@ -124,7 +122,7 @@ def test_xlsx_to_api_end_to_end(sample_xlsx_path, test_db):
     
     # Step 3: Query API (using api/db functions with test DB)
     # We need to mock get_db_connection to use test DB
-    import api.db as api_db_module
+    import services.api.db as api_db_module
     original_get_conn = api_db_module.get_db_connection
     
     def mock_get_conn():

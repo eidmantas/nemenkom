@@ -7,15 +7,15 @@ import sqlite3
 from datetime import date, datetime
 import json
 from unittest.mock import patch, MagicMock
-from database.init import get_db_connection
-from scraper.core.db_writer import (
+from services.common.db import get_db_connection
+from services.scraper.core.db_writer import (
     generate_schedule_group_id,
     generate_dates_hash,
     find_or_create_schedule_group,
     generate_kaimai_hash
 )
 from services.calendar import sync_calendar_for_schedule_group
-from api.db import (
+from services.api.db import (
     get_schedule_group_info,
     update_schedule_group_calendar_id,
     update_schedule_group_calendar_synced
