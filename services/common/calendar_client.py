@@ -1,6 +1,7 @@
 """
 Shared, read-only Google Calendar helpers for API usage.
 """
+import logging
 import os.path
 from typing import Dict, List, Optional
 
@@ -9,7 +10,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 import config
+from services.common.logging_utils import setup_logging
 from services.common.throttle import throttle
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def _throttle_calendar() -> None:
@@ -66,10 +71,10 @@ def get_existing_calendar_info(calendar_id: str) -> Optional[Dict]:
             "timeZone": calendar["timeZone"],
         }
     except HttpError as error:
-        print(f"❌ Error getting calendar info: {error}")
+        logger.warning("Error getting calendar info: %s", error)
         return None
     except Exception as e:
-        print(f"❌ Unexpected error getting calendar info: {e}")
+        logger.exception("Unexpected error getting calendar info: %s", e)
         return None
 
 
@@ -99,10 +104,10 @@ def list_available_calendars() -> List[Dict]:
 
         return waste_calendars
     except HttpError as error:
-        print(f"❌ Error listing calendars: {error}")
+        logger.warning("Error listing calendars: %s", error)
         return []
     except Exception as e:
-        print(f"❌ Unexpected error listing calendars: {e}")
+        logger.exception("Unexpected error listing calendars: %s", e)
         return []
 
 

@@ -2,6 +2,7 @@
 Flask API application for waste schedule data
 """
 
+import logging
 from pathlib import Path
 
 from flasgger import Swagger
@@ -19,11 +20,16 @@ from services.api.db import (
     street_has_house_numbers,
     village_has_streets,
 )
+import config
 from services.common.calendar_client import (
     generate_calendar_subscription_link,
     get_existing_calendar_info,
     list_available_calendars,
 )
+from services.common.logging_utils import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 app = Flask(
@@ -31,6 +37,7 @@ app = Flask(
     template_folder=str(REPO_ROOT / "services" / "web" / "templates"),
     static_folder=str(REPO_ROOT / "services" / "web" / "static"),
 )
+app.config["DEBUG"] = config.DEBUG
 
 # Initialize Swagger
 swagger_config = {
@@ -535,4 +542,5 @@ def api_calendar_info(calendar_id):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3333, debug=True)
+    logger.info("Starting API server on 0.0.0.0:3333")
+    app.run(host="0.0.0.0", port=3333, debug=config.DEBUG)

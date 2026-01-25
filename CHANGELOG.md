@@ -8,11 +8,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Yoyo migrations as the SQLite migration runner.
 - `services/common/calendar_client.py` for shared, read-only calendar helpers.
+- Logging configuration (`DEBUG`, `LOG_LEVEL`) and shared logging setup.
 
 ### Changed
 - Service migrations moved to yoyo `step` files.
 - Web API now imports calendar helpers from `services/common`.
 - Scraper applies its migrations on container startup.
+- Service entrypoints now use shared logging setup.
 
 ## [0.0.4a] - 2026-01-25
 ### Added

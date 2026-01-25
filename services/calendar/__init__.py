@@ -33,11 +33,9 @@ from services.common.calendar_client import (
     list_available_calendars,
 )
 from services.common.throttle import backoff
+from services.common.logging_utils import setup_logging
 
-# Setup logging
-logging.basicConfig(
-    level=logging.DEBUG, format="[%(asctime)s] %(levelname)s: %(message)s"
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

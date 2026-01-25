@@ -248,11 +248,10 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
     import logging
     import time
 
+    from services.common.logging_utils import setup_logging
     from services.scraper.ai.router import should_use_ai_parser
 
-    logging.basicConfig(
-        level=logging.DEBUG, format="[%(asctime)s] %(levelname)s: %(message)s"
-    )
+    setup_logging()
     logger = logging.getLogger(__name__)
 
     results = []

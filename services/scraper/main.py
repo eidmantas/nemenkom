@@ -3,6 +3,7 @@ Main script to run the scraper - can be used for daily cron jobs
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -11,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import tempfile
 
+import config
 from services.common.db import get_db_connection
 from services.common.migrations import init_database
+from services.common.logging_utils import setup_logging
 from services.scraper.core.db_writer import write_parsed_data
 from services.scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
 from services.scraper.core.validator import validate_file_and_data
@@ -27,6 +30,9 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         url: URL to fetch xlsx from (uses default if not provided)
         year: Year for date validation
     """
+    setup_logging()
+    logger = logging.getLogger(__name__)
+
     # Initialize database (scraper-owned migrations)
     migrations_dir = Path(__file__).parent / "migrations"
     init_database(migrations_dir=migrations_dir)
@@ -41,6 +47,7 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         print("🔍 MODE: Skip AI parsing (traditional parser only)")
     print("📅 MODE: Auto-create Google Calendars after scraping")
     print("=" * 60)
+    logger.info("Scraper started (skip_ai=%s, year=%s)", skip_ai, year)
 
     try:
         # Fetch or use local xlsx

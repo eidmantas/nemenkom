@@ -46,6 +46,10 @@ def _validate_secret_file(filename: str, description: str = None) -> None:
             f"See INSTALL.md for setup instructions."
         )
 
+# Logging Configuration
+DEBUG = os.getenv("DEBUG", "1") == "1"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
+
 # Groq API Configuration
 GROQ_API_KEY = _read_secret_file("groq_api_key.txt")  # Read from secrets/groq_api_key.txt
 GROQ_MODEL = "llama-3.3-70b-versatile"  # Higher quality model for better parsing of complex cases

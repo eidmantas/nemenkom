@@ -3,6 +3,7 @@ Python-based scheduler for the scraper
 Runs immediately on startup, then schedules runs at 11:00 and 18:00 daily
 """
 
+import logging
 import sys
 import time
 from datetime import datetime
@@ -13,28 +14,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from services.common.migrations import init_database
+from services.common.logging_utils import setup_logging
 from services.scraper.main import run_scraper
 
 
 def run_scraper_job():
     """Run the scraper job"""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running scraper...")
+    logger = logging.getLogger(__name__)
+    logger.info("Running scraper job")
     try:
         exit_code = run_scraper(skip_ai=False)  # Full parsing with AI (default)
 
         if exit_code == 0:
-            print(
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scraper completed successfully"
-            )
+            logger.info("Scraper completed successfully")
         else:
-            print(
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scraper exited with code {exit_code}"
-            )
+            logger.warning("Scraper exited with code %s", exit_code)
         return exit_code == 0
     except Exception as e:
-        print(
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error running scraper: {e}"
-        )
+        logger.exception("Error running scraper: %s", e)
         import traceback
 
         traceback.print_exc()
@@ -63,7 +60,9 @@ def should_run_now():
 
 def main():
     """Main scheduler loop"""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scheduler started")
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    logger.info("Scheduler started")
 
     # Ensure scraper-owned migrations are applied on container start.
     migrations_dir = Path(__file__).parent / "migrations"
@@ -80,9 +79,7 @@ def main():
     last_run_hour = None
 
     # Main loop - check every minute
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scheduler waiting for scheduled times (11:00 and 18:00)..."
-    )
+    logger.info("Scheduler waiting for scheduled times (11:00 and 18:00)...")
 
     while True:
         now = datetime.now()
@@ -106,5 +103,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scheduler stopped")
+        logging.getLogger(__name__).info("Scheduler stopped")
         sys.exit(0)

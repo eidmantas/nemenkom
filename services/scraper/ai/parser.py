@@ -18,7 +18,9 @@ from services.common.throttle import backoff, throttle
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import config
+from services.common.logging_utils import setup_logging
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
