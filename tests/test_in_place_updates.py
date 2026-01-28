@@ -9,17 +9,12 @@ import json
 from unittest.mock import patch, MagicMock
 from services.common.db import get_db_connection
 from services.scraper.core.db_writer import (
-    generate_schedule_group_id,
-    generate_dates_hash,
     find_or_create_schedule_group,
-    generate_kaimai_hash
+    find_or_create_calendar_stream,
+    upsert_group_calendar_link,
 )
-from services.calendar import sync_calendar_for_schedule_group
-from services.api.db import (
-    get_schedule_group_info,
-    update_schedule_group_calendar_id,
-    update_schedule_group_calendar_synced
-)
+from services.calendar import sync_calendar_for_calendar_stream
+from services.common.db_helpers import update_calendar_stream_calendar_id
 
 
 def test_in_place_update_some_dates_change(temp_db):
@@ -30,9 +25,11 @@ def test_in_place_update_some_dates_change(temp_db):
     waste_type = "bendros"
     calendar_id = "test_calendar@google.com"
     
-    # Initial dates
-    dates1 = [date(2026, 1, 8), date(2026, 1, 22), date(2026, 2, 5)]
-    schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    # Current dates for the stream
+    dates_current = [date(2026, 1, 8), date(2026, 1, 29), date(2026, 2, 12)]
+    schedule_group_id = find_or_create_schedule_group(conn, dates_current, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates_current, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     
     # Create location
     cursor = conn.cursor()
@@ -43,32 +40,19 @@ def test_in_place_update_some_dates_change(temp_db):
     conn.commit()
     
     # Set calendar_id
-    update_schedule_group_calendar_id(schedule_group_id, calendar_id)
+    update_calendar_stream_calendar_id(calendar_stream_id, calendar_id)
     
-    # Pre-populate calendar_events (simulate existing events)
+    # Pre-populate calendar_stream_events with outdated dates
     cursor.execute("""
-        INSERT INTO calendar_events (schedule_group_id, date, event_id, status)
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
         VALUES (?, ?, ?, 'created'),
                (?, ?, ?, 'created'),
                (?, ?, ?, 'created')
     """, (
-        schedule_group_id, "2026-01-08", "event1",
-        schedule_group_id, "2026-01-22", "event2",
-        schedule_group_id, "2026-02-05", "event3"
+        calendar_stream_id, "2026-01-08", "event1",
+        calendar_stream_id, "2026-01-22", "event2",
+        calendar_stream_id, "2026-02-05", "event3"
     ))
-    conn.commit()
-    
-    # Update dates: keep one, change two
-    dates2 = [date(2026, 1, 8), date(2026, 1, 29), date(2026, 2, 12)]  # 1-8 stays, others change
-    find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
-    conn.commit()
-    
-    # Update schedule group dates
-    cursor.execute("""
-        UPDATE schedule_groups 
-        SET dates = ?, dates_hash = ?, calendar_synced_at = NULL
-        WHERE id = ?
-    """, (json.dumps([d.isoformat() for d in dates2]), generate_dates_hash(dates2), schedule_group_id))
     conn.commit()
     
     # Mock Google Calendar service
@@ -78,17 +62,17 @@ def test_in_place_update_some_dates_change(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Sync events
-        result = sync_calendar_for_schedule_group(schedule_group_id)
+        result = sync_calendar_for_calendar_stream(calendar_stream_id)
         
         assert result['success'] is True
         assert result['events_deleted'] == 2, "Should delete 2 old events (1-22 and 2-5)"
         assert result['events_added'] == 2, "Should add 2 new events (1-29 and 2-12)"
         
-        # Verify calendar_events table
+        # Verify calendar_stream_events table
         cursor.execute("""
-            SELECT date, event_id, status FROM calendar_events 
-            WHERE schedule_group_id = ? ORDER BY date
-        """, (schedule_group_id,))
+            SELECT date, event_id, status FROM calendar_stream_events 
+            WHERE calendar_stream_id = ? ORDER BY date
+        """, (calendar_stream_id,))
         events = cursor.fetchall()
         
         event_dates = {e[0] for e in events}
@@ -108,9 +92,11 @@ def test_in_place_update_all_dates_change(temp_db):
     waste_type = "bendros"
     calendar_id = "test_calendar@google.com"
     
-    # Initial dates
-    dates1 = [date(2026, 1, 8), date(2026, 1, 22)]
-    schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    # Current dates for the stream
+    dates_current = [date(2026, 2, 5), date(2026, 2, 19)]
+    schedule_group_id = find_or_create_schedule_group(conn, dates_current, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates_current, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     
     # Create location
     cursor = conn.cursor()
@@ -121,30 +107,17 @@ def test_in_place_update_all_dates_change(temp_db):
     conn.commit()
     
     # Set calendar_id
-    update_schedule_group_calendar_id(schedule_group_id, calendar_id)
+    update_calendar_stream_calendar_id(calendar_stream_id, calendar_id)
     
-    # Pre-populate calendar_events
+    # Pre-populate calendar_stream_events with outdated dates
     cursor.execute("""
-        INSERT INTO calendar_events (schedule_group_id, date, event_id, status)
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
         VALUES (?, ?, ?, 'created'),
                (?, ?, ?, 'created')
     """, (
-        schedule_group_id, "2026-01-08", "event1",
-        schedule_group_id, "2026-01-22", "event2"
+        calendar_stream_id, "2026-01-08", "event1",
+        calendar_stream_id, "2026-01-22", "event2"
     ))
-    conn.commit()
-    
-    # Update all dates
-    dates2 = [date(2026, 2, 5), date(2026, 2, 19)]
-    find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
-    conn.commit()
-    
-    # Update schedule group dates
-    cursor.execute("""
-        UPDATE schedule_groups 
-        SET dates = ?, dates_hash = ?, calendar_synced_at = NULL
-        WHERE id = ?
-    """, (json.dumps([d.isoformat() for d in dates2]), generate_dates_hash(dates2), schedule_group_id))
     conn.commit()
     
     # Mock Google Calendar service
@@ -154,17 +127,17 @@ def test_in_place_update_all_dates_change(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Sync events
-        result = sync_calendar_for_schedule_group(schedule_group_id)
+        result = sync_calendar_for_calendar_stream(calendar_stream_id)
         
         assert result['success'] is True
         assert result['events_deleted'] == 2, "Should delete 2 old events"
         assert result['events_added'] == 2, "Should add 2 new events"
         
-        # Verify calendar_events table has new dates
+        # Verify calendar_stream_events table has new dates
         cursor.execute("""
-            SELECT date FROM calendar_events 
-            WHERE schedule_group_id = ? ORDER BY date
-        """, (schedule_group_id,))
+            SELECT date FROM calendar_stream_events 
+            WHERE calendar_stream_id = ? ORDER BY date
+        """, (calendar_stream_id,))
         events = cursor.fetchall()
         
         event_dates = {e[0] for e in events}
@@ -179,9 +152,11 @@ def test_in_place_update_no_dates_change(temp_db):
     waste_type = "bendros"
     calendar_id = "test_calendar@google.com"
     
-    # Initial dates
+    # Current dates
     dates = [date(2026, 1, 8), date(2026, 1, 22)]
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     
     # Create location
     cursor = conn.cursor()
@@ -191,18 +166,17 @@ def test_in_place_update_no_dates_change(temp_db):
     """, ("Test", "Village", "Street", kaimai_hash))
     conn.commit()
     
-    # Set calendar_id and mark as synced
-    update_schedule_group_calendar_id(schedule_group_id, calendar_id)
-    update_schedule_group_calendar_synced(schedule_group_id)
+    # Set calendar_id for stream
+    update_calendar_stream_calendar_id(calendar_stream_id, calendar_id)
     
-    # Pre-populate calendar_events
+    # Pre-populate calendar_stream_events
     cursor.execute("""
-        INSERT INTO calendar_events (schedule_group_id, date, event_id, status)
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
         VALUES (?, ?, ?, 'created'),
                (?, ?, ?, 'created')
     """, (
-        schedule_group_id, "2026-01-08", "event1",
-        schedule_group_id, "2026-01-22", "event2"
+        calendar_stream_id, "2026-01-08", "event1",
+        calendar_stream_id, "2026-01-22", "event2"
     ))
     conn.commit()
     
@@ -210,17 +184,17 @@ def test_in_place_update_no_dates_change(temp_db):
     find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
     conn.commit()
     
-    # Verify calendar_synced_at is still set (no change detected)
-    cursor.execute("SELECT calendar_synced_at FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    # Verify stream still has calendar_id
+    cursor.execute("SELECT calendar_id FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     row = cursor.fetchone()
-    assert row[0] is not None, "calendar_synced_at should remain set (no change)"
+    assert row[0] == calendar_id
     
     # Mock Google Calendar service (should not be called)
     mock_service = MagicMock()
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Sync events (should do nothing since dates didn't change)
-        result = sync_calendar_for_schedule_group(schedule_group_id)
+        result = sync_calendar_for_calendar_stream(calendar_stream_id)
         
         assert result['success'] is True
         assert result['events_deleted'] == 0, "Should not delete any events"
@@ -232,7 +206,7 @@ def test_in_place_update_no_dates_change(temp_db):
 
 
 def test_in_place_update_calendar_id_stable(temp_db):
-    """Test that calendar_id remains stable when dates are updated"""
+    """Test that calendar_id stays with the original stream when dates change"""
     conn, db_path = temp_db
     
     kaimai_hash = "k1_test_stable_calendar"
@@ -242,22 +216,33 @@ def test_in_place_update_calendar_id_stable(temp_db):
     # Initial dates
     dates1 = [date(2026, 1, 8)]
     schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
-    
-    # Set calendar_id directly in the same connection
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id1)
+
+    # Set calendar_id on the original stream
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE schedule_groups
+    cursor.execute(
+        """
+        UPDATE calendar_streams
         SET calendar_id = ?
         WHERE id = ?
-    """, (calendar_id, schedule_group_id))
+    """,
+        (calendar_id, calendar_stream_id1),
+    )
     conn.commit()
-    
-    # Update dates
+
+    # Update dates -> new stream
     dates2 = [date(2026, 2, 5)]
-    find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    schedule_group_id = find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    calendar_stream_id2 = find_or_create_calendar_stream(conn, dates2, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id2)
     conn.commit()
-    
-    # Verify calendar_id is still the same (stable!)
-    group_info = get_schedule_group_info(schedule_group_id)
-    assert group_info['calendar_id'] == calendar_id, "Calendar ID should remain stable when dates change"
-    assert group_info['calendar_synced_at'] is None, "Should be marked for re-sync"
+
+    # Old stream keeps its calendar_id
+    cursor = conn.cursor()
+    cursor.execute("SELECT calendar_id FROM calendar_streams WHERE id = ?", (calendar_stream_id1,))
+    assert cursor.fetchone()[0] == calendar_id
+
+    # New stream has no calendar_id yet
+    cursor.execute("SELECT calendar_id FROM calendar_streams WHERE id = ?", (calendar_stream_id2,))
+    assert cursor.fetchone()[0] is None

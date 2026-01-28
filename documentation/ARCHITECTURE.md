@@ -15,9 +15,11 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
   - `services/scraper/core/validator.py` - Validates data structure and format
   - `services/scraper/core/db_writer.py` - Writes validated data to SQLite
 - **Database Schema** (SQLite):
-  - `schedule_groups` table: `id` (stable hash of `kaimai_hash + waste_type`), `waste_type`, `dates` (JSON), `kaimai_hash` (single TEXT), `dates_hash`, `calendar_id`, `calendar_synced_at`
+  - `schedule_groups` table: `id` (stable hash of `kaimai_hash + waste_type`), `waste_type`, `dates` (JSON), `kaimai_hash`, `dates_hash`
+  - `calendar_streams` table: date-pattern streams (`dates_hash + waste_type`) with `calendar_id` and sync metadata
+  - `group_calendar_links` table: maps each `schedule_group_id` to a `calendar_stream_id`
+  - `calendar_stream_events` table: Tracks Google Calendar events per stream/date for resume-on-failure
   - `locations` table: `id`, `seniunija`, `village`, `street`, `house_numbers`, `kaimai_hash` (links to schedule_groups)
-  - `calendar_events` table: Tracks Google Calendar events per date for resume-on-failure
   - `data_fetches` table: `id`, `fetch_date`, `source_url`, `status`, `validation_errors`
   - **Note**: No `pickup_dates` table - dates stored in `schedule_groups.dates` JSON (eliminates 95% duplication)
   - **See**: `services/database/migrations/` for schema history
@@ -55,8 +57,10 @@ A modular system for fetching, storing, and displaying waste pickup schedules fr
   - `services/calendar/worker.py` - Calendar sync worker entrypoint
 - **Features**:
   - Background worker for asynchronous calendar creation and event sync
-  - Stable calendar IDs (calendars remain stable when dates change)
-  - In-place event updates (delete old, add new) - maintains user subscriptions
+  - Stable schedule groups (location-based) with shared calendar streams (date-based)
+  - Calendars change only when date patterns change; locations remain stable
+  - In-place event updates (delete old, add new) for each calendar stream
+  - Deprecated calendars receive 3-day in-calendar notices before cleanup
   - Public calendar access - calendars automatically made publicly readable
   - Calendar cleanup tools for orphaned calendars
 - **See**: `services/calendar/` for calendar worker implementation

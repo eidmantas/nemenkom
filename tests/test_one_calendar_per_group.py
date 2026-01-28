@@ -8,13 +8,12 @@ from datetime import date, datetime
 import json
 from services.common.db import get_db_connection
 from services.scraper.core.db_writer import (
-    generate_schedule_group_id,
-    generate_dates_hash,
     find_or_create_schedule_group,
-    generate_kaimai_hash
+    find_or_create_calendar_stream,
+    upsert_group_calendar_link,
 )
 from services.calendar import create_calendar_for_schedule_group
-from services.api.db import get_schedule_group_info, update_schedule_group_calendar_id
+from services.common.db_helpers import get_calendar_stream_info
 from unittest.mock import patch, MagicMock
 
 
@@ -26,8 +25,10 @@ def test_one_calendar_per_schedule_group(temp_db):
     waste_type = "bendros"
     dates1 = [date(2026, 1, 8), date(2026, 1, 22)]
     
-    # Create schedule group
+    # Create schedule group + calendar stream
     schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     conn.commit()
     
     # Create location
@@ -58,9 +59,9 @@ def test_one_calendar_per_schedule_group(temp_db):
         assert result1['success'] is True
         calendar_id1 = result1['calendar_id']
         
-        # Verify calendar_id is stored
-        group_info = get_schedule_group_info(schedule_group_id)
-        assert group_info['calendar_id'] == calendar_id1
+        # Verify calendar_id is stored in the calendar stream
+        stream_info = get_calendar_stream_info(calendar_stream_id)
+        assert stream_info['calendar_id'] == calendar_id1
         
         # Try to create calendar again (should return existing)
         result2 = create_calendar_for_schedule_group(schedule_group_id)
@@ -73,7 +74,7 @@ def test_one_calendar_per_schedule_group(temp_db):
 
 
 def test_calendar_id_stable_when_dates_change(temp_db):
-    """Test that calendar_id remains stable when dates change"""
+    """Test that calendar stream changes when dates change"""
     conn, db_path = temp_db
     
     kaimai_hash = "k1_test_stable_calendar"
@@ -81,8 +82,10 @@ def test_calendar_id_stable_when_dates_change(temp_db):
     dates1 = [date(2026, 1, 8), date(2026, 1, 22)]
     dates2 = [date(2026, 2, 5), date(2026, 2, 19)]  # Different dates
     
-    # Create schedule group with initial dates
+    # Create schedule group with initial dates and link to stream
     schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id1)
     conn.commit()
     
     # Create location
@@ -109,16 +112,20 @@ def test_calendar_id_stable_when_dates_change(temp_db):
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service), \
          patch('services.calendar.get_existing_calendar_info', return_value=existing_info):
         result = create_calendar_for_schedule_group(schedule_group_id)
-        calendar_id = result['calendar_id']
+        calendar_id1 = result['calendar_id']
     
-    # Update dates (same kaimai_hash + waste_type = same schedule_group_id)
-    find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    # Update dates (same schedule_group_id, new date pattern)
+    schedule_group_id = find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    calendar_stream_id2 = find_or_create_calendar_stream(conn, dates2, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id2)
     conn.commit()
-    
-    # Verify calendar_id is still the same (stable!)
-    group_info = get_schedule_group_info(schedule_group_id)
-    assert group_info['calendar_id'] == calendar_id, "Calendar ID should remain stable when dates change"
-    assert group_info['calendar_synced_at'] is None, "Should be marked for re-sync"
+
+    # Verify stream changed (new date pattern)
+    assert calendar_stream_id2 != calendar_stream_id1
+
+    # New stream should not yet have calendar_id
+    stream_info2 = get_calendar_stream_info(calendar_stream_id2)
+    assert stream_info2["calendar_id"] is None
 
 
 def test_different_waste_types_different_calendars(temp_db):
@@ -136,13 +143,18 @@ def test_different_waste_types_different_calendars(temp_db):
     """, ("Test", "Village", "Street", kaimai_hash))
     conn.commit()
     
-    # Create schedule groups for different waste types
+    # Create schedule groups for different waste types + streams
     schedule_group_id1 = find_or_create_schedule_group(conn, dates, "bendros", kaimai_hash)
     schedule_group_id2 = find_or_create_schedule_group(conn, dates, "plastikas", kaimai_hash)
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates, "bendros")
+    calendar_stream_id2 = find_or_create_calendar_stream(conn, dates, "plastikas")
+    upsert_group_calendar_link(conn, schedule_group_id1, calendar_stream_id1)
+    upsert_group_calendar_link(conn, schedule_group_id2, calendar_stream_id2)
     conn.commit()
     
-    # Verify different schedule_group_ids
+    # Verify different schedule_group_ids and streams
     assert schedule_group_id1 != schedule_group_id2, "Different waste types should have different schedule_group_ids"
+    assert calendar_stream_id1 != calendar_stream_id2, "Different waste types should have different calendar streams"
     
     # Create calendars
     mock_service = MagicMock()
@@ -166,8 +178,10 @@ def test_same_location_different_streets_same_calendar_if_same_schedule(temp_db)
     waste_type = "bendros"
     dates = [date(2026, 1, 8)]
     
-    # Create schedule group
+    # Create schedule group + stream
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     conn.commit()
     
     # Create multiple locations with same kaimai_hash
@@ -212,8 +226,10 @@ def test_calendar_not_recreated_on_date_change(temp_db):
     dates1 = [date(2026, 1, 8)]
     dates2 = [date(2026, 2, 5)]  # Different dates
     
-    # Create schedule group
+    # Create schedule group + stream
     schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id1)
     conn.commit()
     
     # Create location
@@ -242,18 +258,20 @@ def test_calendar_not_recreated_on_date_change(temp_db):
         result1 = create_calendar_for_schedule_group(schedule_group_id)
         calendar_id1 = result1['calendar_id']
         
-        # Change dates
-        find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+        # Change dates (same stream should be updated)
+        schedule_group_id = find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
         conn.commit()
-        
+
+        from services.scraper.core.db_writer import reconcile_calendar_streams
+        reconcile_calendar_streams(conn)
+        conn.commit()
+
         # Try to create calendar again (should return existing, not create new)
         result2 = create_calendar_for_schedule_group(schedule_group_id)
         calendar_id2 = result2['calendar_id']
-        
+
         assert calendar_id1 == calendar_id2, "Calendar ID should remain the same"
         assert result2.get('existing') is True, "Should return existing calendar"
-        
-        # Verify calendar creation was only called once
         assert mock_service.calendars().insert().execute.call_count == 1, "Calendar should not be recreated"
 
 
@@ -266,8 +284,10 @@ def test_calendar_creation_only_for_schedule_groups_not_villages(temp_db):
     waste_type = "bendros"
     dates = [date(2026, 1, 8)]
     
-    # Create schedule group (one per kaimai_hash + waste_type)
+    # Create schedule group (one per kaimai_hash + waste_type) + stream
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     conn.commit()
     
     # Create multiple villages with SAME kaimai_hash (they share the schedule)
@@ -293,8 +313,8 @@ def test_calendar_creation_only_for_schedule_groups_not_villages(temp_db):
     assert mock_service.calendars().insert().execute.call_count == 1, "Should create only ONE calendar for all villages with same schedule"
     
     # Verify all villages share the same calendar_id
-    group_info = get_schedule_group_info(schedule_group_id)
-    assert group_info['calendar_id'] == calendar_id, "All villages should share the same calendar"
+    stream_info = get_calendar_stream_info(calendar_stream_id)
+    assert stream_info['calendar_id'] == calendar_id, "All villages should share the same calendar"
 
 
 def test_no_duplicate_calendar_creation_on_retry(temp_db):
@@ -305,8 +325,10 @@ def test_no_duplicate_calendar_creation_on_retry(temp_db):
     waste_type = "bendros"
     dates = [date(2026, 1, 8)]
     
-    # Create schedule group
+    # Create schedule group + stream
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     conn.commit()
     
     # Create location
@@ -356,8 +378,10 @@ def test_calendar_creation_handles_database_update_failure(temp_db):
     waste_type = "bendros"
     dates = [date(2026, 1, 8)]
     
-    # Create schedule group
+    # Create schedule group + stream
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     conn.commit()
     
     # Create location
@@ -375,7 +399,7 @@ def test_calendar_creation_handles_database_update_failure(temp_db):
     
     # Mock database update failure
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
-        with patch('services.calendar.update_schedule_group_calendar_id', return_value=False):
+        with patch('services.calendar.update_calendar_stream_calendar_id', return_value=False):
             result = create_calendar_for_schedule_group(schedule_group_id)
             
             # Should still return success (calendar was created)

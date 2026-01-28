@@ -10,21 +10,23 @@ import time
 from unittest.mock import patch, MagicMock, call
 from services.common.db import get_db_connection
 from services.scraper.core.db_writer import (
-    generate_schedule_group_id,
-    generate_dates_hash,
     find_or_create_schedule_group,
-    generate_kaimai_hash
+    find_or_create_calendar_stream,
+    upsert_group_calendar_link,
 )
-from services.api.db import (
-    get_schedule_groups_needing_sync,
-    update_schedule_group_calendar_id,
-    update_schedule_group_calendar_synced
+from services.common.db_helpers import (
+    get_calendar_streams_needing_sync,
+    update_calendar_stream_calendar_id,
+    update_calendar_stream_calendar_synced,
 )
-from services.calendar import create_calendar_for_schedule_group, sync_calendar_for_schedule_group
+from services.calendar import (
+    create_calendar_for_calendar_stream,
+    sync_calendar_for_calendar_stream,
+)
 
 
 def test_get_schedule_groups_needing_sync_filters_correctly(temp_db):
-    """Test that get_schedule_groups_needing_sync returns only groups needing sync"""
+    """Test that get_calendar_streams_needing_sync returns only streams needing sync"""
     conn, db_path = temp_db
     
     # Create groups with different states
@@ -32,38 +34,46 @@ def test_get_schedule_groups_needing_sync_filters_correctly(temp_db):
     kaimai_hash2 = "k1_test_worker2"
     kaimai_hash3 = "k1_test_worker3"
     waste_type = "bendros"
-    dates = [date(2026, 1, 8)]
+    dates1 = [date(2026, 1, 8)]
+    dates2 = [date(2026, 1, 15)]
+    dates3 = [date(2026, 1, 22)]
     
-    # Group 1: No calendar (needs sync)
-    schedule_group_id1 = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash1)
+    # Stream 1: No calendar (needs sync)
+    schedule_group_id1 = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash1)
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id1, calendar_stream_id1)
     
-    # Group 2: Calendar exists but not synced (needs sync)
-    schedule_group_id2 = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash2)
+    # Stream 2: Calendar exists but not synced (needs sync)
+    schedule_group_id2 = find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash2)
+    calendar_stream_id2 = find_or_create_calendar_stream(conn, dates2, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id2, calendar_stream_id2)
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE schedule_groups 
+        UPDATE calendar_streams
         SET calendar_id = 'test_calendar2@google.com'
         WHERE id = ?
-    """, (schedule_group_id2,))
+    """, (calendar_stream_id2,))
     
-    # Group 3: Calendar synced (doesn't need sync)
-    schedule_group_id3 = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash3)
+    # Stream 3: Calendar synced (doesn't need sync)
+    schedule_group_id3 = find_or_create_schedule_group(conn, dates3, waste_type, kaimai_hash3)
+    calendar_stream_id3 = find_or_create_calendar_stream(conn, dates3, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id3, calendar_stream_id3)
     cursor.execute("""
-        UPDATE schedule_groups 
+        UPDATE calendar_streams 
         SET calendar_id = 'test_calendar3@google.com',
             calendar_synced_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    """, (schedule_group_id3,))
+    """, (calendar_stream_id3,))
     
     conn.commit()
     
     # Get groups needing sync
-    groups = get_schedule_groups_needing_sync()
+    groups = get_calendar_streams_needing_sync()
     
     group_ids = [g['id'] for g in groups]
-    assert schedule_group_id1 in group_ids, "Group 1 should need sync (no calendar)"
-    assert schedule_group_id2 in group_ids, "Group 2 should need sync (not synced)"
-    assert schedule_group_id3 not in group_ids, "Group 3 should not need sync (already synced)"
+    assert calendar_stream_id1 in group_ids, "Stream 1 should need sync (no calendar)"
+    assert calendar_stream_id2 in group_ids, "Stream 2 should need sync (not synced)"
+    assert calendar_stream_id3 not in group_ids, "Stream 3 should not need sync (already synced)"
 
 
 def test_worker_creates_calendar_for_new_groups(temp_db):
@@ -75,6 +85,8 @@ def test_worker_creates_calendar_for_new_groups(temp_db):
     dates = [date(2026, 1, 8)]
     
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     
     # Create location
     cursor = conn.cursor()
@@ -91,16 +103,16 @@ def test_worker_creates_calendar_for_new_groups(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Simulate worker processing
-        groups = get_schedule_groups_needing_sync()
-        for group in groups:
-            if group['id'] == schedule_group_id:
-                if group['calendar_id'] is None:
-                    result = create_calendar_for_schedule_group(group['id'])
+        streams = get_calendar_streams_needing_sync()
+        for stream in streams:
+            if stream['id'] == calendar_stream_id:
+                if stream['calendar_id'] is None:
+                    result = create_calendar_for_calendar_stream(stream['id'])
                     assert result['success'] is True
                     assert result['calendar_id'] == 'worker_calendar@google.com'
     
     # Verify calendar_id is stored
-    cursor.execute("SELECT calendar_id FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    cursor.execute("SELECT calendar_id FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     row = cursor.fetchone()
     assert row[0] == 'worker_calendar@google.com', "Calendar ID should be stored"
 
@@ -114,14 +126,16 @@ def test_worker_syncs_events_for_unsynced_calendars(temp_db):
     dates = [date(2026, 1, 8), date(2026, 1, 22)]
     
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
     
     # Set calendar_id but not calendar_synced_at
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE schedule_groups 
+        UPDATE calendar_streams 
         SET calendar_id = 'test_calendar@google.com'
         WHERE id = ?
-    """, (schedule_group_id,))
+    """, (calendar_stream_id,))
     conn.commit()
     
     # Create location
@@ -138,16 +152,16 @@ def test_worker_syncs_events_for_unsynced_calendars(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Simulate worker processing
-        groups = get_schedule_groups_needing_sync()
-        for group in groups:
-            if group['id'] == schedule_group_id:
-                if group['calendar_id'] is not None:
-                    result = sync_calendar_for_schedule_group(group['id'])
+        streams = get_calendar_streams_needing_sync()
+        for stream in streams:
+            if stream['id'] == calendar_stream_id:
+                if stream['calendar_id'] is not None:
+                    result = sync_calendar_for_calendar_stream(stream['id'])
                     assert result['success'] is True
                     assert result['events_added'] == 2, "Should add 2 events"
     
     # Verify calendar_synced_at is set
-    cursor.execute("SELECT calendar_synced_at FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    cursor.execute("SELECT calendar_synced_at FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     row = cursor.fetchone()
     assert row[0] is not None, "calendar_synced_at should be set after sync"
 
@@ -161,16 +175,18 @@ def test_worker_handles_date_changes(temp_db):
     dates1 = [date(2026, 1, 8), date(2026, 1, 22)]
     dates2 = [date(2026, 2, 5), date(2026, 2, 19)]  # Different dates
     
-    # Create schedule group and calendar
+    # Create schedule group and calendar stream
     schedule_group_id = find_or_create_schedule_group(conn, dates1, waste_type, kaimai_hash)
+    calendar_stream_id1 = find_or_create_calendar_stream(conn, dates1, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id1)
     
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE schedule_groups 
+        UPDATE calendar_streams 
         SET calendar_id = 'test_calendar@google.com',
             calendar_synced_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    """, (schedule_group_id,))
+    """, (calendar_stream_id1,))
     conn.commit()
     
     # Create location
@@ -180,25 +196,27 @@ def test_worker_handles_date_changes(temp_db):
     """, ("Test", "Village", "Street", kaimai_hash))
     conn.commit()
     
-    # Pre-populate calendar_events (simulate existing events)
+    # Pre-populate calendar_stream_events (simulate existing events)
     cursor.execute("""
-        INSERT INTO calendar_events (schedule_group_id, date, event_id, status)
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
         VALUES (?, ?, ?, 'created'),
                (?, ?, ?, 'created')
     """, (
-        schedule_group_id, "2026-01-08", "event1",
-        schedule_group_id, "2026-01-22", "event2"
+        calendar_stream_id1, "2026-01-08", "event1",
+        calendar_stream_id1, "2026-01-22", "event2"
     ))
     conn.commit()
     
-    # Change dates (triggers calendar_synced_at = NULL)
-    find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    # Change dates (new calendar stream)
+    schedule_group_id = find_or_create_schedule_group(conn, dates2, waste_type, kaimai_hash)
+    calendar_stream_id2 = find_or_create_calendar_stream(conn, dates2, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id2)
     conn.commit()
     
-    # Verify calendar_synced_at is NULL
-    cursor.execute("SELECT calendar_synced_at FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    # Verify new stream has no sync timestamp
+    cursor.execute("SELECT calendar_synced_at FROM calendar_streams WHERE id = ?", (calendar_stream_id2,))
     row = cursor.fetchone()
-    assert row[0] is None, "calendar_synced_at should be NULL after date change"
+    assert row[0] is None, "calendar_synced_at should be NULL for new stream"
     
     # Mock calendar service
     mock_service = MagicMock()
@@ -207,16 +225,23 @@ def test_worker_handles_date_changes(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Worker should detect and sync
-        groups = get_schedule_groups_needing_sync()
-        for group in groups:
-            if group['id'] == schedule_group_id:
-                result = sync_calendar_for_schedule_group(group['id'])
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE calendar_streams
+            SET calendar_id = 'test_calendar_new@google.com'
+            WHERE id = ?
+        """, (calendar_stream_id2,))
+        conn.commit()
+
+        streams = get_calendar_streams_needing_sync()
+        for stream in streams:
+            if stream['id'] == calendar_stream_id2:
+                result = sync_calendar_for_calendar_stream(stream['id'])
                 assert result['success'] is True
-                assert result['events_deleted'] == 2, "Should delete 2 old events"
                 assert result['events_added'] == 2, "Should add 2 new events"
     
     # Verify calendar_synced_at is set again
-    cursor.execute("SELECT calendar_synced_at FROM schedule_groups WHERE id = ?", (schedule_group_id,))
+    cursor.execute("SELECT calendar_synced_at FROM calendar_streams WHERE id = ?", (calendar_stream_id2,))
     row = cursor.fetchone()
     assert row[0] is not None, "calendar_synced_at should be set after re-sync"
 
@@ -227,17 +252,19 @@ def test_worker_processes_multiple_groups(temp_db):
     
     # Create multiple groups needing sync
     groups_to_create = [
-        ("k1_test_worker_multi1", "bendros"),
-        ("k1_test_worker_multi2", "plastikas"),
-        ("k1_test_worker_multi3", "bendros"),
+        ("k1_test_worker_multi1", "bendros", [date(2026, 1, 8)]),
+        ("k1_test_worker_multi2", "plastikas", [date(2026, 1, 15)]),
+        ("k1_test_worker_multi3", "bendros", [date(2026, 1, 22)]),
     ]
     
     schedule_group_ids = []
-    dates = [date(2026, 1, 8)]
-    
-    for kaimai_hash, waste_type in groups_to_create:
+    calendar_stream_ids = []
+    for kaimai_hash, waste_type, dates in groups_to_create:
         schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+        calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+        upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
         schedule_group_ids.append(schedule_group_id)
+        calendar_stream_ids.append(calendar_stream_id)
         
         # Create location
         cursor = conn.cursor()
@@ -257,29 +284,27 @@ def test_worker_processes_multiple_groups(temp_db):
     
     with patch('services.calendar.get_google_calendar_service', return_value=mock_service):
         # Simulate worker processing all groups
-        groups = get_schedule_groups_needing_sync()
+        streams = get_calendar_streams_needing_sync()
         processed = 0
-        
-        for group in groups:
-            if group['id'] in schedule_group_ids:
-                # Create calendar
-                if group['calendar_id'] is None:
-                    result = create_calendar_for_schedule_group(group['id'])
+
+        for stream in streams:
+            if stream['id'] in calendar_stream_ids:
+                if stream['calendar_id'] is None:
+                    result = create_calendar_for_calendar_stream(stream['id'])
                     assert result['success'] is True
-                
-                # Sync events
-                result = sync_calendar_for_schedule_group(group['id'])
+
+                result = sync_calendar_for_calendar_stream(stream['id'])
                 assert result['success'] is True
                 processed += 1
-        
-        assert processed == len(schedule_group_ids), f"Should process {len(schedule_group_ids)} groups"
+
+        assert processed == len(calendar_stream_ids), f"Should process {len(calendar_stream_ids)} streams"
     
     # Verify all groups are synced
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT COUNT(*) FROM schedule_groups 
+        SELECT COUNT(*) FROM calendar_streams 
         WHERE id IN ({}) AND calendar_synced_at IS NOT NULL
-    """.format(','.join(['?'] * len(schedule_group_ids))), schedule_group_ids)
+    """.format(','.join(['?'] * len(calendar_stream_ids))), calendar_stream_ids)
     
     count = cursor.fetchone()[0]
-    assert count == len(schedule_group_ids), "All groups should be synced"
+    assert count == len(calendar_stream_ids), "All streams should be synced"

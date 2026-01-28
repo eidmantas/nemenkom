@@ -19,10 +19,11 @@ from googleapiclient.errors import HttpError
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
 from services.common.db_helpers import (
-    get_schedule_group_info,
-    get_schedule_groups_needing_sync,
-    update_schedule_group_calendar_id,
-    update_schedule_group_calendar_synced,
+    get_calendar_stream_id_for_schedule_group,
+    get_calendar_stream_info,
+    get_calendar_streams_needing_sync,
+    update_calendar_stream_calendar_id,
+    update_calendar_stream_calendar_synced,
 )
 from services.common.db import get_db_connection
 from services.common.calendar_client import (
@@ -39,42 +40,164 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
+    """
+    Post a 3-day cleanup notice to a deprecated calendar stream.
+    """
+    stream_info = get_calendar_stream_info(calendar_stream_id)
+    if not stream_info or not stream_info.get("calendar_id"):
+        return
+
+    calendar_id = stream_info["calendar_id"]
+    service = get_google_calendar_service()
+    now = datetime.datetime.now()
+
+    notice_summary = "⚠️ Svarbu: atnaujinkite kalendoriaus prenumeratą"
+    notice_description = (
+        "Šio adreso atliekų grafikas pasikeitė. "
+        "Prašome atnaujinti prenumeratą svetainėje (nemenkom.lt). "
+        "Šis kalendorius bus pašalintas po 4 dienų."
+    )
+
+    for day_offset in range(3):
+        event_date = (now + datetime.timedelta(days=day_offset)).date()
+        event = {
+            "summary": notice_summary,
+            "description": notice_description,
+            "start": {
+                "dateTime": datetime.datetime(
+                    event_date.year,
+                    event_date.month,
+                    event_date.day,
+                    9,
+                    0,
+                ).isoformat(),
+                "timeZone": config.GOOGLE_CALENDAR_TIMEZONE,
+            },
+            "end": {
+                "dateTime": datetime.datetime(
+                    event_date.year,
+                    event_date.month,
+                    event_date.day,
+                    11,
+                    0,
+                ).isoformat(),
+                "timeZone": config.GOOGLE_CALENDAR_TIMEZONE,
+            },
+        }
+
+        _throttle_calendar()
+        service.events().insert(calendarId=calendar_id, body=event).execute()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE calendar_streams
+        SET pending_clean_notice_sent_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """,
+        (calendar_stream_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_calendar_for_stream(calendar_stream_id: str) -> None:
+    """
+    Delete deprecated calendar for a stream if it has no linked groups.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT calendar_id
+        FROM calendar_streams
+        WHERE id = ?
+    """,
+        (calendar_stream_id,),
+    )
+    row = cursor.fetchone()
+    if not row or not row[0]:
+        conn.close()
+        return
+
+    cursor.execute(
+        """
+        SELECT COUNT(*) FROM group_calendar_links
+        WHERE calendar_stream_id = ?
+    """,
+        (calendar_stream_id,),
+    )
+    linked_count = cursor.fetchone()[0]
+    if linked_count > 0:
+        conn.close()
+        return
+
+    calendar_id = row[0]
+    conn.close()
+
+    service = get_google_calendar_service()
+    _throttle_calendar()
+    service.calendars().delete(calendarId=calendar_id).execute()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM group_calendar_links WHERE calendar_stream_id = ?",
+        (calendar_stream_id,),
+    )
+    cursor.execute("DELETE FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
+    conn.commit()
+    conn.close()
+
+
 
 
 def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]:
     """
-    Create a Google Calendar for a schedule group (calendar only, no events)
-    This is phase 1 of the two-phase process (calendar creation, then event sync)
+    Create a Google Calendar for a schedule group via its calendar stream.
+    """
+    calendar_stream_id = get_calendar_stream_id_for_schedule_group(schedule_group_id)
+    if not calendar_stream_id:
+        logger.warning(
+            "No calendar stream linked for schedule_group_id=%s; skipping calendar creation",
+            schedule_group_id,
+        )
+        return None
 
-    Args:
-        schedule_group_id: Schedule group ID (stable hash-based string)
+    return create_calendar_for_calendar_stream(calendar_stream_id)
 
-    Returns:
-        Dictionary with calendar info, or None if failed
+
+def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dict]:
+    """
+    Create a Google Calendar for a calendar stream (date pattern + waste type).
     """
     start_time = time.time()
-    logger.debug(f"Creating calendar for schedule_group_id={schedule_group_id}")
-    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Creating calendar for schedule_group_id={schedule_group_id}")
+    logger.debug("Creating calendar for calendar_stream_id=%s", calendar_stream_id)
+    print(
+        f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+        f"Creating calendar for calendar_stream_id={calendar_stream_id}"
+    )
 
     try:
-        # Get schedule group info
-        logger.debug(f"Getting schedule group info for {schedule_group_id}")
-        group_info = get_schedule_group_info(schedule_group_id)
-
-        if not group_info:
-            logger.error(f"Schedule group not found: {schedule_group_id}")
-            print(f"❌ Schedule group not found: {schedule_group_id}")
+        stream_info = get_calendar_stream_info(calendar_stream_id)
+        if not stream_info:
+            logger.error("Calendar stream not found: %s", calendar_stream_id)
+            print(f"❌ Calendar stream not found: {calendar_stream_id}")
             return None
 
-        # CRITICAL FIX: Double-check calendar_id wasn't just set (race condition protection)
-        existing_calendar_id = group_info.get("calendar_id")
+        existing_calendar_id = stream_info.get("calendar_id")
         if existing_calendar_id:
-            logger.debug(f"Calendar already exists in DB for {schedule_group_id}: {existing_calendar_id}")
-            # Verify the calendar still exists in Google Calendar
+            logger.debug(
+                "Calendar already exists in DB for %s: %s",
+                calendar_stream_id,
+                existing_calendar_id,
+            )
             try:
                 calendar_info = get_existing_calendar_info(existing_calendar_id)
                 if calendar_info:
-                    # Ensure calendar is public
                     try:
                         service = get_google_calendar_service()
                         acl_rule = {"scope": {"type": "default"}, "role": "reader"}
@@ -83,25 +206,27 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
                             service.acl().get(
                                 calendarId=existing_calendar_id, ruleId="default"
                             ).execute()
-                            logger.debug(f"Calendar already public: {existing_calendar_id}")
                         except HttpError:
-                            # Public ACL doesn't exist, add it
                             _throttle_calendar()
                             service.acl().insert(
                                 calendarId=existing_calendar_id, body=acl_rule
                             ).execute()
-                            logger.info(f"Made existing calendar public: {existing_calendar_id}")
+                            logger.info(
+                                "Made existing calendar public: %s",
+                                existing_calendar_id,
+                            )
                             print(f"✅ Made existing calendar public: {existing_calendar_id}")
                     except Exception as e:
-                        logger.warning(f"Could not ensure calendar is public: {e}")
+                        logger.warning("Could not ensure calendar is public: %s", e)
 
-                    logger.info(f"Using existing calendar for {schedule_group_id}: {existing_calendar_id}")
-                    print(f"✅ Using existing calendar for schedule_group_id={schedule_group_id}: {existing_calendar_id}")
-                    
-                    # CRITICAL FIX: Ensure calendar_id is stored in database
-                    if not update_schedule_group_calendar_id(schedule_group_id, existing_calendar_id):
-                        logger.warning(f"Failed to update calendar_id in database for {schedule_group_id}, but calendar exists")
-                    
+                    if not update_calendar_stream_calendar_id(
+                        calendar_stream_id, existing_calendar_id
+                    ):
+                        logger.warning(
+                            "Failed to update calendar_id in database for %s, but calendar exists",
+                            calendar_stream_id,
+                        )
+
                     return {
                         "calendar_id": existing_calendar_id,
                         "calendar_name": calendar_info["calendar_name"],
@@ -111,53 +236,62 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
                     }
             except Exception as e:
                 logger.warning(
-                    f"Existing calendar {existing_calendar_id} for {schedule_group_id} invalid, creating new one: {e}"
+                    "Existing calendar %s for %s invalid, creating new one: %s",
+                    existing_calendar_id,
+                    calendar_stream_id,
+                    e,
                 )
-                print(f"⚠️  Existing calendar {existing_calendar_id} for {schedule_group_id} invalid, creating new one: {e}")
+                print(
+                    f"⚠️  Existing calendar {existing_calendar_id} for "
+                    f"{calendar_stream_id} invalid, creating new one: {e}"
+                )
 
-        # SIMPLIFIED: Get just seniunija (no village logic)
-        kaimai_hash = group_info["kaimai_hash"]
-        waste_type = group_info["waste_type"]
         conn = get_db_connection()
         cursor = conn.cursor()
-
         try:
-            # Get seniunija (simplified - just get first one)
             cursor.execute(
                 """
-                SELECT DISTINCT seniunija
-                FROM locations
-                WHERE kaimai_hash = ?
+                SELECT DISTINCT l.seniunija
+                FROM group_calendar_links gcl
+                JOIN schedule_groups sg ON gcl.schedule_group_id = sg.id
+                JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
+                WHERE gcl.calendar_stream_id = ?
                 LIMIT 1
             """,
-                (kaimai_hash,),
+                (calendar_stream_id,),
             )
             row = cursor.fetchone()
             seniunija = row[0] if row else "Nemenčinė"
         finally:
             conn.close()
 
+        waste_type = stream_info["waste_type"]
         waste_type_display = {
             "bendros": "Bendros atliekos",
             "plastikas": "Plastikas",
             "stiklas": "Stiklas",
         }.get(waste_type, waste_type)
 
-        # Generate short hash from schedule_group_id for internal identification (first 6 chars)
         short_hash = (
-            schedule_group_id[:6] if len(schedule_group_id) >= 6 else schedule_group_id
+            calendar_stream_id[:6]
+            if len(calendar_stream_id) >= 6
+            else calendar_stream_id
         )
 
-        # SIMPLIFIED: Calendar name is just seniunija - waste_type - hash
         calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
-        calendar_description = f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, {waste_type_display}. Automatiškai atnaujinamas."
+        calendar_description = (
+            f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, "
+            f"{waste_type_display}. Automatiškai atnaujinamas."
+        )
 
-        # Create new calendar
-        logger.debug(f"Getting Google Calendar service for {schedule_group_id}")
+        logger.debug("Getting Google Calendar service for %s", calendar_stream_id)
         service = get_google_calendar_service()
 
-        # Create the calendar
-        logger.debug(f"Creating calendar '{calendar_name}' for schedule_group_id={schedule_group_id}")
+        logger.debug(
+            "Creating calendar '%s' for calendar_stream_id=%s",
+            calendar_name,
+            calendar_stream_id,
+        )
         calendar = {
             "summary": calendar_name,
             "description": calendar_description,
@@ -167,70 +301,93 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
         _throttle_calendar()
         created_calendar = service.calendars().insert(body=calendar).execute()
         calendar_id = created_calendar["id"]
-        logger.debug(f"Calendar created: {calendar_id} for schedule_group_id={schedule_group_id}")
+        logger.debug(
+            "Calendar created: %s for calendar_stream_id=%s",
+            calendar_id,
+            calendar_stream_id,
+        )
 
-        # Make calendar publicly accessible (required for subscription links to work)
         try:
-            logger.debug(f"Making calendar public: {calendar_id}")
-            acl_rule = {
-                "scope": {"type": "default"},
-                "role": "reader",  # Public read access
-            }
+            logger.debug("Making calendar public: %s", calendar_id)
+            acl_rule = {"scope": {"type": "default"}, "role": "reader"}
             _throttle_calendar()
             service.acl().insert(calendarId=calendar_id, body=acl_rule).execute()
-            logger.info(f"Calendar made public: {calendar_id}")
+            logger.info("Calendar made public: %s", calendar_id)
             print(f"✅ Calendar made public: {calendar_id}")
         except Exception as e:
             logger.warning(
-                f"Failed to make calendar public (may need manual sharing): {e}"
+                "Failed to make calendar public (may need manual sharing): %s", e
             )
             print(f"⚠️  Failed to make calendar public (may need manual sharing): {e}")
-            # Continue anyway - calendar is created, just not public yet
 
-        # CRITICAL FIX: Store calendar_id in database (calendar_synced_at stays NULL - triggers event sync)
-        if not update_schedule_group_calendar_id(schedule_group_id, calendar_id):
+        if not update_calendar_stream_calendar_id(calendar_stream_id, calendar_id):
             logger.error(
-                f"CRITICAL: Failed to store calendar_id in database for schedule_group_id={schedule_group_id}. "
-                f"Calendar {calendar_id} was created but won't be tracked. This will cause duplicate creation attempts!"
+                "CRITICAL: Failed to store calendar_id for calendar_stream_id=%s. "
+                "Calendar %s was created but won't be tracked.",
+                calendar_stream_id,
+                calendar_id,
             )
             print(
-                f"❌ CRITICAL: Failed to store calendar_id in database for schedule_group_id={schedule_group_id}"
+                f"❌ CRITICAL: Failed to store calendar_id in database for calendar_stream_id={calendar_stream_id}"
             )
-            # Don't return None - the calendar exists, we should still return it
-            # But log this as a critical error
             return {
                 "calendar_id": calendar_id,
                 "calendar_name": calendar_name,
-                "subscription_link": f"https://calendar.google.com/calendar/render?cid={calendar_id}",
+                "subscription_link": generate_calendar_subscription_link(calendar_id),
                 "success": True,
                 "existing": False,
-                "warning": "Calendar created but database update failed - may cause duplicates"
+                "warning": "Calendar created but database update failed - may cause duplicates",
             }
 
-        logger.info(f"Calendar created successfully for schedule_group_id={schedule_group_id}: {calendar_id}")
-        print(f"✅ Calendar created for schedule_group_id={schedule_group_id}: {calendar_id}")
+        logger.info(
+            "Calendar created successfully for calendar_stream_id=%s: %s",
+            calendar_stream_id,
+            calendar_id,
+        )
+        print(
+            f"✅ Calendar created for calendar_stream_id={calendar_stream_id}: {calendar_id}"
+        )
 
-        # Return calendar info (events will be synced separately)
         return {
             "calendar_id": calendar_id,
             "calendar_name": calendar_name,
-            "subscription_link": f"https://calendar.google.com/calendar/render?cid={calendar_id}",
+            "subscription_link": generate_calendar_subscription_link(calendar_id),
             "success": True,
             "existing": False,
         }
 
     except HttpError as error:
-        logger.error(f"Google Calendar API error for schedule_group_id={schedule_group_id}: {error}")
-        print(f"❌ Google Calendar API error for schedule_group_id={schedule_group_id}: {error}")
+        logger.error(
+            "Google Calendar API error for calendar_stream_id=%s: %s",
+            calendar_stream_id,
+            error,
+        )
+        print(
+            f"❌ Google Calendar API error for calendar_stream_id={calendar_stream_id}: {error}"
+        )
         if "rateLimitExceeded" in str(error) or "quotaExceeded" in str(error):
             backoff("calendar_rate_limit")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error creating calendar for schedule_group_id={schedule_group_id}: {e}", exc_info=True)
-        print(f"❌ Unexpected error creating calendar for schedule_group_id={schedule_group_id}: {e}")
+        logger.error(
+            "Unexpected error creating calendar for calendar_stream_id=%s: %s",
+            calendar_stream_id,
+            e,
+            exc_info=True,
+        )
+        print(
+            f"❌ Unexpected error creating calendar for calendar_stream_id={calendar_stream_id}: {e}"
+        )
         import traceback
         traceback.print_exc()
         return None
+    finally:
+        end_time = time.time()
+        logger.debug(
+            "Calendar creation for %s took %.2fs",
+            calendar_stream_id,
+            end_time - start_time,
+        )
 
 
 def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
@@ -239,7 +396,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
 
     Orphaned calendars are those that:
     - Exist in Google Calendar (created by our service account)
-    - Do NOT have a corresponding entry in schedule_groups.calendar_id
+    - Do NOT have a corresponding entry in calendar_streams.calendar_id
 
     Args:
         dry_run: If True, only list orphaned calendars without deleting (default: True)
@@ -276,7 +433,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT DISTINCT calendar_id
-            FROM schedule_groups
+            FROM calendar_streams
             WHERE calendar_id IS NOT NULL
         """)
         db_calendar_ids = {row[0] for row in cursor.fetchall()}
@@ -342,45 +499,41 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         return []
 def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
     """
-    Sync calendar events for a schedule group (add new, delete old, retry failed)
+    Sync calendar events for a schedule group via its calendar stream.
+    """
+    calendar_stream_id = get_calendar_stream_id_for_schedule_group(schedule_group_id)
+    if not calendar_stream_id:
+        logger.error(
+            "No calendar stream linked for schedule_group_id=%s",
+            schedule_group_id,
+        )
+        return {"success": False, "error": "Calendar stream not linked"}
 
-    This is phase 2 of the two-phase process (calendar creation, then event sync)
+    return sync_calendar_for_calendar_stream(calendar_stream_id)
 
-    Steps:
-    1. Get current dates from schedule_groups.dates
-    2. Get existing events from calendar_events table
-    3. Delete old events (dates in DB but not in current schedule)
-    4. Add new events (dates in current schedule but not in DB)
-    5. Retry failed events (status='error')
-    6. Update calendar_events table
-    7. Mark as synced when complete
 
-    Args:
-        schedule_group_id: Schedule group ID
-
-    Returns:
-        Dictionary with sync results
+def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> Dict:
+    """
+    Sync calendar events for a calendar stream (add new, delete old, retry failed).
     """
     start_time = time.time()
-    logger.debug(f"Syncing calendar events for schedule_group_id={schedule_group_id}")
+    logger.debug("Syncing calendar events for calendar_stream_id=%s", calendar_stream_id)
 
     try:
-        # Get schedule group info
-        group_info = get_schedule_group_info(schedule_group_id)
-        if not group_info:
-            logger.error(f"Schedule group not found: {schedule_group_id}")
-            return {"success": False, "error": "Schedule group not found"}
+        stream_info = get_calendar_stream_info(calendar_stream_id)
+        if not stream_info:
+            logger.error("Calendar stream not found: %s", calendar_stream_id)
+            return {"success": False, "error": "Calendar stream not found"}
 
-        calendar_id = group_info.get("calendar_id")
+        calendar_id = stream_info.get("calendar_id")
         if not calendar_id:
-            logger.error(f"No calendar_id for schedule_group_id: {schedule_group_id}")
+            logger.error("No calendar_id for calendar_stream_id: %s", calendar_stream_id)
             return {"success": False, "error": "Calendar not created yet"}
 
-        dates = group_info.get("dates", [])
+        dates = stream_info.get("dates", [])
         if not dates:
-            logger.warning(f"No dates for schedule_group_id: {schedule_group_id}")
-            # Mark as synced anyway (empty schedule)
-            update_schedule_group_calendar_synced(schedule_group_id)
+            logger.warning("No dates for calendar_stream_id: %s", calendar_stream_id)
+            update_calendar_stream_calendar_synced(calendar_stream_id)
             return {
                 "success": True,
                 "events_added": 0,
@@ -388,16 +541,15 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 "events_retried": 0,
             }
 
-        # Get existing events from calendar_events table
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT date, event_id, status
-            FROM calendar_events
-            WHERE schedule_group_id = ?
+            FROM calendar_stream_events
+            WHERE calendar_stream_id = ?
         """,
-            (schedule_group_id,),
+            (calendar_stream_id,),
         )
 
         existing_events = {
@@ -405,34 +557,29 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
         }
         conn.close()
 
-        # Convert dates to set for comparison
         current_dates = set(dates)
         existing_dates = set(existing_events.keys())
 
-        # Find dates to add and delete (in-place update strategy)
-        # - Dates that stay the same are NOT touched (preserves existing events)
-        # - Only dates that changed are updated (delete old, add new)
-        dates_to_add = current_dates - existing_dates  # New dates not in calendar
-        dates_to_delete = (
-            existing_dates - current_dates
-        )  # Old dates no longer in schedule
+        dates_to_add = current_dates - existing_dates
+        dates_to_delete = existing_dates - current_dates
         dates_to_retry = {
             date
             for date, info in existing_events.items()
             if info["status"] == "error" and date in current_dates
-        }  # Failed events to retry
+        }
 
         logger.info(
-            f"In-place update for {schedule_group_id}: "
-            f"add {len(dates_to_add)}, delete {len(dates_to_delete)}, "
-            f"retry {len(dates_to_retry)}, keep {len(current_dates & existing_dates)} unchanged"
+            "In-place update for %s: add %s, delete %s, retry %s, keep %s unchanged",
+            calendar_stream_id,
+            len(dates_to_add),
+            len(dates_to_delete),
+            len(dates_to_retry),
+            len(current_dates & existing_dates),
         )
 
-        # Get Google Calendar service
         service = get_google_calendar_service()
-        waste_type = group_info["waste_type"]
-        
-        # SIMPLIFIED: Event title is just waste type message (no village name)
+        waste_type = stream_info["waste_type"]
+
         waste_type_display = {
             "bendros": "Buitinių atliekų surinkimas",
             "plastikas": "Plastikinių atliekų surinkimas",
@@ -443,7 +590,6 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
         events_deleted = 0
         events_retried = 0
 
-        # Delete old events
         for date_str in dates_to_delete:
             event_id = existing_events[date_str]["event_id"]
             if event_id:
@@ -453,34 +599,34 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                         calendarId=calendar_id, eventId=event_id
                     ).execute()
                     events_deleted += 1
-                    logger.debug(f"Deleted event {event_id} for date {date_str}")
+                    logger.debug("Deleted event %s for date %s", event_id, date_str)
                 except Exception as e:
                     logger.error(
-                        f"Failed to delete event {event_id} for date {date_str}: {e}"
+                        "Failed to delete event %s for date %s: %s",
+                        event_id,
+                        date_str,
+                        e,
                     )
-                    # Error stored in calendar_events, will retry next time
 
-            # Remove from calendar_events table
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
-                DELETE FROM calendar_events
-                WHERE schedule_group_id = ? AND date = ?
+                DELETE FROM calendar_stream_events
+                WHERE calendar_stream_id = ? AND date = ?
             """,
-                (schedule_group_id, date_str),
+                (calendar_stream_id, date_str),
             )
             conn.commit()
             conn.close()
 
-        # Add new events
         for date_str in dates_to_add:
             try:
                 date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
                 event_date = date_obj.date()
 
                 event = {
-                    "summary": waste_type_display,  # SIMPLIFIED: Just waste type, no village
+                    "summary": waste_type_display,
                     "description": "Išvežkite bendrų šiukšlių dėžę",
                     "start": {
                         "dateTime": datetime.datetime(
@@ -518,48 +664,45 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 event_id = created_event["id"]
                 events_added += 1
 
-                # Store in calendar_events table
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO calendar_events (schedule_group_id, date, event_id, status)
+                    INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
                     VALUES (?, ?, ?, 'created')
-                    ON CONFLICT(schedule_group_id, date) DO UPDATE SET
+                    ON CONFLICT(calendar_stream_id, date) DO UPDATE SET
                         event_id = ?, status = 'created', updated_at = CURRENT_TIMESTAMP
                 """,
-                    (schedule_group_id, date_str, event_id, event_id),
+                    (calendar_stream_id, date_str, event_id, event_id),
                 )
                 conn.commit()
                 conn.close()
 
-                logger.debug(f"Created event {event_id} for date {date_str}")
+                logger.debug("Created event %s for date %s", event_id, date_str)
 
             except Exception as e:
-                logger.error(f"Failed to create event for {date_str}: {e}")
-                # Store error in calendar_events
+                logger.error("Failed to create event for %s: %s", date_str, e)
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO calendar_events (schedule_group_id, date, status, error_message)
+                    INSERT INTO calendar_stream_events (calendar_stream_id, date, status, error_message)
                     VALUES (?, ?, 'error', ?)
-                    ON CONFLICT(schedule_group_id, date) DO UPDATE SET
+                    ON CONFLICT(calendar_stream_id, date) DO UPDATE SET
                         status = 'error', error_message = ?, updated_at = CURRENT_TIMESTAMP
                 """,
-                    (schedule_group_id, date_str, str(e), str(e)),
+                    (calendar_stream_id, date_str, str(e), str(e)),
                 )
                 conn.commit()
                 conn.close()
 
-        # Retry failed events
         for date_str in dates_to_retry:
             try:
                 date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
                 event_date = date_obj.date()
 
                 event = {
-                    "summary": waste_type_display,  # SIMPLIFIED: Just waste type, no village
+                    "summary": waste_type_display,
                     "description": "Išvežkite bendrų šiukšlių dėžę",
                     "start": {
                         "dateTime": datetime.datetime(
@@ -597,45 +740,46 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
                 event_id = created_event["id"]
                 events_retried += 1
 
-                # Update calendar_events table
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    UPDATE calendar_events
+                    UPDATE calendar_stream_events
                     SET event_id = ?, status = 'created', error_message = NULL, updated_at = CURRENT_TIMESTAMP
-                    WHERE schedule_group_id = ? AND date = ?
+                    WHERE calendar_stream_id = ? AND date = ?
                 """,
-                    (event_id, schedule_group_id, date_str),
+                    (event_id, calendar_stream_id, date_str),
                 )
                 conn.commit()
                 conn.close()
 
-                logger.debug(f"Retried event {event_id} for date {date_str}")
+                logger.debug("Retried event %s for date %s", event_id, date_str)
 
             except Exception as e:
-                logger.error(f"Failed to retry event for {date_str}: {e}")
-                # Update error message
+                logger.error("Failed to retry event for %s: %s", date_str, e)
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    UPDATE calendar_events
+                    UPDATE calendar_stream_events
                     SET status = 'error', error_message = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE schedule_group_id = ? AND date = ?
+                    WHERE calendar_stream_id = ? AND date = ?
                 """,
-                    (str(e), schedule_group_id, date_str),
+                    (str(e), calendar_stream_id, date_str),
                 )
                 conn.commit()
                 conn.close()
 
-        # Mark as synced
-        update_schedule_group_calendar_synced(schedule_group_id)
+        update_calendar_stream_calendar_synced(calendar_stream_id)
 
         total_time = time.time() - start_time
         logger.info(
-            f"Calendar sync complete for {schedule_group_id} in {total_time:.2f}s: "
-            f"added={events_added}, deleted={events_deleted}, retried={events_retried}"
+            "Calendar sync complete for %s in %.2fs: added=%s, deleted=%s, retried=%s",
+            calendar_stream_id,
+            total_time,
+            events_added,
+            events_deleted,
+            events_retried,
         )
 
         return {
@@ -646,8 +790,8 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
         }
 
     except HttpError as error:
-        logger.error(f"Google Calendar API error: {error}")
+        logger.error("Google Calendar API error: %s", error)
         return {"success": False, "error": str(error)}
     except Exception as e:
-        logger.error(f"Unexpected error syncing calendar: {e}", exc_info=True)
+        logger.error("Unexpected error syncing calendar: %s", e, exc_info=True)
         return {"success": False, "error": str(e)}

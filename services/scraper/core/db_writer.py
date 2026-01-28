@@ -5,6 +5,7 @@ Database writer module - Writes validated data to SQLite
 import hashlib
 import json
 import sqlite3
+import uuid
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
@@ -45,6 +46,237 @@ def generate_dates_hash(dates: List[date]) -> str:
     return hash_obj.hexdigest()[:16]
 
 
+def normalize_dates(dates: List) -> List[date]:
+    """
+    Normalize date inputs to date objects (accepts ISO date strings).
+    """
+    normalized = []
+    for value in dates or []:
+        if isinstance(value, date):
+            normalized.append(value)
+        elif isinstance(value, str):
+            normalized.append(datetime.fromisoformat(value).date())
+        else:
+            normalized.append(value)
+    return normalized
+
+
+def generate_calendar_stream_id() -> str:
+    """
+    Generate a stable calendar stream ID (random, stored in DB).
+    """
+    return f"cs_{uuid.uuid4().hex[:12]}"
+
+
+def find_or_create_calendar_stream(
+    conn: sqlite3.Connection, dates: List, waste_type: str, exclude_stream_id: Optional[str] = None
+) -> Optional[str]:
+    """
+    Find or create calendar stream for a date pattern + waste_type.
+
+    Returns:
+        calendar_stream_id or None if no dates provided.
+    """
+    dates = normalize_dates(dates)
+    if not dates:
+        return None
+
+    dates_hash = generate_dates_hash(dates)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id FROM calendar_streams
+        WHERE waste_type = ?
+          AND dates_hash = ?
+          AND pending_clean_started_at IS NULL
+          AND (? IS NULL OR id != ?)
+        ORDER BY created_at ASC
+        LIMIT 1
+    """,
+        (waste_type, dates_hash, exclude_stream_id, exclude_stream_id),
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+
+    calendar_stream_id = generate_calendar_stream_id()
+    first_date = min(dates).isoformat()
+    last_date = max(dates).isoformat()
+    date_count = len(dates)
+    dates_json = json.dumps(
+        [d.isoformat() if isinstance(d, date) else str(d) for d in sorted(dates)]
+    )
+
+    cursor.execute(
+        """
+        INSERT INTO calendar_streams (
+            id, waste_type, dates_hash, dates, first_date, last_date, date_count, calendar_synced_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+    """,
+        (
+            calendar_stream_id,
+            waste_type,
+            dates_hash,
+            dates_json,
+            first_date,
+            last_date,
+            date_count,
+        ),
+    )
+
+    return calendar_stream_id
+
+
+def upsert_group_calendar_link(
+    conn: sqlite3.Connection, schedule_group_id: str, calendar_stream_id: Optional[str]
+) -> None:
+    """
+    Ensure schedule_group_id is linked to the correct calendar stream.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM group_calendar_links WHERE schedule_group_id = ?",
+        (schedule_group_id,),
+    )
+
+    if calendar_stream_id:
+        cursor.execute(
+            """
+            INSERT INTO group_calendar_links (schedule_group_id, calendar_stream_id, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        """,
+            (schedule_group_id, calendar_stream_id),
+        )
+
+
+def get_calendar_stream_id_for_schedule_group(
+    conn: sqlite3.Connection, schedule_group_id: str
+) -> Optional[str]:
+    """
+    Fetch existing calendar stream link for a schedule group.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT calendar_stream_id
+        FROM group_calendar_links
+        WHERE schedule_group_id = ?
+        LIMIT 1
+    """,
+        (schedule_group_id,),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def reconcile_calendar_streams(conn: sqlite3.Connection) -> None:
+    """
+    Reconcile calendar streams after all schedule groups are updated.
+    - If all linked groups share the same dates_hash, update the stream in place.
+    - If linked groups diverge, split into new streams and mark the old stream pending clean.
+    - If a stream has no linked groups, mark pending clean.
+    """
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT gcl.calendar_stream_id, sg.dates_hash, sg.dates, sg.waste_type
+        FROM group_calendar_links gcl
+        JOIN schedule_groups sg ON sg.id = gcl.schedule_group_id
+    """
+    )
+
+    stream_map: Dict[str, Dict[str, Dict[str, str]]] = {}
+    for stream_id, dates_hash, dates_json, waste_type in cursor.fetchall():
+        stream_map.setdefault(stream_id, {})
+        stream_map[stream_id][dates_hash] = {
+            "dates_json": dates_json,
+            "waste_type": waste_type,
+        }
+
+    for stream_id, hashes in stream_map.items():
+        if len(hashes) == 1:
+            dates_hash, payload = next(iter(hashes.items()))
+            dates_list = json.loads(payload["dates_json"] or "[]")
+            if dates_list:
+                first_date = min(dates_list)
+                last_date = max(dates_list)
+                date_count = len(dates_list)
+            else:
+                first_date = None
+                last_date = None
+                date_count = 0
+
+            cursor.execute(
+                """
+                UPDATE calendar_streams
+                SET dates_hash = ?, dates = ?, first_date = ?, last_date = ?, date_count = ?,
+                    calendar_synced_at = CASE WHEN dates_hash != ? THEN NULL ELSE calendar_synced_at END,
+                    updated_at = CURRENT_TIMESTAMP,
+                    pending_clean_started_at = NULL,
+                    pending_clean_until = NULL,
+                    pending_clean_notice_sent_at = NULL
+                WHERE id = ?
+            """,
+                (
+                    dates_hash,
+                    payload["dates_json"],
+                    first_date,
+                    last_date,
+                    date_count,
+                    dates_hash,
+                    stream_id,
+                ),
+            )
+        else:
+            # Split: move all groups to new streams (one per hash)
+            for dates_hash, payload in hashes.items():
+                dates_list = json.loads(payload["dates_json"] or "[]")
+                new_stream_id = find_or_create_calendar_stream(
+                    conn,
+                    dates_list,
+                    payload["waste_type"],
+                    exclude_stream_id=stream_id,
+                )
+                cursor.execute(
+                    """
+                    UPDATE group_calendar_links
+                    SET calendar_stream_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE schedule_group_id IN (
+                        SELECT id FROM schedule_groups
+                        WHERE dates_hash = ? AND waste_type = ?
+                    )
+                """,
+                    (new_stream_id, dates_hash, payload["waste_type"]),
+                )
+
+            # Mark old stream pending clean
+            cursor.execute(
+                """
+                UPDATE calendar_streams
+                SET pending_clean_started_at = CURRENT_TIMESTAMP,
+                    pending_clean_until = DATETIME(CURRENT_TIMESTAMP, '+4 days'),
+                    pending_clean_notice_sent_at = NULL
+                WHERE id = ?
+            """,
+                (stream_id,),
+            )
+
+    # Mark orphaned streams pending clean
+    cursor.execute(
+        """
+        UPDATE calendar_streams
+        SET pending_clean_started_at = CURRENT_TIMESTAMP,
+            pending_clean_until = DATETIME(CURRENT_TIMESTAMP, '+4 days'),
+            pending_clean_notice_sent_at = NULL
+        WHERE id NOT IN (SELECT DISTINCT calendar_stream_id FROM group_calendar_links)
+          AND pending_clean_started_at IS NULL
+    """
+    )
+
+
 def find_or_create_schedule_group(
     conn: sqlite3.Connection, dates: List, waste_type: str, kaimai_hash: str
 ) -> str:
@@ -63,6 +295,7 @@ def find_or_create_schedule_group(
     Returns:
         schedule_group_id (stable hash-based string like "sg_a3f8b2c1d4e5")
     """
+    dates = normalize_dates(dates)
     # Generate STABLE ID (based on kaimai_hash + waste_type, NOT dates!)
     schedule_group_id = generate_schedule_group_id(kaimai_hash, waste_type)
     new_dates_hash = generate_dates_hash(dates)
@@ -183,7 +416,11 @@ def write_location_schedule(
     kaimai_hash = generate_kaimai_hash(kaimai_str)
 
     # Find or create schedule group (updates kaimai_hash)
-    find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    existing_stream_id = get_calendar_stream_id_for_schedule_group(conn, schedule_group_id)
+    if not existing_stream_id:
+        calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+        upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
 
     # Normalize house_numbers (None -> NULL in DB)
     house_nums_str = house_numbers if house_numbers else None
@@ -315,6 +552,9 @@ def write_parsed_data(
                 item.get("house_numbers"),
                 waste_type="bendros",  # Default for now
             )
+
+        # Reconcile calendar streams after all groups are updated
+        reconcile_calendar_streams(conn)
 
         conn.commit()
         print(f"Successfully wrote {len(parsed_data)} locations to database")

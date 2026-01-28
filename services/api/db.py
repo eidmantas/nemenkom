@@ -103,11 +103,13 @@ def get_location_schedule(
     location_id = location_row[0]
     kaimai_hash = location_row[5]
 
-    # Get dates and calendar_id from schedule_groups by kaimai_hash + waste_type (direct lookup, no JSON)
+    # Get dates from schedule_groups and calendar info via calendar streams
     cursor.execute(
         """
-        SELECT sg.id, sg.dates, sg.calendar_id, sg.calendar_synced_at
+        SELECT sg.id, sg.dates, cs.calendar_id, cs.calendar_synced_at
         FROM schedule_groups sg
+        LEFT JOIN group_calendar_links gcl ON gcl.schedule_group_id = sg.id
+        LEFT JOIN calendar_streams cs ON cs.id = gcl.calendar_stream_id
         WHERE sg.kaimai_hash = ?
           AND sg.waste_type = ?
         LIMIT 1
@@ -232,6 +234,21 @@ def get_schedule_group_schedule(
     # Dates are already in group_info
     dates = [{"date": d, "waste_type": waste_type} for d in group_info["dates"]]
 
+    # Calendar info comes from calendar_streams
+    cursor.execute(
+        """
+        SELECT cs.calendar_id, cs.calendar_synced_at
+        FROM group_calendar_links gcl
+        JOIN calendar_streams cs ON cs.id = gcl.calendar_stream_id
+        WHERE gcl.schedule_group_id = ?
+        LIMIT 1
+    """,
+        (schedule_group_id,),
+    )
+    calendar_row = cursor.fetchone()
+    calendar_id = calendar_row[0] if calendar_row else None
+    calendar_synced_at = calendar_row[1] if calendar_row else None
+
     conn.close()
 
     return {
@@ -241,7 +258,7 @@ def get_schedule_group_schedule(
             "first_date": group_info["first_date"],
             "last_date": group_info["last_date"],
             "date_count": group_info["date_count"],
-            "calendar_id": group_info.get("calendar_id"),
+            "calendar_id": calendar_id,
         },
         "location_count": len(locations),
         "locations": locations,
