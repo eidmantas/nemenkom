@@ -1,5 +1,5 @@
 """
-AI parser modules - PydanticAI + OpenRouter integration
+AI parser modules - PydanticAI with OpenAI-compatible providers
 """
 
 from services.scraper.ai.cache import AIParserCache, get_cache

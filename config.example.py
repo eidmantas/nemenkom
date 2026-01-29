@@ -48,17 +48,41 @@ def _validate_secret_file(filename: str, description: str | None = None) -> None
         )
 
 
+def _read_secret_file_optional(filename: str) -> str | None:
+    """Read a secret file if it exists and is not empty; return None otherwise."""
+    secrets_path = os.path.join("secrets", filename)
+    if not os.path.exists(secrets_path):
+        return None
+    with open(secrets_path) as f:
+        content = f.read().strip()
+        return content or None
+
+
 DEBUG = os.getenv("DEBUG", "1") == "1"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 
 
-OPENROUTER_API_KEY = _read_secret_file("openrouter_api_key.txt")
-OPENROUTER_MODEL = "openai/gpt-oss-120b:free"
-OPENROUTER_FALLBACK_MODELS = [
-    "google/gemini-2.0-flash-exp:free",
-    "openai/gpt-oss-120b:free",
-    "google/gemma-3-27b-it:free",
-    "qwen/qwen3-coder:free",
+AI_PROVIDERS = [
+    {
+        "name": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": _read_secret_file_optional("openrouter_api_key.txt"),
+    },
+    {
+        "name": "groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key": _read_secret_file_optional("groq_api_key.txt"),
+    },
+]
+
+# Rotation order: providers/models are tried in this sequence across retries.
+AI_MODEL_ROTATION = [
+    {"provider": "openrouter", "model": "openai/gpt-oss-120b:free"},
+    {"provider": "openrouter", "model": "google/gemini-2.0-flash-exp:free"},
+    {"provider": "openrouter", "model": "google/gemma-3-27b-it:free"},
+    {"provider": "openrouter", "model": "qwen/qwen3-coder:free"},
+    {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+    {"provider": "groq", "model": "llama-3.1-8b-instant"},
 ]
 
 
@@ -82,8 +106,12 @@ API_KEY_HEADER = "X-API-KEY"
 
 try:
     _validate_secret_file("api_key.txt", "API authentication key")
-    _validate_secret_file("openrouter_api_key.txt", "OpenRouter API key")
     _validate_secret_file("credentials.json", "Google Calendar Service Account credentials")
+    if not any(provider.get("api_key") for provider in AI_PROVIDERS):
+        raise ValueError(
+            "No AI provider API keys found. Add at least one of: "
+            "secrets/openrouter_api_key.txt or secrets/groq_api_key.txt"
+        )
 except (FileNotFoundError, ValueError) as e:
     raise RuntimeError(
         f"Configuration validation failed:\n{e}\n\n"

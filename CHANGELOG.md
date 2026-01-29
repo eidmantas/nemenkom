@@ -4,8 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 - PDF scraper (`services/scraper_pdf`) remains in development (prototype/MVP).
-- TODO: Consider multi-provider fallback (OpenAI-compatible providers via PydanticAI) for tests and production.
 - TODO: Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
+
+## [0.1.4a] - 2026-01-29
+### Changed
+- Switched AI parser to OpenAI-compatible provider rotation (OpenRouter/Groq).
 
 ## [0.1.3a] - 2026-01-29
 ### Added

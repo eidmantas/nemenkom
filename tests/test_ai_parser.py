@@ -1,8 +1,8 @@
 """
-Unit tests for AI parser (OpenRouter integration)
+Unit tests for AI parser (OpenAI-compatible providers)
 
 Unit tests use mocked responses to avoid API calls.
-Integration tests (marked with @pytest.mark.ai_integration) call the real OpenRouter API
+Integration tests (marked with @pytest.mark.ai_integration) call a real provider API
 and use tokens. They can run without a pre-existing database - the cache will
 create the database automatically if needed. Tests run "on the fly" - they call
 the AI parser directly and don't require pre-populated database data.
