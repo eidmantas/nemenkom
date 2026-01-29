@@ -5,23 +5,25 @@ Main script to run the scraper - can be used for daily cron jobs
 import argparse
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import tempfile
-
-import config
-from services.common.db import get_db_connection
-from services.common.migrations import init_database
 from services.common.logging_utils import setup_logging
+from services.common.migrations import init_database
 from services.scraper.core.db_writer import write_parsed_data
 from services.scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
 from services.scraper.core.validator import validate_file_and_data
 
 
-def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
+def run_scraper(
+    skip_ai: bool = False,
+    file_path: Path | None = None,
+    url: str | None = None,
+    year: int = 2026,
+):
     """Run the scraper with given parameters
 
     Args:
@@ -44,8 +46,8 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
     print("=" * 60)
     print("Waste Schedule Scraper")
     if skip_ai:
-        print("🔍 MODE: Skip AI parsing (traditional parser only)")
-    print("📅 MODE: Auto-create Google Calendars after scraping")
+        print(" MODE: Skip AI parsing (traditional parser only)")
+    print(" MODE: Auto-create Google Calendars after scraping")
     print("=" * 60)
     logger.info("Scraper started (skip_ai=%s, year=%s)", skip_ai, year)
 
@@ -53,9 +55,8 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         # Fetch or use local xlsx
         if file_path:
             print(f"\n1. Using local xlsx file: {file_path}")
-            file_path = Path(file_path)
             if not file_path.exists():
-                print(f"❌ File not found: {file_path}")
+                print(f" File not found: {file_path}")
                 return 1
         else:
             print(f"\n1. Fetching xlsx from: {url}")
@@ -63,17 +64,15 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
 
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
-        is_valid, errors, parsed_data = validate_file_and_data(
-            file_path, year, skip_ai=skip_ai
-        )
+        is_valid, errors, parsed_data = validate_file_and_data(file_path, year, skip_ai=skip_ai)
 
         if errors:
-            print(f"\n⚠️  Validation warnings/errors:")
+            print("\n  Validation warnings/errors:")
             for error in errors:
                 print(f"   - {error}")
 
         if not parsed_data:
-            print("\n❌ No data parsed. Exiting.")
+            print("\n No data parsed. Exiting.")
             write_parsed_data([], url, errors)
             return 1
 
@@ -81,20 +80,19 @@ def run_scraper(skip_ai=False, file_path=None, url=None, year=2026):
         print(f"\n3. Writing {len(parsed_data)} locations to database...")
         success = write_parsed_data(parsed_data, url, errors if not is_valid else None)
 
-
         # Cleanup
         if file_path.exists() and str(file_path).startswith(tempfile.gettempdir()):
             file_path.unlink()
 
         if success:
-            print("\n✅ Successfully completed!")
+            print("\n Successfully completed!")
             return 0
         else:
-            print("\n❌ Failed to write to database")
+            print("\n Failed to write to database")
             return 1
 
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n Error: {e}")
         import traceback
 
         traceback.print_exc()
@@ -117,7 +115,8 @@ def main():
     )
     args = parser.parse_args()
 
-    return run_scraper(skip_ai=args.skip_ai, file_path=args.file)
+    file_path = Path(args.file) if args.file else None
+    return run_scraper(skip_ai=args.skip_ai, file_path=file_path)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 class AIParserCache:
@@ -18,7 +17,7 @@ class AIParserCache:
     This is critical for efficiency - many kaimai strings are duplicates.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         if db_path is None:
             db_path = (
                 Path(__file__).parent.parent.parent.parent
@@ -47,14 +46,14 @@ class AIParserCache:
         """)
 
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ai_cache_kaimai_str 
+            CREATE INDEX IF NOT EXISTS idx_ai_cache_kaimai_str
             ON ai_parser_cache(kaimai_str)
         """)
 
         conn.commit()
         conn.close()
 
-    def get(self, kaimai_str: str) -> Optional[List]:
+    def get(self, kaimai_str: str) -> list | None:
         """
         Get cached parsed result for a kaimai string
 
@@ -91,10 +90,7 @@ class AIParserCache:
             # Return parsed result (convert lists back to tuples)
             parsed_result = json.loads(row[0])
             # Convert list of lists back to list of tuples
-            return [
-                tuple(item) if isinstance(item, list) else item
-                for item in parsed_result
-            ]
+            return [tuple(item) if isinstance(item, list) else item for item in parsed_result]
 
         return None
 
@@ -115,7 +111,7 @@ class AIParserCache:
         conn.commit()
         conn.close()
 
-    def set(self, kaimai_str: str, parsed_result: List, tokens_used: int = 0):
+    def set(self, kaimai_str: str, parsed_result: list, tokens_used: int = 0):
         """
         Cache a parsed result
 
@@ -138,7 +134,7 @@ class AIParserCache:
 
         cursor.execute(
             """
-            INSERT OR REPLACE INTO ai_parser_cache 
+            INSERT OR REPLACE INTO ai_parser_cache
             (kaimai_hash, kaimai_str, parsed_result, tokens_used, created_at, last_used_at)
             VALUES (?, ?, ?, ?, ?, ?)
         """,
@@ -155,30 +151,12 @@ class AIParserCache:
         conn.commit()
         conn.close()
 
-    def get_cache_stats(self) -> Dict:
-        """Get cache statistics"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT COUNT(*) FROM ai_parser_cache")
-        total_entries = cursor.fetchone()[0]
-
-        cursor.execute("SELECT SUM(tokens_used) FROM ai_parser_cache")
-        total_tokens = cursor.fetchone()[0] or 0
-
-        conn.close()
-
-        return {
-            "total_entries": total_entries,
-            "total_tokens_saved": total_tokens,
-        }
-
 
 # Global cache instance
 _cache = None
 
 
-def get_cache(db_path: Optional[Path] = None) -> AIParserCache:
+def get_cache(db_path: Path | None = None) -> AIParserCache:
     """Get or create global cache instance"""
     global _cache
     if _cache is None:

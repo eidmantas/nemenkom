@@ -6,7 +6,7 @@ Handles hierarchical structure: Seniūnija -> Kaimai (with optional streets and 
 import datetime
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import cast
 
 import pandas as pd
 
@@ -27,7 +27,7 @@ MONTH_MAPPING = {
 }
 
 
-def parse_street_with_house_numbers(street_str: str) -> Tuple[str, Optional[str]]:
+def parse_street_with_house_numbers(street_str: str) -> tuple[str, str | None]:
     """
     Parse street name and optional house number restrictions
 
@@ -90,7 +90,7 @@ def parse_street_with_house_numbers(street_str: str) -> Tuple[str, Optional[str]
     return (street_str, None)
 
 
-def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]]:
+def parse_village_and_streets(kaimai_str: str) -> list[tuple[str, str | None]]:
     """
     Parse village name and list of streets (with optional house numbers) from Kaimai column
 
@@ -111,7 +111,7 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
     # Check if there are streets in parentheses
     match = re.match(r"^(.+?)\s*\((.+)\)\s*$", kaimai_str)
     if match:
-        village = match.group(1).strip()
+        village = str(match.group(1)).strip()
         streets_str = match.group(2).strip()
 
         # Split by comma, but be careful with nested parentheses
@@ -138,7 +138,7 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
             parts.append(current_part.strip())
 
         # Parse each street part
-        streets = []
+        streets: list[tuple[str, str | None]] = []
         for part in parts:
             street, house_nums = parse_street_with_house_numbers(part)
             if street:
@@ -151,8 +151,8 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
 
 
 def extract_dates_from_cell(
-    cell_value, month_name: str, year: int = 2026
-) -> List[datetime.date]:
+    cell_value: object, month_name: str, year: int = 2026
+) -> list[datetime.date]:
     """
     Extract dates from a single cell value
     Format: "8 d., 22 d." or "2 d., 16 d., 30 d." or just numbers
@@ -171,7 +171,7 @@ def extract_dates_from_cell(
     if month_num is None:
         return dates
 
-    if pd.isna(cell_value):
+    if cast(bool, pd.isna(cell_value)):
         return dates
 
     cell_str = str(cell_value).strip()
@@ -200,7 +200,7 @@ def extract_dates_from_cell(
     return sorted(set(dates))  # Remove duplicates and sort
 
 
-def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List[Dict]:
+def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list[dict]:
     """
     Parse xlsx file and extract all location schedules
 
@@ -226,7 +226,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
     """
     print(f"Parsing xlsx file: {file_path}")
     if skip_ai:
-        print("🔍 Filtering: Skipping AI parsing (traditional parser only)")
+        print(" Filtering: Skipping AI parsing (traditional parser only)")
 
     # Read excel file, skip first row (header)
     df = pd.read_excel(file_path, skiprows=1)
@@ -264,15 +264,15 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
     logger.info(f"Starting to parse {len(df)} rows...")
 
     # Process each row
-    for idx, row in df.iterrows():
-        if (idx + 1) % 50 == 0:
+    for row_number, (_, row) in enumerate(df.iterrows(), start=1):
+        if row_number % 50 == 0:
             elapsed = time.time() - parse_start_time
             logger.debug(
-                f"Processing row {idx + 1}/{len(df)} (elapsed: {elapsed:.1f}s, AI: {ai_parse_count}, Traditional: {traditional_parse_count})"
+                f"Processing row {row_number}/{len(df)} (elapsed: {elapsed:.1f}s, AI: {ai_parse_count}, Traditional: {traditional_parse_count})"
             )
         # Handle Seniūnija (county) - can be merged, so track current value
         seniunija_value = row.get("Seniūnija", "")
-        if pd.notna(seniunija_value) and str(seniunija_value).strip():
+        if cast(bool, pd.notna(seniunija_value)) and str(seniunija_value).strip():
             current_seniunija = str(seniunija_value).strip()
 
         # Skip if no county (shouldn't happen, but be safe)
@@ -281,7 +281,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
 
         # Parse Kaimai (village and streets)
         kaimai_value = row.get("Kaimai", "")
-        if pd.isna(kaimai_value):
+        if cast(bool, pd.isna(kaimai_value)):
             continue
 
         # Convert to string once and check if empty
@@ -299,7 +299,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
         if should_use_ai_parser(kaimai_str):
             # Use AI parser for complex cases
             ai_start = time.time()
-            logger.debug(f"Row {idx + 1}: Using AI parser for: {kaimai_str[:80]}")
+            logger.debug(f"Row {row_number}: Using AI parser for: {kaimai_str[:80]}")
             try:
                 from services.scraper.ai.parser import parse_with_ai
 
@@ -307,25 +307,19 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                 ai_parse_count += 1
                 ai_time = time.time() - ai_start
                 if ai_time > 1.0:
-                    logger.warning(
-                        f"AI parse took {ai_time:.2f}s for: {kaimai_str[:50]}"
-                    )
+                    logger.warning(f"AI parse took {ai_time:.2f}s for: {kaimai_str[:50]}")
                 else:
                     logger.debug(f"AI parse completed in {ai_time:.2f}s")
             except Exception as e:
                 # Fallback to traditional parser if AI fails
-                logger.warning(
-                    f"AI parser failed for '{kaimai_str[:50]}...': {e}, falling back"
-                )
-                print(f"⚠️  AI parser failed for '{kaimai_str[:50]}...': {e}")
-                print(f"   Falling back to traditional parser")
+                logger.warning(f"AI parser failed for '{kaimai_str[:50]}...': {e}, falling back")
+                print(f"  AI parser failed for '{kaimai_str[:50]}...': {e}")
+                print("   Falling back to traditional parser")
                 parsed_items = parse_village_and_streets(kaimai_str)
                 traditional_parse_count += 1
         else:
             # Use traditional parser for simple cases
-            logger.debug(
-                f"Row {idx + 1}: Using traditional parser for: {kaimai_str[:80]}"
-            )
+            logger.debug(f"Row {row_number}: Using traditional parser for: {kaimai_str[:80]}")
             parsed_items = parse_village_and_streets(kaimai_str)
             traditional_parse_count += 1
 
@@ -335,20 +329,19 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                 # Check if village field contains street-like patterns (indicates parsing failure)
                 # Patterns like: parentheses with streets, multiple "g." endings, complex structures
                 if village and (
-                    "(" in village
-                    and "g." in village  # Village contains parentheses with streets
+                    (
+                        "(" in village and "g." in village
+                    )  # Village contains parentheses with streets
                     or village.count("g.") > 1  # Multiple street endings in village
                     or (
-                        "," in village
-                        and "g." in village
-                        and not village.strip().startswith("(")
+                        "," in village and "g." in village and not village.strip().startswith("(")
                     )  # Streets mixed in village
                 ):
                     logger.warning(
                         f"Traditional parser produced suspicious village '{village[:50]}...' - retrying with AI"
                     )
                     print(
-                        f"⚠️  Traditional parser produced invalid output for '{kaimai_str[:50]}...' - retrying with AI"
+                        f"  Traditional parser produced invalid output for '{kaimai_str[:50]}...' - retrying with AI"
                     )
                     try:
                         from services.scraper.ai.parser import parse_with_ai
@@ -365,7 +358,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> List
                             f"AI retry failed after multiple attempts for '{kaimai_str[:50]}...': {e}, skipping this entry"
                         )
                         print(
-                            f"⚠️  AI retry failed after multiple attempts for '{kaimai_str[:50]}...', skipping this malformed entry"
+                            f"  AI retry failed after multiple attempts for '{kaimai_str[:50]}...', skipping this malformed entry"
                         )
                         parsed_items = []  # Skip this entry - don't write bad data
 
@@ -439,12 +432,10 @@ if __name__ == "__main__":
 
     file_path = fetch_xlsx()
     results = parse_xlsx(file_path)
-    print(f"\nSample results (first 5):")
+    print("\nSample results (first 5):")
     for result in results[:5]:
         street_display = result["street"] if result["street"] else "(visas kaimas)"
-        house_display = (
-            f" [{result['house_numbers']}]" if result["house_numbers"] else ""
-        )
+        house_display = f" [{result['house_numbers']}]" if result["house_numbers"] else ""
         print(
             f"  {result['seniunija']} / {result['village']} / {street_display}{house_display}: {len(result['dates'])} dates"
         )

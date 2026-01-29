@@ -4,10 +4,9 @@ PDF Parser module - Extracts tables from PDF using camelot
 
 import datetime
 import logging
-import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import cast
 
 import camelot
 import pandas as pd
@@ -88,8 +87,7 @@ TABLE_COLUMNS = {
 }
 
 
-
-def parse_street_with_house_numbers(street_str: str) -> Tuple[str, Optional[str]]:
+def parse_street_with_house_numbers(street_str: str) -> tuple[str, str | None]:
     """
     Parse street name and optional house number restrictions.
     Duplicated from XLSX scraper to keep PDF parsing isolated.
@@ -127,7 +125,7 @@ def parse_street_with_house_numbers(street_str: str) -> Tuple[str, Optional[str]
     return (street_str, None)
 
 
-def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]]:
+def parse_village_and_streets(kaimai_str: str) -> list[tuple[str, str | None]]:
     """
     Parse village name and list of streets (with optional house numbers).
     Duplicated from XLSX scraper to keep PDF parsing isolated.
@@ -139,7 +137,7 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
 
     match = re.match(r"^(.+?)\s*\((.+)\)\s*$", kaimai_str)
     if match:
-        village = match.group(1).strip()
+        village = str(match.group(1)).strip()
         streets_str = match.group(2).strip()
 
         parts = []
@@ -163,7 +161,7 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
         if current_part.strip():
             parts.append(current_part.strip())
 
-        streets = []
+        streets: list[tuple[str, str | None]] = []
         for part in parts:
             street, house_nums = parse_street_with_house_numbers(part)
             if street:
@@ -173,12 +171,13 @@ def parse_village_and_streets(kaimai_str: str) -> List[Tuple[str, Optional[str]]
 
     return [(kaimai_str.strip(), None)]
 
+
 logger = logging.getLogger(__name__)
 
 
 def extract_dates_from_cell(
-    cell_value, month_name: str, year: int = 2026
-) -> List[datetime.date]:
+    cell_value: object, month_name: str, year: int = 2026
+) -> list[datetime.date]:
     """
     Extract dates from a cell value
     Format: "2 d." or "19 d." or "2 d., 16 d., 30 d."
@@ -197,7 +196,7 @@ def extract_dates_from_cell(
     if month_num is None:
         return dates
 
-    if pd.isna(cell_value):
+    if cast(bool, pd.isna(cell_value)):
         return dates
 
     cell_str = str(cell_value).strip()
@@ -224,22 +223,22 @@ def extract_dates_from_cell(
     return sorted(set(dates))  # Remove duplicates and sort
 
 
-def normalize_month_name(value: str) -> Optional[str]:
+def normalize_month_name(value: str) -> str | None:
     if not value:
         return None
     key = re.sub(r"[^\wąčęėįšųūžĄČĘĖĮŠŲŪŽ]+", "", str(value).strip().lower())
     return MONTH_ALIASES.get(key)
 
 
-def clean_cell(value: str) -> str:
-    if value is None or pd.isna(value):
+def clean_cell(value: object) -> str:
+    if value is None or cast(bool, pd.isna(value)):
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
 def row_has_months(row: pd.Series) -> bool:
     row_str = " ".join([str(cell) for cell in row.values if pd.notna(cell)]).lower()
-    for month in MONTH_ALIASES.keys():
+    for month in MONTH_ALIASES:
         if month in row_str:
             return True
     return False
@@ -258,7 +257,7 @@ def row_contains_header(row: pd.Series) -> bool:
     return (has_labels and has_waste) or (has_labels and has_months)
 
 
-def find_header_rows(df: pd.DataFrame) -> List[int]:
+def find_header_rows(df: pd.DataFrame) -> list[int]:
     header_rows = []
     for idx, row in df.iterrows():
         if row_contains_header(row):
@@ -266,7 +265,7 @@ def find_header_rows(df: pd.DataFrame) -> List[int]:
     return header_rows
 
 
-def build_header(df: pd.DataFrame, header_idx: int) -> List[str]:
+def build_header(df: pd.DataFrame, header_idx: int) -> list[str]:
     header_row = df.iloc[header_idx].tolist()
     next_row = None
     if header_idx + 1 < len(df):
@@ -278,7 +277,7 @@ def build_header(df: pd.DataFrame, header_idx: int) -> List[str]:
         return [clean_cell(cell) for cell in header_row]
 
     combined = []
-    for first, second in zip(header_row, next_row):
+    for first, second in zip(header_row, next_row, strict=False):
         first_clean = clean_cell(first)
         second_clean = clean_cell(second)
         if first_clean:
@@ -290,13 +289,13 @@ def build_header(df: pd.DataFrame, header_idx: int) -> List[str]:
     return combined
 
 
-def split_table_by_headers(df: pd.DataFrame) -> List[pd.DataFrame]:
+def split_table_by_headers(df: pd.DataFrame) -> list[pd.DataFrame]:
     header_rows = find_header_rows(df)
     if not header_rows:
         return []
     header_rows.append(len(df))
     sections = []
-    for start_idx, end_idx in zip(header_rows, header_rows[1:]):
+    for start_idx, end_idx in zip(header_rows, header_rows[1:], strict=False):
         header = build_header(df, start_idx)
         section = df.iloc[start_idx + 1 : end_idx].copy()
         if section.empty:
@@ -330,9 +329,7 @@ def normalize_waste_label(waste_type: str) -> str:
     return str(waste_type).strip()
 
 
-def parse_location_items(
-    kaimai_str: str, skip_ai: bool = False
-) -> List[Tuple[str, Optional[str]]]:
+def parse_location_items(kaimai_str: str, skip_ai: bool = False) -> list[tuple[str, str | None]]:
     if not kaimai_str:
         return []
 
@@ -356,11 +353,13 @@ def parse_location_items(
         return parsed_items
 
     village = parsed_items[0][0] if parsed_items else ""
-    if not skip_ai and village and (
-        ("(" in village and "g." in village)
-        or village.count("g.") > 1
-        or (
-            "," in village and "g." in village and not village.strip().startswith("(")
+    if (
+        not skip_ai
+        and village
+        and (
+            ("(" in village and "g." in village)
+            or village.count("g.") > 1
+            or ("," in village and "g." in village and not village.strip().startswith("("))
         )
     ):
         try:
@@ -380,14 +379,14 @@ def parse_location_items(
 
 def parse_pdf(
     file_path: Path, year: int = 2026, skip_ai: bool = False
-) -> Tuple[List[Dict], List[Dict]]:
+) -> tuple[list[dict], list[dict]]:
     """
     Parse PDF file and extract all location schedules using camelot.
-    
+
     Args:
         file_path: Path to PDF file
         year: Year for the schedule
-        
+
     Returns:
         List of dictionaries with structure:
         {
@@ -401,7 +400,7 @@ def parse_pdf(
         }
     """
     logger.info(f"Parsing PDF file: {file_path}")
-    
+
     # Extract tables from PDF using camelot
     tables = []
     lattice_tables = []
@@ -416,18 +415,11 @@ def parse_pdf(
         "joint_tol": 3,
         "process_background": True,
     }
-    stream_params = {
-        "table_areas": [table_area] if table_area else None,
-        "columns": [",".join(str(c) for c in table_columns)]
-        if table_columns
-        else None,
-        "strip_text": "\n",
-    }
     logger.info("Camelot table area: %s", table_area)
     logger.info("Camelot columns: %s", table_columns)
 
     try:
-        lattice_tables = camelot.read_pdf(
+        lattice_tables = camelot.read_pdf(  # type: ignore[reportPrivateImportUsage]
             str(file_path),
             pages="all",
             flavor="lattice",
@@ -442,34 +434,34 @@ def parse_pdf(
     except Exception as e:
         logger.warning(f"Lattice method failed: {e}")
 
-    def group_by_page(table_list):
+    def group_by_page(table_list: list) -> dict[int | None, list]:
         grouped = {}
         for table in table_list:
             page = getattr(table, "page", None)
             try:
+                if page is None:
+                    raise TypeError("Missing page number")
                 page = int(page)
             except (TypeError, ValueError):
                 page = None
             grouped.setdefault(page, []).append(table)
         return grouped
 
-    lattice_by_page = group_by_page(lattice_tables)
-    pages = sorted(set(lattice_by_page.keys()))
+    lattice_by_page = group_by_page(list(lattice_tables))
+    pages = sorted(page for page in lattice_by_page.keys() if page is not None)
     for page in pages:
         tables.extend(lattice_by_page.get(page, []))
+    if None in lattice_by_page:
+        tables.extend(lattice_by_page.get(None, []))
 
+    raw_rows = []
     if not tables:
         logger.error("No tables extracted from PDF using lattice or stream")
         return ([], raw_rows)
     logger.info("Using %s tables after page selection", len(tables))
-    
-    if len(tables) == 0:
-        logger.warning("No tables extracted from PDF")
-        return []
-    
+
     results = []
-    raw_rows = []
-    
+
     last_header = None
     # Process each table
     for table_idx, table in enumerate(tables):
@@ -496,9 +488,7 @@ def parse_pdf(
                         table_idx + 1,
                     )
                 else:
-                    logger.warning(
-                        f"Could not find header row in table {table_idx + 1}, skipping"
-                    )
+                    logger.warning(f"Could not find header row in table {table_idx + 1}, skipping")
                     continue
 
         for section_idx, section in enumerate(sections):
@@ -537,9 +527,7 @@ def parse_pdf(
                     month_columns[normalized] = col
 
             if not month_columns:
-                logger.debug(
-                    f"No month columns in table {table_idx + 1} section {section_idx + 1}"
-                )
+                logger.debug(f"No month columns in table {table_idx + 1} section {section_idx + 1}")
                 continue
             last_header = list(section.columns)
 
@@ -573,10 +561,7 @@ def parse_pdf(
                     continue
 
                 # Skip if this looks like a header row
-                if any(
-                    col in location_str
-                    for col in ["Seniūnijos", "pavadinimas", "Atliekos"]
-                ):
+                if any(col in location_str for col in ["Seniūnijos", "pavadinimas", "Atliekos"]):
                     logger.debug(
                         "Skipping header-like row %s in table %s section %s: %s",
                         idx,
@@ -625,12 +610,12 @@ def parse_pdf(
                 if waste_type_col:
                     waste_type_cell = clean_cell(row.get(waste_type_col, ""))
 
-                normalized_label = (
-                    normalize_waste_label(waste_type_cell) if waste_type_cell else ""
-                )
-                if waste_type_cell and any(
-                    label in waste_type_cell for label in ["Pakuotė", "Stiklas"]
-                ) and waste_type_cell not in ["Pakuotė", "Stiklas"]:
+                normalized_label = normalize_waste_label(waste_type_cell) if waste_type_cell else ""
+                if (
+                    waste_type_cell
+                    and any(label in waste_type_cell for label in ["Pakuotė", "Stiklas"])
+                    and waste_type_cell not in ["Pakuotė", "Stiklas"]
+                ):
                     match = re.split(r"(Pakuotė|Stiklas)", waste_type_cell, maxsplit=1)
                     if len(match) >= 3:
                         prefix, label, suffix = match[0].strip(), match[1], match[2].strip()
@@ -691,7 +676,7 @@ def parse_pdf(
                         "parsed_items": parsed_items,
                     }
                 )
-    
+
     if not results:
         logger.info("Parsed 0 rows from PDF")
         return (results, raw_rows)

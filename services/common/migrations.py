@@ -1,6 +1,7 @@
 """
 Shared migration runner for service-owned migrations.
 """
+
 from pathlib import Path
 
 from yoyo import get_backend, read_migrations

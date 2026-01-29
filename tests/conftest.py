@@ -1,13 +1,15 @@
 """
 Pytest fixtures for testing
 """
-import pytest
-import sqlite3
-import tempfile
-from pathlib import Path
-import sys
+
 import os
+import sqlite3
+import sys
+import tempfile
 import warnings
+from pathlib import Path
+
+import pytest
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,29 +26,37 @@ warnings.filterwarnings(
 def temp_db():
     """Create a temporary database for testing and patch get_db_connection to use it"""
     from unittest.mock import patch
+
     import services.api.db as api_db_module
-    import services.common.db as db_module
     import services.calendar as calendar_module
+    import services.common.db as db_module
     import services.common.db_helpers as db_helpers_module
-    
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+
+    db_fd, db_path = tempfile.mkstemp(suffix=".db")
     conn = sqlite3.connect(db_path)
-    
+
     from services.common.migrations import run_migrations
-    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations")
-    run_migrations(Path(db_path), Path(__file__).parent.parent / "services" / "calendar" / "migrations")
+
+    run_migrations(
+        Path(db_path), Path(__file__).parent.parent / "services" / "scraper" / "migrations"
+    )
+    run_migrations(
+        Path(db_path), Path(__file__).parent.parent / "services" / "calendar" / "migrations"
+    )
     conn.commit()
-    
+
     def mock_get_conn():
         return sqlite3.connect(db_path, check_same_thread=False)
-    
+
     # Patch get_db_connection in all modules that use it
-    with patch.object(api_db_module, 'get_db_connection', mock_get_conn), \
-         patch.object(db_module, 'get_db_connection', mock_get_conn), \
-         patch.object(calendar_module, 'get_db_connection', mock_get_conn), \
-         patch.object(db_helpers_module, 'get_db_connection', mock_get_conn):
+    with (
+        patch.object(api_db_module, "get_db_connection", mock_get_conn),
+        patch.object(db_module, "get_db_connection", mock_get_conn),
+        patch.object(calendar_module, "get_db_connection", mock_get_conn),
+        patch.object(db_helpers_module, "get_db_connection", mock_get_conn),
+    ):
         yield conn, db_path
-    
+
     conn.close()
     os.unlink(db_path)
 
@@ -60,18 +70,18 @@ def disable_throttle_env():
 @pytest.fixture
 def sample_xlsx_path():
     """Path to sample XLSX file"""
-    return Path(__file__).parent / 'fixtures' / 'sample_schedule.xlsx'
+    return Path(__file__).parent / "fixtures" / "sample_schedule.xlsx"
 
 
 @pytest.fixture
 def temp_cache_db():
     """Create a temporary cache database for AI integration tests
-    
+
     This ensures tests use fresh API calls and don't rely on existing cache.
     """
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+    db_fd, db_path = tempfile.mkstemp(suffix=".db")
     os.close(db_fd)  # Close file descriptor, we'll use the path
-    
+
     # Create cache table in temp DB
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -86,14 +96,14 @@ def temp_cache_db():
         )
     """)
     cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_ai_cache_kaimai_str 
+        CREATE INDEX IF NOT EXISTS idx_ai_cache_kaimai_str
         ON ai_parser_cache(kaimai_str)
     """)
     conn.commit()
     conn.close()
-    
+
     yield Path(db_path)
-    
+
     # Cleanup
     if os.path.exists(db_path):
         os.unlink(db_path)
@@ -102,14 +112,6 @@ def temp_cache_db():
 def pytest_configure(config):
     """Register custom markers"""
     config.addinivalue_line("markers", "ai_integration: marks tests that use real AI tokens")
-    config.addinivalue_line("markers", "real_api: marks tests that make real API calls (Google Calendar, etc.)")
-
-
-def pytest_addoption(parser):
-    """Add custom pytest options"""
-    parser.addoption(
-        "--use-ai-tokens",
-        action="store_true",
-        default=False,
-        help="Run AI integration tests that use actual tokens (expensive)"
+    config.addinivalue_line(
+        "markers", "real_api: marks tests that make real API calls (Google Calendar, etc.)"
     )

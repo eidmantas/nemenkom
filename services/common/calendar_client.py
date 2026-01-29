@@ -1,9 +1,9 @@
 """
 Shared, read-only Google Calendar helpers for API usage.
 """
+
 import logging
 import os.path
-from typing import Dict, List, Optional
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -17,7 +17,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def _throttle_calendar() -> None:
+def throttle_calendar() -> None:
     throttle("calendar")
 
 
@@ -48,19 +48,19 @@ def get_google_calendar_service():
         )
         return build("calendar", "v3", credentials=creds)
     except Exception as e:
-        raise Exception(
+        raise RuntimeError(
             f"Failed to authenticate with Google Calendar: {e}\n"
             f"Make sure {credentials_file} is a valid Service Account JSON key file"
-        )
+        ) from e
 
 
-def get_existing_calendar_info(calendar_id: str) -> Optional[Dict]:
+def get_existing_calendar_info(calendar_id: str) -> dict | None:
     """
     Get information about an existing calendar.
     """
     try:
         service = get_google_calendar_service()
-        _throttle_calendar()
+        throttle_calendar()
         calendar = service.calendars().get(calendarId=calendar_id).execute()
 
         return {
@@ -78,13 +78,13 @@ def get_existing_calendar_info(calendar_id: str) -> Optional[Dict]:
         return None
 
 
-def list_available_calendars() -> List[Dict]:
+def list_available_calendars() -> list[dict]:
     """
     List calendars created by this application.
     """
     try:
         service = get_google_calendar_service()
-        _throttle_calendar()
+        throttle_calendar()
         calendars_result = service.calendarList().list().execute()
         calendars = calendars_result.get("items", [])
 

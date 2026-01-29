@@ -12,29 +12,26 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from googleapiclient.errors import HttpError
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
-from services.common.db_helpers import (
-    get_calendar_stream_id_for_schedule_group,
-    get_calendar_stream_info,
-    get_calendar_streams_needing_sync,
-    update_calendar_stream_calendar_id,
-    update_calendar_stream_calendar_synced,
-)
-from services.common.db import get_db_connection
 from services.common.calendar_client import (
-    _throttle_calendar,
     generate_calendar_subscription_link,
     get_existing_calendar_info,
     get_google_calendar_service,
-    list_available_calendars,
+    throttle_calendar,
 )
-from services.common.throttle import backoff
+from services.common.db import get_db_connection
+from services.common.db_helpers import (
+    get_calendar_stream_id_for_schedule_group,
+    get_calendar_stream_info,
+    update_calendar_stream_calendar_id,
+    update_calendar_stream_calendar_synced,
+)
 from services.common.logging_utils import setup_logging
+from services.common.throttle import backoff
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -52,7 +49,7 @@ def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
     service = get_google_calendar_service()
     now = datetime.datetime.now()
 
-    notice_summary = "⚠️ Svarbu: atnaujinkite kalendoriaus prenumeratą"
+    notice_summary = " Svarbu: atnaujinkite kalendoriaus prenumeratą"
     notice_description = (
         "Šio adreso atliekų grafikas pasikeitė. "
         "Prašome atnaujinti prenumeratą svetainėje (nemenkom.lt). "
@@ -86,7 +83,7 @@ def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
             },
         }
 
-        _throttle_calendar()
+        throttle_calendar()
         service.events().insert(calendarId=calendar_id, body=event).execute()
 
     conn = get_db_connection()
@@ -139,7 +136,7 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
     conn.close()
 
     service = get_google_calendar_service()
-    _throttle_calendar()
+    throttle_calendar()
     service.calendars().delete(calendarId=calendar_id).execute()
 
     conn = get_db_connection()
@@ -153,9 +150,7 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
     conn.close()
 
 
-
-
-def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]:
+def create_calendar_for_schedule_group(schedule_group_id: str) -> dict | None:
     """
     Create a Google Calendar for a schedule group via its calendar stream.
     """
@@ -170,7 +165,7 @@ def create_calendar_for_schedule_group(schedule_group_id: str) -> Optional[Dict]
     return create_calendar_for_calendar_stream(calendar_stream_id)
 
 
-def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dict]:
+def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
     """
     Create a Google Calendar for a calendar stream (date pattern + waste type).
     """
@@ -185,7 +180,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
         stream_info = get_calendar_stream_info(calendar_stream_id)
         if not stream_info:
             logger.error("Calendar stream not found: %s", calendar_stream_id)
-            print(f"❌ Calendar stream not found: {calendar_stream_id}")
+            print(f" Calendar stream not found: {calendar_stream_id}")
             return None
 
         existing_calendar_id = stream_info.get("calendar_id")
@@ -202,12 +197,12 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
                         service = get_google_calendar_service()
                         acl_rule = {"scope": {"type": "default"}, "role": "reader"}
                         try:
-                            _throttle_calendar()
+                            throttle_calendar()
                             service.acl().get(
                                 calendarId=existing_calendar_id, ruleId="default"
                             ).execute()
                         except HttpError:
-                            _throttle_calendar()
+                            throttle_calendar()
                             service.acl().insert(
                                 calendarId=existing_calendar_id, body=acl_rule
                             ).execute()
@@ -215,7 +210,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
                                 "Made existing calendar public: %s",
                                 existing_calendar_id,
                             )
-                            print(f"✅ Made existing calendar public: {existing_calendar_id}")
+                            print(f" Made existing calendar public: {existing_calendar_id}")
                     except Exception as e:
                         logger.warning("Could not ensure calendar is public: %s", e)
 
@@ -242,7 +237,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
                     e,
                 )
                 print(
-                    f"⚠️  Existing calendar {existing_calendar_id} for "
+                    f"  Existing calendar {existing_calendar_id} for "
                     f"{calendar_stream_id} invalid, creating new one: {e}"
                 )
 
@@ -272,11 +267,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
             "stiklas": "Stiklas",
         }.get(waste_type, waste_type)
 
-        short_hash = (
-            calendar_stream_id[:6]
-            if len(calendar_stream_id) >= 6
-            else calendar_stream_id
-        )
+        short_hash = calendar_stream_id[:6] if len(calendar_stream_id) >= 6 else calendar_stream_id
 
         calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
         calendar_description = (
@@ -298,7 +289,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
             "timeZone": config.GOOGLE_CALENDAR_TIMEZONE,
         }
 
-        _throttle_calendar()
+        throttle_calendar()
         created_calendar = service.calendars().insert(body=calendar).execute()
         calendar_id = created_calendar["id"]
         logger.debug(
@@ -310,15 +301,13 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
         try:
             logger.debug("Making calendar public: %s", calendar_id)
             acl_rule = {"scope": {"type": "default"}, "role": "reader"}
-            _throttle_calendar()
+            throttle_calendar()
             service.acl().insert(calendarId=calendar_id, body=acl_rule).execute()
             logger.info("Calendar made public: %s", calendar_id)
-            print(f"✅ Calendar made public: {calendar_id}")
+            print(f" Calendar made public: {calendar_id}")
         except Exception as e:
-            logger.warning(
-                "Failed to make calendar public (may need manual sharing): %s", e
-            )
-            print(f"⚠️  Failed to make calendar public (may need manual sharing): {e}")
+            logger.warning("Failed to make calendar public (may need manual sharing): %s", e)
+            print(f"  Failed to make calendar public (may need manual sharing): {e}")
 
         if not update_calendar_stream_calendar_id(calendar_stream_id, calendar_id):
             logger.error(
@@ -328,7 +317,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
                 calendar_id,
             )
             print(
-                f"❌ CRITICAL: Failed to store calendar_id in database for calendar_stream_id={calendar_stream_id}"
+                f" CRITICAL: Failed to store calendar_id in database for calendar_stream_id={calendar_stream_id}"
             )
             return {
                 "calendar_id": calendar_id,
@@ -344,9 +333,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
             calendar_stream_id,
             calendar_id,
         )
-        print(
-            f"✅ Calendar created for calendar_stream_id={calendar_stream_id}: {calendar_id}"
-        )
+        print(f" Calendar created for calendar_stream_id={calendar_stream_id}: {calendar_id}")
 
         return {
             "calendar_id": calendar_id,
@@ -362,9 +349,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
             calendar_stream_id,
             error,
         )
-        print(
-            f"❌ Google Calendar API error for calendar_stream_id={calendar_stream_id}: {error}"
-        )
+        print(f" Google Calendar API error for calendar_stream_id={calendar_stream_id}: {error}")
         if "rateLimitExceeded" in str(error) or "quotaExceeded" in str(error):
             backoff("calendar_rate_limit")
         return None
@@ -376,9 +361,10 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
             exc_info=True,
         )
         print(
-            f"❌ Unexpected error creating calendar for calendar_stream_id={calendar_stream_id}: {e}"
+            f" Unexpected error creating calendar for calendar_stream_id={calendar_stream_id}: {e}"
         )
         import traceback
+
         traceback.print_exc()
         return None
     finally:
@@ -390,7 +376,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> Optional[Dic
         )
 
 
-def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
+def cleanup_orphaned_calendars(dry_run: bool = True) -> list[dict]:
     """
     Find and optionally delete calendars that exist in Google Calendar but not in database
 
@@ -408,7 +394,7 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
         service = get_google_calendar_service()
 
         # Get all calendars from Google Calendar that the service account can access
-        _throttle_calendar()
+        throttle_calendar()
         calendars_result = service.calendarList().list().execute()
         all_calendars = calendars_result.get("items", [])
 
@@ -447,57 +433,53 @@ def cleanup_orphaned_calendars(dry_run: bool = True) -> List[Dict]:
 
         if dry_run:
             if orphaned:
-                print(f"\n🔍 Found {len(orphaned)} orphaned calendar(s):")
+                print(f"\n Found {len(orphaned)} orphaned calendar(s):")
                 for cal in orphaned:
                     print(f"   - {cal['calendar_name']} ({cal['calendar_id'][:30]}...)")
-                print(f"\n⚠️  This is a DRY RUN - no calendars were deleted")
-                print(f"   Run 'make clean-calendars' to actually delete them")
+                print("\n  This is a DRY RUN - no calendars were deleted")
+                print("   Run 'make clean-calendars' to actually delete them")
             else:
                 print(
-                    f"✅ No orphaned calendars found - all calendars in Google Calendar have corresponding database entries"
+                    " No orphaned calendars found - all calendars in Google Calendar have corresponding database entries"
                 )
         else:
             # Actually delete orphaned calendars
             deleted_count = 0
             error_count = 0
-            for idx, cal in enumerate(orphaned):
+            for _idx, cal in enumerate(orphaned):
                 try:
-                    _throttle_calendar()
+                    throttle_calendar()
                     service.calendars().delete(calendarId=cal["calendar_id"]).execute()
                     deleted_count += 1
-                    print(f"🗑️  Deleted orphaned calendar: {cal['calendar_name']}")
+                    print(f"  Deleted orphaned calendar: {cal['calendar_name']}")
 
                 except HttpError as e:
                     if "rateLimitExceeded" in str(e) or "quotaExceeded" in str(e):
                         error_count += 1
-                        print(
-                            f"⚠️  Rate limit hit - will retry later: {cal['calendar_name']}"
-                        )
+                        print(f"  Rate limit hit - will retry later: {cal['calendar_name']}")
                         backoff("calendar_rate_limit")
                     else:
                         error_count += 1
-                        print(
-                            f"❌ Failed to delete calendar {cal['calendar_name']}: {e}"
-                        )
+                        print(f" Failed to delete calendar {cal['calendar_name']}: {e}")
                 except Exception as e:
                     error_count += 1
-                    print(f"❌ Failed to delete calendar {cal['calendar_name']}: {e}")
+                    print(f" Failed to delete calendar {cal['calendar_name']}: {e}")
 
-            print(
-                f"\n✅ Cleanup complete: {deleted_count} deleted, {error_count} errors"
-            )
+            print(f"\n Cleanup complete: {deleted_count} deleted, {error_count} errors")
             if error_count > 0:
-                print(f"   Run 'make clean-calendars' again to retry failed deletions")
+                print("   Run 'make clean-calendars' again to retry failed deletions")
 
         return orphaned
 
     except HttpError as error:
-        print(f"❌ Error during calendar cleanup: {error}")
+        print(f" Error during calendar cleanup: {error}")
         return []
     except Exception as e:
-        print(f"❌ Unexpected error during calendar cleanup: {e}")
+        print(f" Unexpected error during calendar cleanup: {e}")
         return []
-def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
+
+
+def sync_calendar_for_schedule_group(schedule_group_id: str) -> dict:
     """
     Sync calendar events for a schedule group via its calendar stream.
     """
@@ -512,7 +494,7 @@ def sync_calendar_for_schedule_group(schedule_group_id: str) -> Dict:
     return sync_calendar_for_calendar_stream(calendar_stream_id)
 
 
-def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> Dict:
+def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> dict:
     """
     Sync calendar events for a calendar stream (add new, delete old, retry failed).
     """
@@ -594,10 +576,8 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> Dict:
             event_id = existing_events[date_str]["event_id"]
             if event_id:
                 try:
-                    _throttle_calendar()
-                    service.events().delete(
-                        calendarId=calendar_id, eventId=event_id
-                    ).execute()
+                    throttle_calendar()
+                    service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
                     events_deleted += 1
                     logger.debug("Deleted event %s for date %s", event_id, date_str)
                 except Exception as e:
@@ -654,11 +634,9 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> Dict:
                     },
                 }
 
-                _throttle_calendar()
+                throttle_calendar()
                 created_event = (
-                    service.events()
-                    .insert(calendarId=calendar_id, body=event)
-                    .execute()
+                    service.events().insert(calendarId=calendar_id, body=event).execute()
                 )
 
                 event_id = created_event["id"]
@@ -730,11 +708,9 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> Dict:
                     },
                 }
 
-                _throttle_calendar()
+                throttle_calendar()
                 created_event = (
-                    service.events()
-                    .insert(calendarId=calendar_id, body=event)
-                    .execute()
+                    service.events().insert(calendarId=calendar_id, body=event).execute()
                 )
 
                 event_id = created_event["id"]

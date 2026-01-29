@@ -3,14 +3,13 @@ Validator module - Validates xlsx structure and parsed data
 """
 
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import pandas as pd
 
 from services.scraper.core.parser import MONTH_MAPPING, parse_xlsx
 
 
-def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
+def validate_xlsx_structure(file_path: Path) -> tuple[bool, list[str]]:
     """
     Validate that xlsx has expected structure
 
@@ -25,7 +24,7 @@ def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
     try:
         df = pd.read_excel(file_path, skiprows=1)
     except Exception as e:
-        return (False, [f"Failed to read xlsx: {str(e)}"])
+        return (False, [f"Failed to read xlsx: {e!s}"])
 
     # Check for required columns
     required_columns = ["Seniūnija", "Kaimai"]
@@ -40,9 +39,7 @@ def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
     else:
         # Check that we have reasonable number of month columns
         if len(month_columns) < 6:
-            errors.append(
-                f"Only {len(month_columns)} month columns found, expected at least 6"
-            )
+            errors.append(f"Only {len(month_columns)} month columns found, expected at least 6")
 
     # Check that dataframe is not empty
     if len(df) == 0:
@@ -57,7 +54,7 @@ def validate_xlsx_structure(file_path: Path) -> Tuple[bool, List[str]]:
     return (len(errors) == 0, errors)
 
 
-def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
+def validate_parsed_data(parsed_data: list[dict]) -> tuple[bool, list[str]]:
     """
     Validate parsed data structure and content
 
@@ -78,7 +75,6 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
 
     # Check structure
     required_keys = ["seniunija", "village", "street", "dates"]
-    locations_with_dates = 0
     locations_without_dates = 0
 
     for i, item in enumerate(parsed_data):
@@ -99,13 +95,10 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
             # Check if village contains street-like patterns (indicates parsing failure)
             # This happens when traditional parser fails to properly separate village from streets
             if (
-                "(" in village
-                and "g." in village  # Village contains parentheses with streets
+                ("(" in village and "g." in village)  # Village contains parentheses with streets
                 or village.count("g.") > 1  # Multiple street endings in village
                 or (
-                    "," in village
-                    and "g." in village
-                    and not village.strip().startswith("(")
+                    "," in village and "g." in village and not village.strip().startswith("(")
                 )  # Streets mixed in village
             ):
                 critical_errors.append(
@@ -115,9 +108,7 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
 
         # Street can be empty (means whole village), but must be present
         if "street" not in item:
-            critical_errors.append(
-                f"Item {i} missing 'street' key (can be empty string)"
-            )
+            critical_errors.append(f"Item {i} missing 'street' key (can be empty string)")
 
         # Validate dates
         dates = item.get("dates", [])
@@ -130,8 +121,6 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
             warnings.append(
                 f"Item {i} ({item.get('village', '?')} / {street_display}) has no pickup dates"
             )
-        else:
-            locations_with_dates += 1
 
     # Check for reasonable number of locations
     if len(parsed_data) < 1:
@@ -152,7 +141,7 @@ def validate_parsed_data(parsed_data: List[Dict]) -> Tuple[bool, List[str]]:
 
 def validate_file_and_data(
     file_path: Path, year: int = 2026, skip_ai: bool = False
-) -> Tuple[bool, List[str], List[Dict]]:
+) -> tuple[bool, list[str], list[dict]]:
     """
     Complete validation: structure + parsed data
     Automatically retries with AI parser if validation detects parsing failures
@@ -193,49 +182,42 @@ def validate_file_and_data(
         # This handles cases where router incorrectly chose traditional parser
         if parsing_failure_errors:
             print(
-                f"\n⚠️  Found {len(parsing_failure_errors)} parsing failure(s) - retrying with AI parser enabled..."
+                f"\n  Found {len(parsing_failure_errors)} parsing failure(s) - retrying with AI parser enabled..."
             )
-            error_context_summary = "\n".join(
-                parsing_failure_errors[:5]
-            )  # First 5 errors as context
             try:
                 # Retry parsing with AI enabled (force AI, even if it was used before)
                 # The AI parser will use error_context internally for individual entries
                 parsed_data_retry = parse_xlsx(file_path, year, skip_ai=False)
-                data_valid_retry, data_errors_retry = validate_parsed_data(
-                    parsed_data_retry
-                )
+                data_valid_retry, data_errors_retry = validate_parsed_data(parsed_data_retry)
 
                 # Use retried data if it's better (fewer or no critical errors)
                 critical_errors_original = [
                     e
                     for e in data_errors
-                    if "invalid village format" in e.lower()
-                    or "parsing failure" in e.lower()
+                    if "invalid village format" in e.lower() or "parsing failure" in e.lower()
                 ]
                 critical_errors_retry = [
                     e
                     for e in data_errors_retry
-                    if "invalid village format" in e.lower()
-                    or "parsing failure" in e.lower()
+                    if "invalid village format" in e.lower() or "parsing failure" in e.lower()
                 ]
 
                 if len(critical_errors_retry) < len(critical_errors_original):
                     print(
-                        f"✅ AI retry improved parsing: {len(critical_errors_original)} -> {len(critical_errors_retry)} critical errors"
+                        f" AI retry improved parsing: {len(critical_errors_original)} -> {len(critical_errors_retry)} critical errors"
                     )
                     parsed_data = parsed_data_retry
                     data_valid = data_valid_retry
                     all_errors = struct_errors + data_errors_retry
                 else:
                     print(
-                        f"⚠️  AI retry didn't improve parsing ({len(critical_errors_retry)} errors)"
+                        f"  AI retry didn't improve parsing ({len(critical_errors_retry)} errors)"
                     )
                     # If AI retry didn't help, we still have critical errors - mark as invalid
                     # This will prevent writing bad data to database
                     if critical_errors_retry:
                         print(
-                            f"❌ Still have {len(critical_errors_retry)} critical errors after AI retry - will block database write"
+                            f" Still have {len(critical_errors_retry)} critical errors after AI retry - will block database write"
                         )
                         data_valid = False
                         all_errors = struct_errors + data_errors_retry
@@ -245,11 +227,11 @@ def validate_file_and_data(
                         data_valid = data_valid_retry
                         all_errors = struct_errors + data_errors_retry
             except Exception as e:
-                print(f"⚠️  AI retry failed: {e}, using original parsed data")
+                print(f"  AI retry failed: {e}, using original parsed data")
 
         return (data_valid, all_errors, parsed_data)
     except Exception as e:
-        all_errors.append(f"Parsing failed: {str(e)}")
+        all_errors.append(f"Parsing failed: {e!s}")
         return (False, all_errors, [])
 
 

@@ -1,6 +1,7 @@
 """
 Example configuration file. Copy to config.py and fill secrets.
 """
+
 import os
 import os.path
 
@@ -14,7 +15,7 @@ def _read_secret_file(filename: str) -> str:
             f"Please create this file with your API key/secret.\n"
             f"See INSTALL.md for setup instructions."
         )
-    with open(secrets_path, "r") as f:
+    with open(secrets_path) as f:
         content = f.read().strip()
         if not content:
             raise ValueError(
@@ -47,31 +48,20 @@ def _validate_secret_file(filename: str, description: str | None = None) -> None
         )
 
 
-# ---------------------------------------------------------------------------
-# Logging Configuration
-# ---------------------------------------------------------------------------
 DEBUG = os.getenv("DEBUG", "1") == "1"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 
 
-# ---------------------------------------------------------------------------
-# Groq API Configuration
-# ---------------------------------------------------------------------------
-GROQ_API_KEY = _read_secret_file("groq_api_key.txt")
-GROQ_MODEL = "llama-3.1-8b-instant"
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-
-# Rate Limiting (Groq free tier limits for llama-3.1-8b-instant)
-GROQ_RATE_LIMIT_RPM = 15   # Requests per minute
-GROQ_RATE_LIMIT_RPD = 14400  # Requests per day
-GROQ_RATE_LIMIT_TPM = 6000   # Tokens per minute
-GROQ_RATE_LIMIT_TPD = 500000  # Tokens per day
-GROQ_SAFETY_MARGIN = 0.9
+OPENROUTER_API_KEY = _read_secret_file("openrouter_api_key.txt")
+OPENROUTER_MODEL = "openai/gpt-oss-120b:free"
+OPENROUTER_FALLBACK_MODELS = [
+    "google/gemini-2.0-flash-exp:free",
+    "openai/gpt-oss-120b:free",
+    "google/gemma-3-27b-it:free",
+    "qwen/qwen3-coder:free",
+]
 
 
-# ---------------------------------------------------------------------------
-# Google Calendar API Configuration
-# ---------------------------------------------------------------------------
 GOOGLE_CALENDAR_CREDENTIALS_FILE = "secrets/credentials.json"
 GOOGLE_CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -86,19 +76,13 @@ GOOGLE_CALENDAR_REMINDERS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# API Authentication
-# ---------------------------------------------------------------------------
 API_KEY = _read_secret_file("api_key.txt")
 API_KEY_HEADER = "X-API-KEY"
 
 
-# ---------------------------------------------------------------------------
-# Secrets Validation
-# ---------------------------------------------------------------------------
 try:
     _validate_secret_file("api_key.txt", "API authentication key")
-    _validate_secret_file("groq_api_key.txt", "Groq API key")
+    _validate_secret_file("openrouter_api_key.txt", "OpenRouter API key")
     _validate_secret_file("credentials.json", "Google Calendar Service Account credentials")
 except (FileNotFoundError, ValueError) as e:
     raise RuntimeError(

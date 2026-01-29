@@ -7,7 +7,7 @@ This guide will help you set up the Nemenčinė waste schedule system.
 - Docker and Docker Compose (or Podman and Podman Compose)
 - Python 3.14+ (for local development)
 - Google Cloud Platform account (for Google Calendar integration)
-- Groq API account (for AI parsing)
+- OpenRouter account (for AI parsing)
 
 ## Quick Start
 
@@ -47,14 +47,13 @@ Create the following files in the `secrets/` directory:
   openssl rand -hex 32 > secrets/api_key.txt
   ```
 
-#### 2. `groq_api_key.txt`
-- **Purpose**: Groq API key for AI-powered parsing of complex location patterns
-- **Format**: Single line with your Groq API key
+#### 2. `openrouter_api_key.txt`
+- **Purpose**: OpenRouter API key for AI-powered parsing of complex location patterns
+- **Format**: Single line with your OpenRouter API key
 - **How to get**: 
-  1. Sign up at https://console.groq.com/
-  2. Create an API key in the dashboard
-  3. Copy the key to `secrets/groq_api_key.txt`
-- **Note**: Free tier includes 14,400 requests/day
+  1. Sign up at https://openrouter.ai/
+  2. Create an API key at https://openrouter.ai/keys
+  3. Copy the key to `secrets/openrouter_api_key.txt`
 
 #### 3. `credentials.json`
 - **Purpose**: Google Service Account credentials for Calendar API access
@@ -87,9 +86,9 @@ After setup, your `secrets/` directory should look like:
 ```
 secrets/
 ├── .gitkeep              # Git placeholder (keeps directory in git)
-├── api_key.txt          # Your API key
-├── groq_api_key.txt     # Your Groq API key
-└── credentials.json     # Google Service Account credentials
+├── api_key.txt               # Your API key
+├── openrouter_api_key.txt    # Your OpenRouter API key
+└── credentials.json          # Google Service Account credentials
 ```
 
 ### Verification
@@ -101,7 +100,7 @@ To verify your secrets are set up correctly:
 ls -la secrets/
 
 # Test configuration loading (will error if secrets are missing)
-python -c "import config; print('✅ All secrets loaded successfully')"
+python -c "import config; print(' All secrets loaded successfully')"
 ```
 
 ## Docker Setup
@@ -186,7 +185,7 @@ For local development without Docker:
 **Solution**: 
 - The system automatically retries with 5-minute intervals
 - Wait for rate limits to reset
-- For Groq API: Check your rate limits at https://console.groq.com/
+- For OpenRouter API: Check your rate limits at https://openrouter.ai/
 
 ## Security Notes
 

@@ -15,7 +15,7 @@ from services.common.logging_utils import setup_logging
 from services.scraper_pdf.parser import MONTH_MAPPING, parse_pdf
 
 
-def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
+def run_pdf_scraper(file_path: str | Path, year: int = 2026, skip_ai: bool = False):
     """Run the PDF scraper with given parameters
 
     Args:
@@ -28,9 +28,7 @@ def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
         pdf_logger = logging.getLogger("services.scraper_pdf")
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.DEBUG)
-        stderr_handler.setFormatter(
-            logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
-        )
+        stderr_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s"))
         pdf_logger.addHandler(stderr_handler)
         pdf_logger.propagate = False
         logging.getLogger("pdfminer").setLevel(logging.WARNING)
@@ -47,63 +45,59 @@ def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
     )
 
     try:
-        file_path = Path(file_path)
-        if not file_path.exists():
-            print(f"❌ File not found: {file_path}")
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            print(f" File not found: {file_path_obj}")
             return 1
 
-        print(f"\n1. Parsing PDF: {file_path}")
+        print(f"\n1. Parsing PDF: {file_path_obj}")
 
         # Parse PDF
-        parsed_data, raw_rows = parse_pdf(file_path, year, skip_ai=skip_ai)
+        parsed_data, raw_rows = parse_pdf(file_path_obj, year, skip_ai=skip_ai)
 
         if not parsed_data:
-            print("\n❌ No data parsed. Exiting.")
+            print("\n No data parsed. Exiting.")
             return 1
 
         print(f"\n2. Parsed {len(parsed_data)} rows")
         print("\n3. Sample output (first 5 rows):")
         print("-" * 60)
-        
+
         for i, item in enumerate(parsed_data[:5]):
             print(f"\nRow {i + 1}:")
             print(f"  Location: {item['kaimai_str'][:80]}...")
             print(f"  Waste Type: {item['waste_type']}")
             print(f"  Dates: {len(item['dates'])} dates")
-            if item['dates']:
+            if item["dates"]:
                 print(f"    First: {item['dates'][0]}, Last: {item['dates'][-1]}")
 
         print("\n" + "=" * 60)
-        print(f"✅ Successfully parsed {len(parsed_data)} rows")
+        print(f" Successfully parsed {len(parsed_data)} rows")
         print("=" * 60)
-        
+
         # Write to CSV for manual inspection
         import csv
-        output_csv = file_path.with_suffix('.parsed.csv')
+
+        output_csv = file_path_obj.with_suffix(".parsed.csv")
         # Always include all months (plastic should cover all; glass may be empty)
         months_present = list(MONTH_MAPPING.keys())
-        with open(output_csv, 'w', newline='', encoding='utf-8') as f:
+        with open(output_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             # Write header
-            writer.writerow([
-                'Seniūnija',
-                'Kaimas',
-                'Gatvė',
-                'Namų numeriai',
-                'Atliekos',
-                *months_present
-            ])
-            
+            writer.writerow(
+                ["Seniūnija", "Kaimas", "Gatvė", "Namų numeriai", "Atliekos", *months_present]
+            )
+
             # Write data rows
             for item in parsed_data:
                 # Group dates by month
                 dates_by_month = {}
-                for date in item['dates']:
+                for date in item["dates"]:
                     month_name = list(MONTH_MAPPING.keys())[date.month - 1]
                     if month_name not in dates_by_month:
                         dates_by_month[month_name] = []
                     dates_by_month[month_name].append(date.day)
-                
+
                 # Format dates as "2 d., 16 d." etc.
                 parsed_items = item.get("parsed_items") or [(item.get("village", ""), None)]
                 for idx, (name, house_numbers) in enumerate(parsed_items):
@@ -121,7 +115,7 @@ def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
                         village,
                         street,
                         house_nums or "",
-                        item.get('waste_type_label') or item['waste_type'],
+                        item.get("waste_type_label") or item["waste_type"],
                     ]
                     for month_name in months_present:
                         if month_name in dates_by_month:
@@ -133,12 +127,12 @@ def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
                             row.append("")
 
                     writer.writerow(row)
-        
+
         print(f"\n📄 Output written to: {output_csv}")
         print("   Compare this with the expected CSV files in samples/")
 
         # Write raw CSV for debugging
-        raw_csv = file_path.with_suffix('.raw.csv')
+        raw_csv = file_path_obj.with_suffix(".raw.csv")
         if raw_rows:
             month_headers = [f"month_{m}" for m in MONTH_MAPPING.keys()]
             raw_headers = (
@@ -146,20 +140,19 @@ def run_pdf_scraper(file_path: str, year: int = 2026, skip_ai: bool = False):
                 + month_headers
                 + ["table_index", "section_index", "row_index"]
             )
-            with open(raw_csv, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(
-                    f, fieldnames=raw_headers, extrasaction="ignore"
-                )
+            with open(raw_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=raw_headers, extrasaction="ignore")
                 writer.writeheader()
                 for row in raw_rows:
                     writer.writerow(row)
-            print(f"🧪 Raw output written to: {raw_csv}")
-        
+            print(f" Raw output written to: {raw_csv}")
+
         return 0
 
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

@@ -4,7 +4,6 @@ Fetcher module - Downloads xlsx file from nemenkom.lt
 
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -12,7 +11,7 @@ import requests
 DEFAULT_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
 
 
-def fetch_xlsx(url: str = DEFAULT_URL, save_path: Optional[Path] = None) -> Path:
+def fetch_xlsx(url: str = DEFAULT_URL, save_path: Path | None = None) -> Path:
     """
     Download xlsx file from URL
 

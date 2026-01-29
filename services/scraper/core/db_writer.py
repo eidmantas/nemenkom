@@ -7,7 +7,6 @@ import json
 import sqlite3
 import uuid
 from datetime import date, datetime
-from typing import Dict, List, Optional
 
 from services.common.db import get_db_connection
 
@@ -31,7 +30,7 @@ def generate_schedule_group_id(kaimai_hash: str, waste_type: str = "bendros") ->
     return f"sg_{hash_hex}"
 
 
-def generate_dates_hash(dates: List[date]) -> str:
+def generate_dates_hash(dates: list[date]) -> str:
     """
     Generate hash of sorted dates for change detection
 
@@ -39,14 +38,12 @@ def generate_dates_hash(dates: List[date]) -> str:
     """
     if not dates:
         return ""
-    date_str = ",".join(
-        sorted([d.isoformat() if isinstance(d, date) else str(d) for d in dates])
-    )
+    date_str = ",".join(sorted(d.isoformat() for d in dates))
     hash_obj = hashlib.sha256(date_str.encode())
     return hash_obj.hexdigest()[:16]
 
 
-def normalize_dates(dates: List) -> List[date]:
+def normalize_dates(dates: list[date | str] | None) -> list[date]:
     """
     Normalize date inputs to date objects (accepts ISO date strings).
     """
@@ -54,10 +51,8 @@ def normalize_dates(dates: List) -> List[date]:
     for value in dates or []:
         if isinstance(value, date):
             normalized.append(value)
-        elif isinstance(value, str):
-            normalized.append(datetime.fromisoformat(value).date())
         else:
-            normalized.append(value)
+            normalized.append(datetime.fromisoformat(str(value)).date())
     return normalized
 
 
@@ -69,8 +64,8 @@ def generate_calendar_stream_id() -> str:
 
 
 def find_or_create_calendar_stream(
-    conn: sqlite3.Connection, dates: List, waste_type: str, exclude_stream_id: Optional[str] = None
-) -> Optional[str]:
+    conn: sqlite3.Connection, dates: list, waste_type: str, exclude_stream_id: str | None = None
+) -> str | None:
     """
     Find or create calendar stream for a date pattern + waste_type.
 
@@ -130,7 +125,7 @@ def find_or_create_calendar_stream(
 
 
 def upsert_group_calendar_link(
-    conn: sqlite3.Connection, schedule_group_id: str, calendar_stream_id: Optional[str]
+    conn: sqlite3.Connection, schedule_group_id: str, calendar_stream_id: str | None
 ) -> None:
     """
     Ensure schedule_group_id is linked to the correct calendar stream.
@@ -153,7 +148,7 @@ def upsert_group_calendar_link(
 
 def get_calendar_stream_id_for_schedule_group(
     conn: sqlite3.Connection, schedule_group_id: str
-) -> Optional[str]:
+) -> str | None:
     """
     Fetch existing calendar stream link for a schedule group.
     """
@@ -188,7 +183,7 @@ def reconcile_calendar_streams(conn: sqlite3.Connection) -> None:
     """
     )
 
-    stream_map: Dict[str, Dict[str, Dict[str, str]]] = {}
+    stream_map: dict[str, dict[str, dict[str, str]]] = {}
     for stream_id, dates_hash, dates_json, waste_type in cursor.fetchall():
         stream_map.setdefault(stream_id, {})
         stream_map[stream_id][dates_hash] = {
@@ -278,7 +273,7 @@ def reconcile_calendar_streams(conn: sqlite3.Connection) -> None:
 
 
 def find_or_create_schedule_group(
-    conn: sqlite3.Connection, dates: List, waste_type: str, kaimai_hash: str
+    conn: sqlite3.Connection, dates: list, waste_type: str, kaimai_hash: str
 ) -> str:
     """
     Find existing schedule group by stable ID (kaimai_hash + waste_type), or create new one.
@@ -302,9 +297,7 @@ def find_or_create_schedule_group(
     cursor = conn.cursor()
 
     # Check if schedule group exists (by stable ID)
-    cursor.execute(
-        "SELECT dates_hash FROM schedule_groups WHERE id = ?", (schedule_group_id,)
-    )
+    cursor.execute("SELECT dates_hash FROM schedule_groups WHERE id = ?", (schedule_group_id,))
     row = cursor.fetchone()
 
     if row:
@@ -324,16 +317,13 @@ def find_or_create_schedule_group(
 
             # Convert dates to JSON array
             dates_json = json.dumps(
-                [
-                    d.isoformat() if isinstance(d, date) else str(d)
-                    for d in sorted(dates)
-                ]
+                [d.isoformat() if isinstance(d, date) else str(d) for d in sorted(dates)]
             )
 
             cursor.execute(
                 """
-                UPDATE schedule_groups 
-                SET dates = ?, dates_hash = ?, 
+                UPDATE schedule_groups
+                SET dates = ?, dates_hash = ?,
                     first_date = ?, last_date = ?, date_count = ?,
                     calendar_synced_at = NULL,  -- Trigger re-sync!
                     updated_at = CURRENT_TIMESTAMP
@@ -389,9 +379,9 @@ def write_location_schedule(
     seniunija: str,
     village: str,
     street: str,
-    dates: List,
+    dates: list,
     kaimai_str: str,
-    house_numbers: Optional[str] = None,
+    house_numbers: str | None = None,
     waste_type: str = "bendros",
 ) -> int:
     """
@@ -432,7 +422,7 @@ def write_location_schedule(
         """
         INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(seniunija, village, street, house_numbers) 
+        ON CONFLICT(seniunija, village, street, house_numbers)
         DO UPDATE SET kaimai_hash = ?, updated_at = ?
     """,
         (
@@ -456,7 +446,13 @@ def write_location_schedule(
             "SELECT id FROM locations WHERE seniunija = ? AND village = ? AND street = ? AND (house_numbers = ? OR (house_numbers IS NULL AND ? IS NULL))",
             (seniunija, village, street, house_nums_str, house_nums_str),
         )
-        location_id = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        if row is None:
+            raise ValueError("Location insert/update failed to return an id")
+        location_id = row[0]
+
+    if location_id is None:
+        raise ValueError("Location insert/update failed to return an id")
 
     return location_id
 
@@ -465,7 +461,7 @@ def log_fetch(
     conn: sqlite3.Connection,
     source_url: str,
     status: str,
-    validation_errors: Optional[List[str]] = None,
+    validation_errors: list[str] | None = None,
 ) -> int:
     """
     Log a data fetch attempt
@@ -490,13 +486,16 @@ def log_fetch(
         (source_url, status, errors_json),
     )
 
-    return cursor.lastrowid
+    fetch_id = cursor.lastrowid
+    if fetch_id is None:
+        raise ValueError("Fetch insert failed to return an id")
+    return fetch_id
 
 
 def write_parsed_data(
-    parsed_data: List[Dict],
+    parsed_data: list[dict],
     source_url: str,
-    validation_errors: Optional[List[str]] = None,
+    validation_errors: list[str] | None = None,
 ) -> bool:
     """
     Write all parsed data to database
@@ -534,7 +533,7 @@ def write_parsed_data(
 
         if critical_parsing_errors:
             print(
-                f"❌ Found {len(critical_parsing_errors)} critical parsing errors - not writing to database"
+                f" Found {len(critical_parsing_errors)} critical parsing errors - not writing to database"
             )
             print(f"   Errors: {critical_parsing_errors[:3]}...")  # Show first 3
             conn.commit()
@@ -567,7 +566,7 @@ def write_parsed_data(
         try:
             log_fetch(conn, source_url, "failed", [str(e)])
             conn.commit()
-        except:
+        except Exception:
             pass
         return False
     finally:

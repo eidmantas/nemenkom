@@ -2,17 +2,10 @@
 
 A system for scraping, storing, and displaying waste pickup schedules from `nemenkom.lt` (Nemenčinė municipality, Lithuania).
 
-## Features
-
-- **XLSX Scraper**: Downloads and parses waste schedule spreadsheets
-- **Hybrid Parser**: Traditional regex parser + AI (Groq) for complex location patterns
-- **SQLite Database**: Efficient storage with hash-based schedule grouping
-- **REST API**: Flask-based API for data access
-- **Web Interface**: User-friendly interface for viewing schedules
-- **Google Calendar Integration**: ✅ Automatic calendar creation and sync with stable subscription links
-
 ## Quick Start
+https://nemenkom.eidmantas.lt
 
+## This Project
 ### Docker/Podman (Recommended)
 
 **Microservice Architecture:**
@@ -29,14 +22,7 @@ make build           # Build images
 make clean           # Stop and remove containers/images
 make clean-podman    # Clean all podman containers/images
 make clean-all       # Full cleanup (podman + database)
-make test            # Run all tests (skips AI/real API tests)
-make test-all        # Run ALL tests including real API tests
-make test-stable     # Run stable ID tests
-make test-sync       # Run calendar sync tests
-make test-status     # Run calendar status tests
-make test-worker     # Run background worker tests
-make test-one-calendar # Run one calendar per group tests
-make test-in-place   # Run in-place update tests
+make test            # Run all tests (includes AI; skips real API tests)
 make clean-calendars-dry-run # Check for orphaned calendars (dry run)
 make clean-calendars # Delete orphaned calendars (requires confirmation)
 make db-reset        # Delete database file
@@ -58,7 +44,7 @@ podman-compose logs -f web
 podman-compose down
 ```
 
-**Note:** For local development, `docker-compose.override.yaml` is automatically used (if it exists) to override the external Caddy network with a local default network. On RPI/production, the external Caddy network will be used from `docker-compose.yaml`.
+For local development, `docker-compose.override.yaml` is automatically used (if it exists) to override the external Caddy network with a local default network. On RPI/production, the external Caddy network will be used from `docker-compose.yaml`.
 
 **Important:** Before running, ensure you have:
 - Set up secrets in `secrets/` directory (see [INSTALL.md](INSTALL.md))
@@ -80,6 +66,15 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Initialize database
 python services/database/init.py
 ```
+
+### Pre-commit (Optional)
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+```
+
+This runs ruff, pyright, pip-audit and tests before commits.
 
 ### Run Scraper
 
@@ -126,146 +121,3 @@ curl "http://localhost:3333/api/v1/schedule?location_id=1"
 ```bash
 curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=bendros"
 ```
-
-## Website Design
-
-### Current Structure
-
-```
-┌─────────────────────────────────────────┐
-│  Buitinių atliekų surinkimo grafikas    │
-│  Cascading Selection + Calendar View     │
-├──────────────────┬──────────────────────┤
-│  Selection UI     │   Kalendorius        │
-│  (Left Panel)    │   (Right Panel)      │
-│                   │                      │
-│  [Village Search] │   [Selected Location]│
-│  [Street Search]  │   [Calendar View]    │
-│  [House # Search]│   [Pickup Dates]     │
-└──────────────────┴──────────────────────┘
-```
-
-### Features
-- **Searchable Dropdowns**: Type to search villages, streets, and house numbers
-  - Partial matching: Type "Riese" to find "Riešė"
-  - Lithuanian character normalization: Works with or without Lithuanian letters (š, ž, ą, etc.)
-  - Scrollable lists: Browse all options when focused
-  - Keyboard support: Enter to select first match
-- **Cascading Selection**: Village → Street → House Number
-  - Auto-populating: Select village → streets filter → house numbers filter
-  - Smart validation: Requires street/house numbers only when they exist
-  - "Visiems" (All) option when no specific house numbers exist
-- **Calendar View**: Displays pickup dates for selected location
-- **Responsive**: Basic responsive design (mobile improvements planned)
-
-### Future Enhancements
-- Google Calendar export button
-- Multi-waste-type selection (general, plastic, glass)
-- Improved mobile UI
-
-## Project Structure
-
-```
-nemenkom/
-├── services/
-│   ├── api/                # Flask REST API
-│   ├── scraper/            # Data scraping and parsing
-│   ├── calendar/           # Calendar sync worker
-│   ├── common/             # Shared helpers (DB helpers, types)
-│   └── database/           # SQLite schema and init
-├── services/web/                     # Web interface
-│   ├── templates/           # HTML templates
-│   └── static/              # CSS, JS
-└── documentation/           # Project documentation
-```
-
-## Database Schema
-
-### Key Tables
-
-- **`schedule_groups`**: Hash-based groups with JSON dates and kaimai_hash
-- **`locations`**: Village/street combinations with kaimai_hash
-- **`data_fetches`**: Track scraping runs
-
-See `services/scraper/migrations/` and `services/calendar/migrations/` for schema history.
-
-## Next Steps
-
-### 1. Implement AI Parser (Groq) ✅ **COMPLETE**
-- ✅ Created `services/scraper/ai/parser.py` with Groq API integration
-- ✅ Integrates Groq API for complex "Kaimai" patterns
-- ✅ Rate limiting (`services/scraper/ai/rate_limiter.py`) - respects 15 RPM, 14,400 RPD free tier
-- ✅ Caching (`services/scraper/ai/cache.py`) - SQLite-based, avoids re-parsing
-- ✅ Full validation and error handling
-- ✅ Updated `parser.py` to use AI parser via router
-- ✅ Test coverage: 59 tests (including 5 AI integration tests with real API calls)
-
-### 2. Add Scraper Service to Docker Compose ✅
-- ✅ Separate service with dedicated Dockerfile.scraper
-- ✅ Runs at 11:00 and 18:00 daily via cron
-- ✅ Microservice architecture: web + scraper services
-
-### 3. Google Calendar Integration ✅ **COMPLETE**
-- ✅ Stable calendar IDs (Option B design) - calendars remain stable when dates change
-- ✅ Background worker for asynchronous calendar creation and event sync
-- ✅ In-place event updates (delete old, add new) - maintains user subscriptions
-- ✅ Calendar status tracking (synced, pending, needs_update)
-- ✅ Web UI subscription button when calendar is ready
-- ✅ Public calendar access - calendars automatically made publicly readable
-- ✅ Smart calendar naming - uses seniunija for clear, concise names
-- ✅ Calendar cleanup tools - `make clean-calendars-dry-run` and `make clean-calendars`
-- ✅ Comprehensive test coverage (94 tests passing)
-
-### 4. Multi-Waste-Type Support
-- Handle separate XLSX files for plastic, glass waste
-- Update parser to accept `waste_type` parameter
-- Update API to filter by waste type
-
-### 5. Enhanced Web Interface (House Numbers Support)
-- **Cascading Selection**: Village → Street → House Number
-  - Step 1: Select City/Village (dropdown)
-  - Step 2: Select Street (filtered by selected village, auto-populated)
-  - Step 3: Select House Number (filtered by selected street, auto-populated)
-  - Show "Visiems" (All) option when no specific house numbers exist
-- Update API to support filtering by house numbers
-- Update database queries to handle house number filtering
-
-### 6. Testing & Deployment
-- Test AI parser with full dataset
-- Verify date accuracy across all locations
-- Production deployment
-
-## Documentation
-
-- **`documentation/ARCHITECTURE.md`** - System architecture and design
-- **`documentation/TESTING.md`** - Testing strategy and setup
-
-## Development Notes
-
-### Current Status
-- ✅ Database schema implemented (hash-based IDs, JSON dates, stable calendar IDs)
-- ✅ Traditional parser working (simple patterns)
-- ✅ Parser router implemented
-- ✅ AI parser implemented (Groq LLM integration)
-  - Automatic routing for complex patterns
-  - Caching and rate limiting
-  - Full validation and error handling
-- ✅ API and web interface functional
-- ✅ Seniunija support: API returns separate seniunija/village keys, handles duplicate village names
-- ✅ House number normalization: Compact format (spaces removed, ranges normalized)
-- ✅ Google Calendar integration: Stable IDs, background sync, in-place updates, web UI subscription
-- 🚧 Multi-waste-type support
-
-### Testing
-- Comprehensive test suite: 94 tests passing (parser, router, AI parser, API, E2E, calendar sync)
-  - 82 regular tests (`make test`) - unit, integration, E2E tests (no AI tokens used)
-  - 5 AI integration tests (`make test-ai`) - make real Groq API calls, test current code
-  - 7 real API tests (`make test-real-api`) - make real Google Calendar API calls
-  - **Note:** `make test` skips AI integration and real API tests by default
-  - All tests automatically use venv (no manual activation needed)
-  - Test categories: stable IDs, calendar sync, calendar status, background worker, in-place updates
-- Use `--simple-subset` flag to test traditional parser only (skips AI-needed entries)
-- Without flag: Full hybrid parsing (traditional + AI parser)
-- Database currently has 900 locations, 10 schedule groups (simple subset)
-- Verify dates match XLSX source data
-

@@ -13,8 +13,8 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from services.common.migrations import init_database
 from services.common.logging_utils import setup_logging
+from services.common.migrations import init_database
 from services.scraper.main import run_scraper
 
 
@@ -69,9 +69,7 @@ def main():
     init_database(migrations_dir=migrations_dir)
 
     # Run immediately on startup
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running initial scraper on startup..."
-    )
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running initial scraper on startup...")
     run_scraper_job()
 
     # Track last run time to avoid duplicate runs

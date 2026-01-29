@@ -49,5 +49,4 @@ steps = [
         """,
         "",
     ),
-    # NOTE: Backfill steps removed because we are recreating the database.
 ]

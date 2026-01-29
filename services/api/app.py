@@ -8,6 +8,7 @@ from pathlib import Path
 from flasgger import Swagger
 from flask import Flask, jsonify, redirect, render_template, request
 
+import config
 from services.api.db import (
     get_all_locations,
     get_house_numbers_for_street,
@@ -20,7 +21,6 @@ from services.api.db import (
     street_has_house_numbers,
     village_has_streets,
 )
-import config
 from services.common.calendar_client import (
     generate_calendar_subscription_link,
     get_existing_calendar_info,
@@ -39,6 +39,7 @@ app = Flask(
 )
 app.config["DEBUG"] = config.DEBUG
 
+
 # Initialize Swagger
 swagger_config = {
     "headers": [],
@@ -46,8 +47,6 @@ swagger_config = {
         {
             "endpoint": "apispec",
             "route": "/apispec.json",
-            "rule_filter": lambda _rule: True,
-            "model_filter": lambda _tag: True,
         }
     ],
     "static_url_path": "/flasgger_static",
@@ -68,10 +67,7 @@ swagger_template = {
     "securityDefinitions": {},
 }
 
-swagger = Swagger(app, config=swagger_config, template=swagger_template)
-
-# Default URL for fetching
-DEFAULT_XLSX_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
+Swagger(app, config=swagger_config, template=swagger_template)
 
 
 # Security: Only allow GET methods for API endpoints
@@ -237,15 +233,12 @@ def api_schedule():
     location_id = request.args.get("location_id", type=int)
     seniunija = request.args.get("seniunija", "")
     village = request.args.get("village", "")
-    street = request.args.get(
-        "street", None
-    )  # None if not provided, '' if empty string provided
+    street = request.args.get("street", None)  # None if not provided, '' if empty string provided
     house_numbers = request.args.get("house_numbers", None)  # None if not provided
 
     if location_id:
         schedule = get_location_schedule(location_id=location_id)
     elif seniunija and village:
-
         # Validate based on what exists in database:
         # 1. If village has streets, street parameter must be provided
         # 2. If street has house numbers, house_numbers parameter must be provided
@@ -254,9 +247,7 @@ def api_schedule():
             # Village has streets, so street must be provided
             if street is None:
                 return (
-                    jsonify(
-                        {"error": "This village has streets. Please select a street."}
-                    ),
+                    jsonify({"error": "This village has streets. Please select a street."}),
                     400,
                 )
             street_value = street
@@ -277,20 +268,14 @@ def api_schedule():
                     400,
                 )
 
-        location = get_location_by_selection(
-            seniunija, village, street_value, house_numbers
-        )
+        location = get_location_by_selection(seniunija, village, street_value, house_numbers)
         if location:
             schedule = get_location_schedule(location_id=location["id"])
         else:
             schedule = None
     else:
         return (
-            jsonify(
-                {
-                    "error": "Must provide either location_id or both seniunija and village"
-                }
-            ),
+            jsonify({"error": "Must provide either location_id or both seniunija and village"}),
             400,
         )
 
@@ -301,7 +286,7 @@ def api_schedule():
 
 
 @app.route("/api/v1/schedule-group/<schedule_group_id>", methods=["GET"])
-def api_schedule_group(schedule_group_id):
+def api_schedule_group(schedule_group_id: str):
     """
     Get schedule for a schedule group (hash-based ID)
     ---
@@ -501,7 +486,7 @@ def api_available_calendars():
 
 
 @app.route("/api/v1/calendar-info/<calendar_id>", methods=["GET"])
-def api_calendar_info(calendar_id):
+def api_calendar_info(calendar_id: str):
     """
     Get information about a specific calendar (GET - public)
     ---

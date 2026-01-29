@@ -4,8 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 - PDF scraper (`services/scraper_pdf`) remains in development (prototype/MVP).
-- TODO: Expand house numbers into per-address ranges/sets to enable cross-waste-type calendar matching.
-- TODO: De-duplicate PDF/XLSX parsing helpers into a shared module once stable.
+- TODO: Consider multi-provider fallback (OpenAI-compatible providers via PydanticAI) for tests and production.
+- TODO: Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
+
+## [0.1.3a] - 2026-01-29
+### Added
+- PydanticAI + OpenRouter client for AI parsing of complex location strings.
+- OpenRouter API key template and configuration options.
+- Ruff linting/formatting, Pyright type checks, and pip-audit security scanning.
+
+### Changed
+- Replaced Groq dependency with PydanticAI/OpenRouter in AI parser and docs.
+- Consolidated `make test` and tooling targets for lint/format/typecheck/audit.
 
 ## [0.1.2a] - 2026-01-28
 ### Added

@@ -4,19 +4,15 @@ Updated for new schema: hash-based schedule_groups, dates in JSON, no pickup_dat
 """
 
 import json
-from typing import Dict, List, Optional
 
+from services.common.db import get_db_connection
 from services.common.db_helpers import (
     get_calendar_status,
     get_schedule_group_info,
-    get_schedule_groups_needing_sync,
-    update_schedule_group_calendar_id,
-    update_schedule_group_calendar_synced,
 )
-from services.common.db import get_db_connection
 
 
-def get_all_locations() -> List[Dict]:
+def get_all_locations() -> list[dict]:
     """
     Get all locations (street/village combos)
 
@@ -50,12 +46,12 @@ def get_all_locations() -> List[Dict]:
 
 
 def get_location_schedule(
-    location_id: Optional[int] = None,
-    seniunija: Optional[str] = None,
-    village: Optional[str] = None,
-    street: Optional[str] = None,
+    location_id: int | None = None,
+    seniunija: str | None = None,
+    village: str | None = None,
+    street: str | None = None,
     waste_type: str = "bendros",
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Get schedule for a specific location
 
@@ -159,9 +155,7 @@ def get_location_schedule(
     return result
 
 
-def get_schedule_group_schedule(
-    schedule_group_id: str, waste_type: str = "bendros"
-) -> Dict:
+def get_schedule_group_schedule(schedule_group_id: str, waste_type: str = "bendros") -> dict:
     """
     Get schedule for a schedule group (all locations with same schedule)
 
@@ -247,7 +241,6 @@ def get_schedule_group_schedule(
     )
     calendar_row = cursor.fetchone()
     calendar_id = calendar_row[0] if calendar_row else None
-    calendar_synced_at = calendar_row[1] if calendar_row else None
 
     conn.close()
 
@@ -266,7 +259,7 @@ def get_schedule_group_schedule(
     }
 
 
-def search_locations(query: str) -> List[Dict]:
+def search_locations(query: str) -> list[dict]:
     """
     Search locations by village or street name
 
@@ -308,7 +301,7 @@ def search_locations(query: str) -> List[Dict]:
     return results
 
 
-def get_unique_villages() -> List[Dict]:
+def get_unique_villages() -> list[dict]:
     """Get list of unique villages with seniunija and village as separate keys"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -325,7 +318,7 @@ def get_unique_villages() -> List[Dict]:
     return results
 
 
-def get_streets_for_village(seniunija: str, village: str) -> List[str]:
+def get_streets_for_village(seniunija: str, village: str) -> list[str]:
     """Get list of unique streets for a village in a specific seniunija (includes empty string for whole village)"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -345,9 +338,7 @@ def get_streets_for_village(seniunija: str, village: str) -> List[str]:
     return results
 
 
-def get_house_numbers_for_street(
-    seniunija: str, village: str, street: str
-) -> List[str]:
+def get_house_numbers_for_street(seniunija: str, village: str, street: str) -> list[str]:
     """Get list of unique house numbers for a street in a specific seniunija/village (street can be empty string for whole village)"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -375,7 +366,7 @@ def village_has_streets(seniunija: str, village: str) -> bool:
 
     cursor.execute(
         """
-        SELECT COUNT(*) 
+        SELECT COUNT(*)
         FROM locations
         WHERE seniunija = ? AND village = ? AND street != '' AND street IS NOT NULL
         LIMIT 1
@@ -395,7 +386,7 @@ def street_has_house_numbers(seniunija: str, village: str, street: str) -> bool:
 
     cursor.execute(
         """
-        SELECT COUNT(*) 
+        SELECT COUNT(*)
         FROM locations
         WHERE seniunija = ? AND village = ? AND street = ? AND house_numbers IS NOT NULL AND house_numbers != ''
         LIMIT 1
@@ -409,8 +400,8 @@ def street_has_house_numbers(seniunija: str, village: str, street: str) -> bool:
 
 
 def get_location_by_selection(
-    seniunija: str, village: str, street: str, house_numbers: Optional[str] = None
-) -> Optional[Dict]:
+    seniunija: str, village: str, street: str, house_numbers: str | None = None
+) -> dict | None:
     """Get location by seniunija, village, street, and optionally house_numbers"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -452,37 +443,3 @@ def get_location_by_selection(
         "house_numbers": row[4],
         "kaimai_hash": row[5],
     }
-
-
-def get_schedule_group_by_calendar_id(calendar_id: str) -> Optional[Dict]:
-    """
-    Get schedule group by calendar_id (reverse lookup)
-
-    Args:
-        calendar_id: Google Calendar ID
-
-    Returns:
-        Schedule group info, or None if not found
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM schedule_groups
-        WHERE calendar_id = ?
-        LIMIT 1
-    """,
-        (calendar_id,),
-    )
-
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return None
-
-    # Use existing function to get full info
-    return get_schedule_group_info(row[0])
-

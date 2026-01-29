@@ -6,21 +6,20 @@ Creates calendars and keeps events in sync in the background.
 import logging
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from services.common.db_helpers import (
-    get_calendar_streams_needing_sync,
-    get_calendar_streams_pending_cleanup,
-)
 from services.calendar import (
     create_calendar_for_calendar_stream,
     sync_calendar_for_calendar_stream,
 )
-from services.common.migrations import init_database
+from services.common.db_helpers import (
+    get_calendar_streams_needing_sync,
+    get_calendar_streams_pending_cleanup,
+)
 from services.common.logging_utils import setup_logging
+from services.common.migrations import init_database
 
 
 def calendar_sync_worker():
@@ -104,7 +103,7 @@ def calendar_sync_worker():
 
                         else:
                             logger.warning(
-                            "Failed to create calendar for calendar_stream_id=%s (dates_hash=%s) - will retry in 30 minutes",
+                                "Failed to create calendar for calendar_stream_id=%s (dates_hash=%s) - will retry in 30 minutes",
                                 calendar_stream_id,
                                 dates_hash,
                             )

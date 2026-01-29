@@ -27,9 +27,7 @@ def should_use_ai_parser(kaimai_str: str) -> bool:
     has_house_numbers = (
         re.search(r"\bnuo\b.*\biki\b", kaimai_str, re.IGNORECASE)  # "nuo X iki Y"
         or re.search(r"\bNr\.?\s*\d+", kaimai_str, re.IGNORECASE)  # "Nr. 26"
-        or re.search(
-            r"\d+-\d+[A-Z]?", kaimai_str
-        )  # Hyphenated house numbers: 1-1, 18-18U
+        or re.search(r"\d+-\d+[A-Z]?", kaimai_str)  # Hyphenated house numbers: 1-1, 18-18U
         or
         # Street followed by number list (house numbers): "g. 26, 28" or "g. 26 28"
         re.search(r"[a-ząčęėįšųūž]+\.?\s+\d+[,\s]+\d+", kaimai_str, re.IGNORECASE)
@@ -37,9 +35,7 @@ def should_use_ai_parser(kaimai_str: str) -> bool:
         # Street followed by single number (house number): "g. 26" but NOT "g. 1-oji"
         (
             re.search(r"[a-ząčęėįšųūž]+\.?\s+\d+", kaimai_str, re.IGNORECASE)
-            and not re.search(
-                r"[a-ząčęėįšųūž]+\.?\s+\d+-oji", kaimai_str, re.IGNORECASE
-            )
+            and not re.search(r"[a-ząčęėįšųūž]+\.?\s+\d+-oji", kaimai_str, re.IGNORECASE)
         )
     )
 
@@ -57,7 +53,7 @@ def should_use_ai_parser(kaimai_str: str) -> bool:
         # Case 2: No parentheses but has pattern "Village Street1 g., Street2 g."
         # This catches cases like "Bezdonys Pakalnės g., Draugystės g."
         (
-            not "(" in kaimai_str
+            "(" not in kaimai_str
             and re.search(
                 r"[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+\s+[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+\.?\s+g\.",
                 kaimai_str,
