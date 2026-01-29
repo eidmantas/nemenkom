@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buitinių atliekų surinkimo grafikas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="top-header">
+        <div class="top-header-content">
+            <a href="https://github.com/eidmantas/nemenkom" target="_blank" rel="noopener noreferrer" class="top-header-link">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 6px;">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+                GitHub
+            </a>
+            <a href="/api-docs" class="top-header-link">
+                📖 API Documentation
+            </a>
+        </div>
+    </div>
+    <div class="container">
+        <header>
+            <h1>Buitinių atliekų surinkimo grafikas</h1>
+            <p class="subtitle">Pasirinkite kaimą, gatvę ir namo numerį, kad pamatytumėte surinkimo datas</p>
+        </header>
+
+        <div class="selection-section">
+            <div class="cascading-selects">
+                <div class="select-group" id="villageSelectGroup">
+                    <label for="villageInput">Kaimas/Miestas:</label>
+                    <div class="searchable-dropdown">
+                        <input type="text" id="villageInput" placeholder="Ieškoti kaimo..." autocomplete="off" 
+                               oninput="filterVillages()" onfocus="showVillageDropdown()" onblur="hideVillageDropdown()"
+                               onkeydown="handleVillageKeydown(event)">
+                        <datalist id="villageList"></datalist>
+                        <div id="villageDropdown" class="dropdown-list"></div>
+                    </div>
+                </div>
+                
+                <div class="select-group" id="streetSelectGroup" style="display: none;">
+                    <label for="streetInput">Gatvė:</label>
+                    <div class="searchable-dropdown">
+                        <input type="text" id="streetInput" placeholder="Ieškoti gatvės..." autocomplete="off"
+                               oninput="filterStreets()" onfocus="showStreetDropdown()" onblur="hideStreetDropdown()"
+                               onkeydown="handleStreetKeydown(event)">
+                        <datalist id="streetList"></datalist>
+                        <div id="streetDropdown" class="dropdown-list"></div>
+                    </div>
+        </div>
+
+                <div class="select-group" id="houseNumberSelectGroup" style="display: none;">
+                    <label for="houseNumberInput">Namo numeris:</label>
+                    <div class="searchable-dropdown">
+                        <input type="text" id="houseNumberInput" placeholder="Ieškoti namo numerio..." autocomplete="off"
+                               oninput="filterHouseNumbers()" onfocus="showHouseNumberDropdown()" onblur="hideHouseNumberDropdown()"
+                               onkeydown="handleHouseNumberKeydown(event)">
+                        <datalist id="houseNumberList"></datalist>
+                        <div id="houseNumberDropdown" class="dropdown-list"></div>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+        <div class="main-content">
+            <div class="calendar-panel">
+                <h2>Kalendorius</h2>
+                <div id="selectedLocation" class="selected-location">
+                    <p>Pasirinkite kaimą, gatvę ir namo numerį</p>
+                </div>
+                <div id="calendarContainer" class="calendar-container">
+                    <!-- Calendar will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+    <script>
+        // State
+        let currentVillage = '';
+        let currentStreet = '';
+        let currentHouseNumber = '';
+        let villageHasStreets = false;
+        let streetHasHouseNumbers = false;
+        
+        // Data storage
+        let allVillages = [];
+        let allStreets = [];
+        let allHouseNumbers = [];
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadVillages();
+            // Restore selections from URL
+            restoreFromURL();
+        });
+
+        // Normalize Lithuanian characters to ASCII for search
+        // Allows typing "Riese" to match "Riešė"
+        function normalizeLithuanian(text) {
+            if (!text) return '';
+            const mapping = {
+                'ą': 'a', 'č': 'c', 'ę': 'e', 'ė': 'e',
+                'į': 'i', 'š': 's', 'ų': 'u', 'ū': 'u',
+                'ž': 'z',
+                'Ą': 'A', 'Č': 'C', 'Ę': 'E', 'Ė': 'E',
+                'Į': 'I', 'Š': 'S', 'Ų': 'U', 'Ū': 'U',
+                'Ž': 'Z'
+            };
+            return text.replace(/[ąčęėįšųūžĄČĘĖĮŠŲŪŽ]/g, char => mapping[char] || char);
+        }
+
+        // Partial match function - matches if query appears anywhere in the string
+        // Supports Lithuanian character normalization (typing "Riese" matches "Riešė")
+        function partialMatch(query, text) {
+            if (!query) return true;
+            const normalizedQuery = normalizeLithuanian(query.toLowerCase().trim());
+            const normalizedText = normalizeLithuanian(text.toLowerCase());
+            return normalizedText.includes(normalizedQuery);
+        }
+
+        async function loadVillages() {
+            try {
+                const response = await fetch('/api/v1/villages');
+                const data = await response.json();
+                allVillages = data.villages || []; // Array of {seniunija, village} objects
+                populateVillageDatalist();
+            } catch (error) {
+                console.error('Error loading villages:', error);
+            }
+        }
+
+        function populateVillageDatalist() {
+            const datalist = document.getElementById('villageList');
+            datalist.innerHTML = '';
+            allVillages.forEach(v => {
+                const option = document.createElement('option');
+                const displayValue = `${v.seniunija} / ${v.village}`;
+                option.value = displayValue;
+                datalist.appendChild(option);
+            });
+        }
+
+        function filterVillages() {
+            const input = document.getElementById('villageInput');
+            const query = input.value;
+            const dropdown = document.getElementById('villageDropdown');
+            
+            let filtered;
+            if (!query) {
+                // Show all villages when no query
+                filtered = allVillages;
+            } else {
+                // Filter by query - match either Seniunija or Village part
+                filtered = allVillages.filter(v => {
+                    const displayText = `${v.seniunija} / ${v.village}`;
+                    return partialMatch(query, displayText) || 
+                           partialMatch(query, v.seniunija) || 
+                           partialMatch(query, v.village);
+                });
+            }
+            
+            dropdown.innerHTML = '';
+            
+            if (filtered.length === 0) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            
+            // Show all filtered results (scrollable)
+            filtered.forEach(v => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                const displayText = `${v.seniunija} / ${v.village}`;
+                item.textContent = displayText;
+                item.onclick = () => {
+                    input.value = displayText;
+                    dropdown.style.display = 'none';
+                    handleVillageSelection(v);
+                };
+                dropdown.appendChild(item);
+            });
+            
+            dropdown.style.display = 'block';
+        }
+
+        function showVillageDropdown() {
+            // Always show dropdown when focused, even if empty
+            filterVillages();
+        }
+
+        function hideVillageDropdown() {
+            // Delay to allow click events to fire
+            setTimeout(() => {
+                document.getElementById('villageDropdown').style.display = 'none';
+            }, 200);
+        }
+
+        function handleVillageKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('villageInput');
+                const query = input.value.trim();
+                if (query) {
+                    // Find first match - check full string or individual parts
+                    const match = allVillages.find(v => {
+                        const displayText = `${v.seniunija} / ${v.village}`;
+                        return partialMatch(query, displayText) || 
+                               partialMatch(query, v.seniunija) || 
+                               partialMatch(query, v.village);
+                    });
+                    if (match) {
+                        input.value = `${match.seniunija} / ${match.village}`;
+                        document.getElementById('villageDropdown').style.display = 'none';
+                        handleVillageSelection(match);
+                    }
+                }
+            }
+        }
+
+        async function handleVillageSelection(villageObj) {
+            // Reset state
+            currentVillage = villageObj; // Store the object {seniunija, village}
+            currentStreet = '';
+            currentHouseNumber = '';
+            villageHasStreets = false;
+            streetHasHouseNumbers = false;
+            
+            // Clear street and house number inputs
+            document.getElementById('streetInput').value = '';
+            document.getElementById('houseNumberInput').value = '';
+            
+            // Hide street and house number selects
+            document.getElementById('streetSelectGroup').style.display = 'none';
+            document.getElementById('houseNumberSelectGroup').style.display = 'none';
+            clearCalendar();
+            
+            // Update URL
+            updateURL();
+            
+            if (!villageObj || !villageObj.seniunija || !villageObj.village) {
+                return;
+            }
+            
+            // Load streets for this village
+            try {
+                const response = await fetch(`/api/v1/streets?seniunija=${encodeURIComponent(villageObj.seniunija)}&village=${encodeURIComponent(villageObj.village)}`);
+                const data = await response.json();
+                const streets = data.streets || [];
+                allStreets = streets;
+                
+                const hasWholeVillage = streets.includes('');
+                const hasOtherStreets = streets.filter(s => s !== '').length > 0;
+                
+                // Track if village has streets (non-empty streets)
+                villageHasStreets = hasOtherStreets;
+                
+                // Populate street datalist
+                populateStreetDatalist();
+                
+                // If only whole village (no other streets), auto-select it
+                if (hasWholeVillage && !hasOtherStreets) {
+                    currentStreet = '';
+                    document.getElementById('streetSelectGroup').style.display = 'none';
+                    loadHouseNumbers(villageObj, '');
+                } else if (hasOtherStreets) {
+                    // Show street select - DON'T show "Visiems" if there are specific streets
+                    document.getElementById('streetSelectGroup').style.display = '';
+                } else {
+                    // No streets at all - can load schedule directly
+                    document.getElementById('streetSelectGroup').style.display = 'none';
+                    loadSchedule(villageObj, null, null);
+                }
+            } catch (error) {
+                console.error('Error loading streets:', error);
+            }
+        }
+
+        function populateStreetDatalist() {
+            const datalist = document.getElementById('streetList');
+            datalist.innerHTML = '';
+            // Only show specific streets, NOT "Visiems" if there are specific streets
+            const streetsToShow = villageHasStreets 
+                ? allStreets.filter(s => s !== '')  // Filter out empty string if there are specific streets
+                : allStreets;  // Show all (including empty) if no specific streets
+            streetsToShow.forEach(street => {
+                const option = document.createElement('option');
+                option.value = street || 'Visiems (visas kaimas)';
+                datalist.appendChild(option);
+            });
+        }
+
+        function filterStreets() {
+            const input = document.getElementById('streetInput');
+            const query = input.value;
+            const dropdown = document.getElementById('streetDropdown');
+            
+            let filtered;
+            if (!query) {
+                // Show all streets when no query
+                filtered = allStreets;
+            } else {
+                // Filter by query
+                filtered = allStreets.filter(s => partialMatch(query, s || 'Visiems'));
+            }
+            
+            dropdown.innerHTML = '';
+            
+            if (filtered.length === 0) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            
+            // Show all filtered results (scrollable)
+            filtered.forEach(street => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                item.textContent = street || 'Visiems (visas kaimas)';
+                item.onclick = () => {
+                    input.value = street || 'Visiems (visas kaimas)';
+                    dropdown.style.display = 'none';
+                    handleStreetSelection(street || '');
+                };
+                dropdown.appendChild(item);
+            });
+            
+            dropdown.style.display = 'block';
+        }
+
+        function showStreetDropdown() {
+            // Always show dropdown when focused, even if empty
+            filterStreets();
+        }
+
+        function hideStreetDropdown() {
+            setTimeout(() => {
+                document.getElementById('streetDropdown').style.display = 'none';
+            }, 200);
+        }
+
+        function handleStreetKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('streetInput');
+                const query = input.value.trim();
+                if (query) {
+                    // Find first match
+                    const match = allStreets.find(s => partialMatch(query, s || 'Visiems'));
+                    if (match !== undefined) {
+                        input.value = match || 'Visiems (visas kaimas)';
+                        document.getElementById('streetDropdown').style.display = 'none';
+                        handleStreetSelection(match || '');
+                    }
+                }
+            }
+        }
+
+        async function handleStreetSelection(street) {
+            // Reset house number
+            currentStreet = street;
+            currentHouseNumber = '';
+            streetHasHouseNumbers = false;
+            
+            // Clear house number input
+            document.getElementById('houseNumberInput').value = '';
+            
+            // Hide house number select
+            document.getElementById('houseNumberSelectGroup').style.display = 'none';
+            clearCalendar();
+            
+            // Update URL
+            updateURL();
+            
+            if (!currentVillage) {
+                return;
+            }
+
+            // Load house numbers
+            loadHouseNumbers(currentVillage, street);
+        }
+
+        async function loadHouseNumbers(villageObj, street) {
+            try {
+                const response = await fetch(`/api/v1/house-numbers?seniunija=${encodeURIComponent(villageObj.seniunija)}&village=${encodeURIComponent(villageObj.village)}&street=${encodeURIComponent(street)}`);
+                const data = await response.json();
+                const houseNumbers = data.house_numbers || [];
+                allHouseNumbers = houseNumbers;
+                
+                // Track if street has house numbers (non-empty house numbers)
+                streetHasHouseNumbers = houseNumbers.filter(h => h !== '').length > 0;
+                
+                // Populate house number datalist
+                populateHouseNumberDatalist();
+                
+                // If no specific house numbers, hide select and auto-load schedule
+                if (!streetHasHouseNumbers) {
+                    currentHouseNumber = '';
+                    document.getElementById('houseNumberSelectGroup').style.display = 'none';
+                    loadSchedule(villageObj, street, null);
+                } else {
+                    // Show house number select
+                    document.getElementById('houseNumberSelectGroup').style.display = '';
+                }
+            } catch (error) {
+                console.error('Error loading house numbers:', error);
+            }
+        }
+
+        function populateHouseNumberDatalist() {
+            const datalist = document.getElementById('houseNumberList');
+            datalist.innerHTML = '';
+            
+            // Always add "Visiems" option
+            const allOption = document.createElement('option');
+            allOption.value = '';
+            allOption.textContent = 'Visiems';
+            datalist.appendChild(allOption);
+            
+            // Add specific house numbers
+            allHouseNumbers.filter(h => h !== '').forEach(houseNum => {
+                const option = document.createElement('option');
+                option.value = houseNum;
+                option.textContent = houseNum;
+                datalist.appendChild(option);
+            });
+        }
+
+        function filterHouseNumbers() {
+            const input = document.getElementById('houseNumberInput');
+            const query = input.value;
+            const dropdown = document.getElementById('houseNumberDropdown');
+            
+            let filtered;
+            if (!query) {
+                // Show all house numbers when no query
+                filtered = allHouseNumbers;
+            } else {
+                // Filter by query
+                filtered = allHouseNumbers.filter(h => partialMatch(query, h || 'Visiems'));
+            }
+            
+            dropdown.innerHTML = '';
+            
+            if (filtered.length === 0) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            
+            // Show all filtered results (scrollable)
+            filtered.forEach(houseNum => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                item.textContent = houseNum || 'Visiems';
+                item.onclick = () => {
+                    input.value = houseNum || 'Visiems';
+                    dropdown.style.display = 'none';
+                    handleHouseNumberSelection(houseNum || '');
+                };
+                dropdown.appendChild(item);
+            });
+            
+            dropdown.style.display = 'block';
+        }
+
+        function showHouseNumberDropdown() {
+            // Always show dropdown when focused, even if empty
+            filterHouseNumbers();
+        }
+
+        function hideHouseNumberDropdown() {
+            setTimeout(() => {
+                document.getElementById('houseNumberDropdown').style.display = 'none';
+            }, 200);
+        }
+
+        function handleHouseNumberKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('houseNumberInput');
+                const query = input.value.trim();
+                if (query) {
+                    // Find first match
+                    const match = allHouseNumbers.find(h => partialMatch(query, h || 'Visiems'));
+                    if (match !== undefined) {
+                        input.value = match || 'Visiems';
+                        document.getElementById('houseNumberDropdown').style.display = 'none';
+                        handleHouseNumberSelection(match || '');
+                    }
+                }
+            }
+        }
+
+        function handleHouseNumberSelection(houseNumber) {
+            currentHouseNumber = houseNumber;
+            
+            if (!currentVillage || currentStreet === null || currentStreet === undefined) {
+                return;
+            }
+            
+            // Update URL
+            updateURL();
+            
+            loadSchedule(currentVillage, currentStreet, houseNumber);
+        }
+
+        // Update URL with current selections
+        function updateURL() {
+            const params = new URLSearchParams();
+            if (currentVillage && currentVillage.seniunija && currentVillage.village) {
+                params.set('seniunija', currentVillage.seniunija);
+                params.set('village', currentVillage.village);
+            }
+            if (currentStreet) {
+                params.set('street', currentStreet);
+            }
+            if (currentHouseNumber) {
+                params.set('house', currentHouseNumber);
+            }
+            
+            const newURL = params.toString() 
+                ? `${window.location.pathname}?${params.toString()}`
+                : window.location.pathname;
+            
+            // Update URL without page reload (using history API)
+            window.history.pushState({}, '', newURL);
+        }
+
+        // Restore selections from URL on page load
+        async function restoreFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            const seniunija = params.get('seniunija');
+            const village = params.get('village');
+            const street = params.get('street');
+            const house = params.get('house');
+            
+            if (!seniunija || !village) {
+                return; // No URL parameters, start fresh
+            }
+            
+            // Wait for villages to load first
+            await new Promise(resolve => {
+                const checkVillages = setInterval(() => {
+                    if (allVillages.length > 0) {
+                        clearInterval(checkVillages);
+                        resolve();
+                    }
+                }, 100);
+            });
+            
+            // Find matching village object
+            const villageObj = allVillages.find(v => v.seniunija === seniunija && v.village === village);
+            if (villageObj) {
+                document.getElementById('villageInput').value = `${villageObj.seniunija} / ${villageObj.village}`;
+                await handleVillageSelection(villageObj);
+                
+                // Wait a bit for streets to load
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Set street if provided
+                if (street !== null && allStreets.includes(street)) {
+                    document.getElementById('streetInput').value = street || 'Visiems (visas kaimas)';
+                    await handleStreetSelection(street);
+                    
+                    // Wait a bit for house numbers to load
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Set house number if provided
+                    if (house !== null && allHouseNumbers.includes(house)) {
+                        document.getElementById('houseNumberInput').value = house;
+                        handleHouseNumberSelection(house);
+                    }
+                }
+            }
+        }
+
+        async function loadSchedule(villageObj, street, houseNumber) {
+            try {
+                const params = new URLSearchParams();
+                params.append('seniunija', villageObj.seniunija);
+                params.append('village', villageObj.village);
+                
+                // Only include street parameter if village has streets
+                if (villageHasStreets && street !== null && street !== undefined) {
+                    params.append('street', street);
+                }
+                // If village doesn't have streets, don't send street parameter at all
+                
+                // Only include house_numbers parameter if street has house numbers
+                if (streetHasHouseNumbers && houseNumber) {
+                    params.append('house_numbers', houseNumber);
+                }
+                // If street doesn't have house numbers, don't send house_numbers parameter at all
+                
+                const response = await fetch(`/api/v1/schedule?${params.toString()}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Klaida: ' + data.error);
+                    return;
+                }
+
+                displaySelectedLocation(data, houseNumber);
+                renderCalendar(data.dates);
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+                alert('Klaida kraunant grafiką');
+            }
+        }
+
+        function displaySelectedLocation(location, houseNumber) {
+            const container = document.getElementById('selectedLocation');
+            const streetDisplay = location.street || '(visas kaimas)';
+            const houseDisplay = houseNumber ? ` - ${houseNumber}` : ' - Visiems';
+            // Seniunija is already shown in the village selection, so we don't need to show it again
+            const displayName = `${location.village} - ${streetDisplay}${houseDisplay}`;
+            
+            // Check calendar status
+            const calendarStatus = location.calendar_status || {};
+            const status = calendarStatus.status || 'not_available';
+            const subscriptionLink = location.subscription_link;
+            
+            let calendarButton = '';
+            if (status === 'synced' && subscriptionLink) {
+                // Calendar is ready - show subscribe button
+                calendarButton = `
+                    <div class="calendar-subscribe-section">
+                        <a href="${subscriptionLink}" target="_blank" rel="noopener noreferrer" class="calendar-subscribe-button">
+                             Prenumeruoti Google kalendorių
+                        </a>
+                        <p class="calendar-subscribe-hint">Prenumeravę kalendorių, surinkimo datos bus automatiškai atnaujinamos</p>
+                    </div>
+                `;
+            } else if (status === 'pending') {
+                // Calendar is being created
+                calendarButton = `
+                    <div class="calendar-status-message">
+                        <p>⏳ Kalendorius kuriamas. Patikrinkite vėliau.</p>
+                    </div>
+                `;
+            } else if (status === 'needs_update') {
+                // Calendar exists but needs update
+                calendarButton = `
+                    <div class="calendar-status-message">
+                        <p>Kalendorius atnaujinamas. Patikrinkite vėliau.</p>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = `
+                <h3>${displayName}</h3>
+                <p class="date-count">Surinkimo dienų: ${location.dates.length}</p>
+                ${calendarButton}
+            `;
+        }
+
+        function clearCalendar() {
+            document.getElementById('calendarContainer').innerHTML = '';
+            document.getElementById('selectedLocation').innerHTML = '<p>Pasirinkite kaimą, gatvę ir namo numerį</p>';
+        }
+    </script>
+</body>
+</html>

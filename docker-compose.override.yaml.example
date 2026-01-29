@@ -12,6 +12,9 @@ services:
   scraper:
     networks:
       - caddy
+  calendar:
+    networks:
+      - caddy
 
 networks:
   caddy:

@@ -19,24 +19,33 @@ tests/
 ## Running Tests
 
 ### Local Development
-```bash
-# Using Makefile (recommended)
-make test              # Run all tests
-make test-verbose      # Verbose output
-make test-coverage     # With coverage report
-make prepare-fixture   # Regenerate test fixture
 
-# Or directly with pytest
-source venv/bin/activate
+**Using Makefile (recommended - automatically uses venv):**
+```bash
+# First time setup: create venv and install dependencies
+make venv-install
+
+# Run tests (automatically uses venv, no manual activation needed)
+make test              # Run all tests (includes AI; skips real API tests)
+make prepare-fixture   # Regenerate test fixture
+```
+
+**Or directly with pytest (requires venv activation):**
+```bash
+source venv/bin/activate  # Activate venv first
 pytest tests/ -v
 pytest tests/test_e2e_xlsx_to_api.py  # Specific test file
 ```
 
+The Makefile automatically checks for venv and uses it. If venv doesn't exist, test commands will prompt you to run `make venv-install` first.
+
 ### Docker Build (Tests Run Automatically)
 Tests run during Docker build - build fails if tests fail.
 
+Docker builds run `pytest -v` by default. If OpenRouter credentials are not mounted into the build environment, AI integration tests will fail.
+
 ```bash
-# Build (tests run automatically)
+# Build (tests run automatically; AI integration tests require OpenRouter key)
 podman-compose build
 
 # Or build specific service
@@ -51,11 +60,20 @@ podman-compose build web
 3. **API Integration Tests**: Endpoints return expected data structure
 
 ### What's Tested
-- ✅ Parser functions (`parse_village_and_streets`, `extract_dates_from_cell`)
-- ✅ Parser router (`should_use_ai_parser` logic)
-- ✅ Database operations (hash generation, schedule grouping)
-- ✅ API endpoints (`/api/v1/locations`, `/api/v1/schedule`)
-- ✅ End-to-end flow (XLSX → DB → API)
+-  Parser functions (`parse_village_and_streets`, `extract_dates_from_cell`)
+-  Parser router (`should_use_ai_parser` logic)
+-  AI parser integration (OpenRouter API calls, validation, format conversion)
+-  Database operations (hash generation, schedule grouping)
+-  API endpoints (`/api/v1/locations`, `/api/v1/schedule`)
+-  End-to-end flow (XLSX → DB → API)
+
+### AI Integration Tests
+
+AI integration tests make real OpenRouter API calls and use tokens:
+- Tests use temporary cache databases (fresh API calls every time)
+- Tests current code and prompt logic, not cached results
+- Marked with `@pytest.mark.ai_integration`
+- Test complex parsing patterns from real CSV data
 
 ## Test Data
 
@@ -65,6 +83,3 @@ podman-compose build web
 - **Test Database**: Created in-memory or temporary file (isolated per test)
 
 ## Future: GitHub Actions
-
-TODO: Add GitHub Actions workflow to run tests on every push/PR.
-(When CI is added, we may drop the Docker test stage to speed up builds)

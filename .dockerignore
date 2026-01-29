@@ -15,3 +15,5 @@ Thumbs.db
 *.db
 *.db-journal
 xlsx-converted-to-csv-for-ai-context.csv
+# Secrets are mounted as volumes, not copied into image
+secrets/

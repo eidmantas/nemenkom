@@ -1,0 +1,17 @@
+FROM python:3.14.1-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY services/api services/api
+COPY services/common services/common
+COPY services/web services/web
+
+ENV PYTHONPATH=/app
+
+EXPOSE 3333
+
+CMD ["python", "services/api/app.py"]

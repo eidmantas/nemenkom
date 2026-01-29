@@ -1,3 +1,8 @@
+# Local samples and temporary DBs
+samples/
+*.db
+*.sqlite
+*.sqlite3
 RELEASE.md
 
 # Python virtual environment
@@ -6,8 +11,8 @@ env/
 .venv/
 
 # Database
-database/*.db
-database/*.db-journal
+services/database/*.db
+services/database/*.db-journal
 
 # Python cache
 __pycache__/
@@ -35,3 +40,13 @@ Thumbs.db
 
 # Configuration (contains API keys)
 config.py
+docker-compose.override.yaml
+config-gcp-creds.json
+token.json
+
+# Secrets folder (Service Account credentials, API keys, etc.)
+# Ignore actual secret files, but keep template files (.example) and .gitkeep
+secrets/*.txt
+secrets/*.json
+!secrets/.gitkeep
+!secrets/*.example
