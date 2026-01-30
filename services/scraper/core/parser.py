@@ -347,9 +347,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
                         from services.scraper.ai.parser import parse_with_ai
 
                         error_context = f"Traditional parser incorrectly included streets in village name: '{village[:100]}'"
-                        parsed_items = parse_with_ai(
-                            kaimai_str, error_context=error_context, max_retries=2
-                        )
+                        parsed_items = parse_with_ai(kaimai_str, error_context=error_context)
                         ai_parse_count += 1
                         traditional_parse_count -= 1  # Adjust counts
                         logger.debug(f"AI retry successful for: {kaimai_str[:80]}")

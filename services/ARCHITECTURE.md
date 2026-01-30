@@ -20,14 +20,17 @@
 ```
 
 ### Scraper (services/scraper)
+
 - Ingests XLSX, validates, parses, and writes normalized records into SQLite.
 - Owns stream reconciliation and link updates after data refresh.
 
 ### API + Web (services/api, services/web)
+
 - Read-only access to schedules and calendar metadata.
 - Produces subscription URLs and status.
 
 ### Calendar Worker (services/calendar)
+
 - Creates calendars and syncs events for streams.
 - Handles pending-clean notices and deletion for obsolete calendars.
 
@@ -40,6 +43,7 @@ dates_hash         = hash(sorted dates)
 ```
 
 **Invariants**
+
 - schedule_group_id is stable for `(kaimai_hash, waste_type)` across date changes.
 - calendar_stream_id groups identical `(dates_hash, waste_type)` patterns.
 - N schedule_groups → 1 calendar_stream; link is explicit in `group_calendar_links`.
@@ -201,6 +205,7 @@ calendar_stream_events(calendar_stream_id, date, event_id, status)
 ```
 
 Key functions:
+
 - `services/scraper/core/db_writer.py`
   - `find_or_create_schedule_group`
   - `find_or_create_calendar_stream`
@@ -212,31 +217,41 @@ Key functions:
 Reconciliation happens after all rows are written.
 
 ### Case A: Single dates_hash
+
 All linked groups share the same `dates_hash`:
+
 - update `calendar_streams.dates` and `dates_hash`
 - set `calendar_synced_at` to NULL if dates changed
 - clear pending-clean flags
 
 ### Case B: Divergent dates_hash
+
 Linked groups diverge:
+
 - create new stream(s) per dates_hash
 - relink groups
 - mark the old stream pending clean
 
 ### Case C: Orphaned stream
+
 No linked groups remain:
+
 - mark pending clean immediately
 
 ## 7. Calendar Creation and Sync
 
 ### Creation (per stream)
+
 `create_calendar_for_calendar_stream(calendar_stream_id)`:
+
 - resolve a representative `seniunija` via linked locations
 - create a Google Calendar and store `calendar_id`
 - enforce public read ACL
 
 ### Sync (per stream)
+
 `sync_calendar_for_calendar_stream(calendar_stream_id)`:
+
 - load desired dates from `calendar_streams`
 - load existing events from `calendar_stream_events`
 - compute deltas: add/delete/retry
@@ -244,7 +259,9 @@ No linked groups remain:
 - set `calendar_synced_at`
 
 ### Cleanup Workflow (deprecation)
+
 When a stream is superseded:
+
 - set `pending_clean_started_at` and `pending_clean_until` (+4 days)
 - post 3 notice events in the old calendar
 - delete calendar if still orphaned after `pending_clean_until`
@@ -252,7 +269,9 @@ When a stream is superseded:
 ## 8. API Read Path
 
 ### /api/v1/schedule
+
 Lookup by location:
+
 ```
 locations → kaimai_hash
 schedule_groups (by kaimai_hash + waste_type)
@@ -260,6 +279,7 @@ group_calendar_links → calendar_streams
 ```
 
 Response includes:
+
 - location metadata
 - schedule_group_id
 - dates (from schedule_groups)
@@ -267,7 +287,9 @@ Response includes:
 - calendar_status derived from calendar_streams.calendar_id + calendar_synced_at
 
 ### /api/v1/schedule-group/<id>
+
 Lookup by schedule group:
+
 ```
 schedule_groups → locations (by kaimai_hash)
 group_calendar_links → calendar_streams (calendar_id)
@@ -281,6 +303,7 @@ This is the core UX vs scalability compromise:
 - **calendar_streams** keep calendar counts low by sharing identical date patterns.
 
 If dates for a schedule group change, the group is re-linked to a new stream:
+
 - If the new pattern is shared → join existing stream
 - If not shared → create new stream
 
@@ -289,20 +312,24 @@ Old streams are not deleted immediately; they enter pending clean, post user not
 ## 10. Services (Detailed)
 
 ### services/scraper
+
 - `core/fetcher.py` downloads XLSX.
 - `core/parser.py` parses rows (AI-assisted when needed).
 - `core/validator.py` validates structure and parsed rows.
 - `core/db_writer.py` writes data, updates streams, and reconciles.
 
 ### services/api
+
 - `api/app.py` exposes read-only endpoints.
 - `api/db.py` joins locations → schedule_groups → calendar_streams.
 
 ### services/calendar
+
 - `calendar/__init__.py` creates calendars, syncs events, and cleans up.
 - `calendar/worker.py` polls for unsynced streams and pending cleanup.
 
 ### services/scraper_pdf (unreleased)
+
 - Prototype parser for PDF schedules.
 - Not part of the production ingest path.
 
@@ -312,4 +339,3 @@ Old streams are not deleted immediately; they enter pending clean, post user not
 - **Rate limiting**: throttling handled in calendar client utilities (calendar APIs only).
 - **Concurrency**: calendar worker is single-threaded polling.
 - **Observability**: logs in worker and scraper; DB retains fetch history in `data_fetches`.
-

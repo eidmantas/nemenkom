@@ -1,4 +1,4 @@
-.PHONY: help test lint format typecheck audit clean-podman clean-all clean-calendars-dry-run clean-calendars up down restart build prepare-fixture db-reset venv-activate venv-install run-scraper run-api run-all
+.PHONY: help test lint format typecheck audit clean-podman clean-all clean-calendars-dry-run clean-calendars up down restart build db-reset venv-activate venv-install run-scraper run-api run-all
 
 # Default target
 help:
@@ -9,14 +9,16 @@ help:
 	@echo "  make venv-install  - Create venv and install dependencies"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test          - Run all tests (includes AI; skips real API tests)"
+	@echo "  make test          - Run tests (skips AI Agent + Google Calendar API)"
+	@echo "  make test-ai       - Run AI Agent tests only"
+	@echo "  make test-calendar - Run Google Calendar API tests only"
+	@echo "  make test-all      - Run tests including AI Agent (skips Google Calendar API)"
 	@echo "  make lint          - Run ruff lint"
 	@echo "  make format        - Run ruff format"
 	@echo "  make typecheck     - Run pyright"
 	@echo "  make audit         - Run pip-audit"
 	@echo ""
 	@echo "Development:"
-	@echo "  make prepare-fixture - Regenerate test fixture from real XLSX"
 	@echo "  make run-scraper   - Run scraper (fetches data, parses, writes to DB)"
 	@echo "  make run-api       - Start API server (Flask on port 3333)"
 	@echo "  make run-calendar  - Start calendar worker"
@@ -59,7 +61,31 @@ test:
 		echo "  Virtual environment not found. Run: make venv-install"; \
 		exit 1; \
 	fi
-	@echo " Running all tests (excluding AI and real API tests)..."
+	@echo " Running tests (excluding AI Agent + Google Calendar API)..."
+	THROTTLE_DISABLED=1 venv/bin/pytest tests/ -v -m "not ai_integration and not real_api"
+
+test-ai:
+	@if [ ! -d "venv" ]; then \
+		echo "  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo " Running AI integration tests..."
+	THROTTLE_DISABLED=1 venv/bin/pytest tests/ -v -m "ai_integration"
+
+test-calendar:
+	@if [ ! -d "venv" ]; then \
+		echo "  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo " Running Google Calendar API tests..."
+	THROTTLE_DISABLED=1 venv/bin/pytest tests/ -v -m "real_api"
+
+test-all:
+	@if [ ! -d "venv" ]; then \
+		echo "  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	@echo " Running tests (including AI integration; excluding real API)..."
 	THROTTLE_DISABLED=1 venv/bin/pytest tests/ -v -m "not real_api"
 
 lint:
@@ -89,13 +115,6 @@ audit:
 		exit 1; \
 	fi
 	venv/bin/pip-audit
-
-prepare-fixture:
-	@if [ ! -d "venv" ]; then \
-		echo "  Virtual environment not found. Run: make venv-install"; \
-		exit 1; \
-	fi
-	venv/bin/python tests/prepare_fixture.py
 
 # Docker/Podman Compose - Auto-detect which is available
 COMPOSE_CMD := $(shell command -v podman-compose 2>/dev/null || command -v docker-compose 2>/dev/null || echo "")

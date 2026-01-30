@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   nemenkom:
@@ -10,8 +10,8 @@ services:
     volumes:
       - ./services/database:/app/services/database
       - ./services/web:/app/services/web
-      - ./secrets:/app/secrets:ro  # Mount secrets as read-only
-      - ./config.py:/app/config.py:ro  # Mount config as read-only (not baked into image)
+      - ./secrets:/app/secrets:ro # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro # Mount config as read-only (not baked into image)
     environment:
       - FLASK_ENV=production
       - TZ=Europe/Vilnius
@@ -23,8 +23,8 @@ services:
       dockerfile: Dockerfile.scraper
     volumes:
       - ./services/database:/app/services/database
-      - ./secrets:/app/secrets:ro  # Mount secrets as read-only
-      - ./config.py:/app/config.py:ro  # Mount config as read-only (not baked into image)
+      - ./secrets:/app/secrets:ro # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro # Mount config as read-only (not baked into image)
     environment:
       - TZ=Europe/Vilnius
       - PYTHONUNBUFFERED=1
@@ -36,10 +36,9 @@ services:
       dockerfile: Dockerfile.calendar
     volumes:
       - ./services/database:/app/services/database
-      - ./secrets:/app/secrets:ro  # Mount secrets as read-only
-      - ./config.py:/app/config.py:ro  # Mount config as read-only (not baked into image)
+      - ./secrets:/app/secrets:ro # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro # Mount config as read-only (not baked into image)
     environment:
       - TZ=Europe/Vilnius
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
-

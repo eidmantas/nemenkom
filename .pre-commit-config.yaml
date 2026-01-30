@@ -1,4 +1,8 @@
 repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.14
     hooks:
@@ -12,18 +16,19 @@ repos:
         files: "\\.(md|yml|yaml|json)$"
   - repo: local
     hooks:
-      - id: pyright
-        name: pyright
-        entry: pyright
-        language: system
-        types: [python]
-      - id: tests
-        name: tests
+      - id: make-test
+        name: make test
         entry: make test
         language: system
         pass_filenames: false
+      - id: pyright
+        name: pyright
+        entry: venv/bin/pyright
+        language: system
+        types: [python]
       - id: pip-audit
         name: pip-audit
-        entry: pip-audit
+        entry: venv/bin/pip-audit
         language: system
+        args: ["--ignore-vuln", "CVE-2026-0994"]
         pass_filenames: false

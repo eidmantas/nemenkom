@@ -21,6 +21,9 @@ __pycache__/
 *.pyd
 .Python
 
+# Node
+node_modules/
+
 # Test artifacts
 .pytest_cache/
 .coverage

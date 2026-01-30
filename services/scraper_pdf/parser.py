@@ -367,7 +367,7 @@ def parse_location_items(kaimai_str: str, skip_ai: bool = False) -> list[tuple[s
                 f"Traditional parser incorrectly included streets in village name: "
                 f"'{village[:100]}'"
             )
-            return parse_with_ai(kaimai_str, error_context=error_context, max_retries=2)
+            return parse_with_ai(kaimai_str, error_context=error_context)
         except Exception as exc:
             logger.warning(
                 "AI retry failed for '%s...': %s, keeping regex output",
