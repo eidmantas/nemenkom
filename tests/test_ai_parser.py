@@ -428,8 +428,7 @@ class TestAIParserIntegration:
                     streets_dict_2 = {item[0]: item[1] for item in result_2 if item[0]}
                     if (
                         streets_dict_2.get("Žalioji g.") == "1-48"
-                        and streets_dict_2.get("Vanaginės g.")
-                        == "103,103A-119,68,68A,68B-80"
+                        and streets_dict_2.get("Vanaginės g.") == "103,103A-119,68,68A,68B-80"
                         and streets_dict_2.get("Parko g.") == "40-65"
                     ):
                         break
