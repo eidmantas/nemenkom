@@ -88,6 +88,12 @@ pip install -r requirements-dev.txt
 pre-commit install
 ```
 
+Or (recommended), using the project venv + Makefile:
+
+```bash
+make pre-commit-install
+```
+
 This runs before each commit:
 
 - **Gitleaks** - blocks secrets from entering git history

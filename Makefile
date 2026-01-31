@@ -1,4 +1,4 @@
-.PHONY: help test lint format typecheck audit clean-podman clean-all clean-calendars-dry-run clean-calendars up down restart build db-reset venv-activate venv-install run-scraper run-api run-all
+.PHONY: help test lint format typecheck audit pre-commit-install clean-podman clean-all clean-calendars-dry-run clean-calendars up down restart build db-reset venv-activate venv-install run-scraper run-api run-all
 
 # Default target
 help:
@@ -17,6 +17,7 @@ help:
 	@echo "  make format        - Run ruff format"
 	@echo "  make typecheck     - Run pyright"
 	@echo "  make audit         - Run pip-audit"
+	@echo "  make pre-commit-install - Install git hooks so pre-commit runs on every commit"
 	@echo ""
 	@echo "Development:"
 	@echo "  make run-scraper   - Run scraper (fetches data, parses, writes to DB)"
@@ -115,6 +116,15 @@ audit:
 		exit 1; \
 	fi
 	venv/bin/pip-audit
+
+pre-commit-install:
+	@if [ ! -d "venv" ]; then \
+		echo "  Virtual environment not found. Run: make venv-install"; \
+		exit 1; \
+	fi
+	venv/bin/pip install -r requirements-dev.txt
+	venv/bin/pre-commit install
+	@echo " pre-commit git hooks installed (runs on git commit)."
 
 # Docker/Podman Compose - Auto-detect which is available
 COMPOSE_CMD := $(shell command -v podman-compose 2>/dev/null || command -v docker-compose 2>/dev/null || echo "")
