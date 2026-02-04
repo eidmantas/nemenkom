@@ -2,24 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## TODO
+
+- Explore data.gov.lt for authoritative address/house-number datasets to normalize ranges.
+- Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
+- Document URL update/year-rollover handling for PDF/XLSX sources and UX continuity (H2 plan, yearly roll).
+- BUG: marker-pdf drops glass Kovo 30 row (Avižienių/Aleksandravo + Paberžės + Nemenčinės + Maišiagalos); investigate extraction settings/fallback.
+- Standardize UI copy in Lithuanian, add English translations, and add a language selector (static files + templates).
+
 ## [Unreleased]
 
 ### Added
 
-- GitHub Actions CI workflows for secret scanning (Gitleaks) and code quality (ruff, pyright, pip-audit).
-- Pre-commit hook for Gitleaks to block secrets before they enter git history.
-- Pre-commit hook for `make test` (skips AI Agent + Google Calendar API).
-- Makefile target `test-calendar` for Google Calendar API tests.
+- (none yet)
 
-### Notes
+## [1.0.0-rc1] - 2026-02-04
 
-- PDF scraper (`services/scraper_pdf`) remains in development (prototype/MVP).
-- AI provider rotation now keeps retrying through rate limits without exhausting retry budget.
-- `make test` skips AI Agent + Google Calendar API; `make test-all` includes AI Agent only.
-- pip-audit ignores `CVE-2026-0994` for `protobuf` (no upstream fix yet).
-- Removed legacy fixture generator (`tests/prepare_fixture.py`).
-- AI integration test now retries with fresh cache to avoid bad cached responses.
-- TODO: Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
+### Added
+
+- Plastic/glass PDF pipeline: parsed PDF rows (`pdf_parsed_rows`) + AI-assisted mapping to canonical XLSX names.
+- Materialization of PDF-derived plastic/glass schedules into `schedule_groups` + `calendar_streams` so the API/UI can serve them like bendros.
+- Multi-waste schedule endpoint (`/api/v1/schedule-multi`) returning combined dates + per-waste-type subscription links/status.
+- Waste-type availability chips in dropdowns (village + street + house-number buckets).
+- PDF fetch skip-on-unchanged and XLSX fetch skip-on-unchanged (HEAD metadata + cached hashes) to avoid unnecessary work.
+- `scraper_pdf` compose service + scheduler for periodic PDF refresh.
+- Source-available licensing via **PolyForm Noncommercial License 1.0.0**.
+
+### Changed
+
+- API now always returns enriched objects for streets/house-numbers.
+- UI calendar renders combined dates across waste types, with per-waste-type markers and “subscribe all”.
+- Dependency layout cleaned up: per-service `requirements-*.txt`, tests/tools in `requirements-dev.txt`.
 
 ## [0.1.5a] - 2026-01-30
 

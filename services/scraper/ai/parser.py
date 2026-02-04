@@ -53,7 +53,7 @@ def get_ai_agent(provider_name: str, model_id: str) -> Agent[None, ParsedLocatio
         if not api_key:
             raise ValueError(f"Missing API key for AI provider: {provider_name}")
         provider = OpenAIProvider(api_key=api_key, base_url=provider_config.get("base_url"))
-        model = OpenAIChatModel(model_id, provider=provider)
+        model = OpenAIChatModel(model_id, provider=provider, settings={"temperature": 0})
         agent = Agent(
             model,
             system_prompt=(
@@ -95,12 +95,16 @@ def run_agent_prompt(agent: Agent[None, ParsedLocation], prompt: str):
     return asyncio.run(agent.run(prompt))
 
 
-def _is_rate_limit_error(exc: Exception) -> bool:
+def is_rate_limit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     if "rate limit" in msg or "429" in msg or "too many requests" in msg:
         return True
     exc_name = exc.__class__.__name__.lower()
     return "ratelimit" in exc_name or "too many requests" in exc_name
+
+
+# Backward-compatible alias (older callers imported the underscored name).
+_is_rate_limit_error = is_rate_limit_error
 
 
 def create_parsing_prompt(kaimai_str: str, error_context: str | None = None) -> str:
@@ -419,6 +423,8 @@ def parse_with_ai(
     model_rotation = get_model_rotation()
     attempt_index = 0
     while True:
+        provider_name = "<unknown>"
+        model_id = "<unknown>"
         try:
             throttle("ai")
 
@@ -430,6 +436,9 @@ def parse_with_ai(
                 )
 
             provider_name, model_id = model_rotation[attempt_index % len(model_rotation)]
+            logger.info(
+                "AI parse attempt %s using %s:%s", attempt_index + 1, provider_name, model_id
+            )
             agent = get_ai_agent(provider_name, model_id)
             response = run_agent_prompt(agent, create_parsing_prompt(kaimai_str, retry_context))
 
@@ -468,13 +477,24 @@ def parse_with_ai(
             return result
 
         except Exception as e:
-            is_rate_limit = _is_rate_limit_error(e)
+            is_rate_limit = is_rate_limit_error(e)
             if is_rate_limit:
                 backoff("ai_rate_limit")
             else:
                 throttle("ai_retry", min_seconds=2.0, max_seconds=4.0)
 
             last_error = str(e)
+            next_provider_name, next_model_id = model_rotation[
+                (attempt_index + 1) % len(model_rotation)
+            ]
+            logger.warning(
+                "AI parse failed using %s:%s (%s). Rotating to %s:%s",
+                provider_name,
+                model_id,
+                last_error,
+                next_provider_name,
+                next_model_id,
+            )
             # Build context for next retry
             if not last_error_context:
                 last_error_context = f"Previous attempt failed: {last_error}"

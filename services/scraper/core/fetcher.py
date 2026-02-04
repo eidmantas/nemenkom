@@ -11,7 +11,9 @@ import requests
 DEFAULT_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
 
 
-def fetch_xlsx(url: str = DEFAULT_URL, save_path: Path | None = None) -> Path:
+def fetch_xlsx(
+    url: str = DEFAULT_URL, save_path: Path | None = None
+) -> tuple[Path, dict[str, str], int]:
     """
     Download xlsx file from URL
 
@@ -20,14 +22,14 @@ def fetch_xlsx(url: str = DEFAULT_URL, save_path: Path | None = None) -> Path:
         save_path: Optional path to save file. If None, uses temp file.
 
     Returns:
-        Path to downloaded file
+        (Path to downloaded file, response headers, byte length)
 
     Raises:
         requests.RequestException: If download fails
     """
     print(f"Fetching xlsx from {url}")
 
-    response = requests.get(url, timeout=30)
+    response = requests.get(url, allow_redirects=True, timeout=30)
     response.raise_for_status()
 
     if save_path is None:
@@ -42,7 +44,7 @@ def fetch_xlsx(url: str = DEFAULT_URL, save_path: Path | None = None) -> Path:
         f.write(response.content)
 
     print(f"Downloaded {len(response.content)} bytes to {save_path}")
-    return save_path
+    return save_path, dict(response.headers or {}), len(response.content)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ venv-install:
 	python3 -m venv venv
 	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -r requirements.txt
+	venv/bin/pip install -r requirements-dev.txt
 	@echo " Virtual environment created and dependencies installed"
 	@echo "   Activate with: source venv/bin/activate"
 

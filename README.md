@@ -1,6 +1,19 @@
 # Waste Schedule System
 
-A system for scraping, storing, and displaying waste pickup schedules from `nemenkom.lt` (Nemenčinė municipality, Lithuania).
+A system for scraping, storing, and displaying waste pickup schedules from `nemenkom.lt` (Nemenčinės komunalininkas, Lithuania).
+
+## Why this exists
+
+I’m trying to make waste pickup calendars **usable for day‑to‑day life** — by turning the schedules from `nemenkom.lt`
+into something you can subscribe to (Google Calendar) and then stop thinking about.
+
+It’s an **unofficial** community project and it may be done in a **very, very, very wrong way** 
+
+
+## License
+
+Licensed under the **PolyForm Noncommercial License 1.0.0** (source-available, non-commercial).
+Commercial use requires permission. See `LICENSE`.
 
 ## Quick Start
 
@@ -111,6 +124,36 @@ python services/scraper/main.py --simple-subset
 # Full parsing (traditional + AI parser) - processes all entries
 python services/scraper/main.py
 ```
+
+### Run PDF Scraper (MVP)
+
+```bash
+# Default: AI disabled (no token usage)
+python services/scraper_pdf/main.py /path/to/file.pdf
+
+# Enable AI parsing explicitly
+python services/scraper_pdf/main.py /path/to/file.pdf --use-ai
+
+# Production-style: download from URL and skip re-parse if the PDF content hash is unchanged
+python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf' --use-ai
+
+# Shortcut (uses config.PDF_PLASTIKAS_URL / config.PDF_STIKLAS_URL)
+python services/scraper_pdf/main.py --source plastikas --use-ai
+python services/scraper_pdf/main.py --source stiklas --use-ai
+```
+
+Outputs:
+- `*.rows.csv` — row-level normalized output before splitting/AI (phase 1)
+- `*.parsed.csv` — split output (village/street rows)
+- `*.raw.csv` — raw marker-pdf rows for debugging
+
+Marker cache:
+- Cached HTML under `tmp/marker_cache` (override with `MARKER_CACHE_DIR`)
+- Clear cache with `--clear-marker-cache`
+
+Note: `marker-pdf==1.10.1` currently declares `openai<2.0.0`. We pin `openai>=2.16.0`
+for other components, so pip may warn about a dependency conflict. This does not affect
+PDF table extraction, but keep it in mind if installing dependencies strictly.
 
 ### Run Web Server
 

@@ -1,0 +1,20 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements-scraper-pdf.txt .
+# NOTE: pip resolver can fail on deep/conflicting optional deps (e.g. anthropic from marker-pdf vs pydantic-ai).
+# We intentionally use the legacy resolver here to mimic local "force install" behavior for release builds.
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements-scraper-pdf.txt
+
+# Needed code
+COPY services/scraper_pdf services/scraper_pdf
+COPY services/scraper services/scraper
+COPY services/calendar/migrations services/calendar/migrations
+COPY services/common services/common
+
+ENV PYTHONPATH=/app
+
+CMD ["python", "services/scraper_pdf/scheduler.py"]
+

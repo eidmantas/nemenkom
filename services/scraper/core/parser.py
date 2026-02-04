@@ -428,7 +428,7 @@ if __name__ == "__main__":
     # Test parser
     from services.scraper.core.fetcher import fetch_xlsx
 
-    file_path = fetch_xlsx()
+    file_path, _headers, _byte_len = fetch_xlsx()
     results = parse_xlsx(file_path)
     print("\nSample results (first 5):")
     for result in results[:5]:

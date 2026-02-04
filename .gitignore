@@ -11,8 +11,9 @@ env/
 .venv/
 
 # Database
-services/database/*.db
-services/database/*.db-journal
+services/database/**
+!services/database/.gitkeep
+services/database/**/*.bak-*
 
 # Python cache
 __pycache__/
@@ -30,6 +31,7 @@ node_modules/
 htmlcov/
 *.cover
 .hypothesis/
+.ruff_cache/
 
 # IDE
 .vscode/
@@ -53,3 +55,7 @@ secrets/*.txt
 secrets/*.json
 !secrets/.gitkeep
 !secrets/*.example
+
+# Temporary files
+tmp/
+samples

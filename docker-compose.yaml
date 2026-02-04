@@ -30,6 +30,19 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
 
+  scraper_pdf:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper-pdf
+    volumes:
+      - ./services/database:/app/services/database
+      - ./secrets:/app/secrets:ro # Mount secrets as read-only
+      - ./config.py:/app/config.py:ro # Mount config as read-only (not baked into image)
+    environment:
+      - TZ=Europe/Vilnius
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
   calendar:
     build:
       context: .

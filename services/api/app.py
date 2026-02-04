@@ -3,17 +3,27 @@ Flask API application for waste schedule data
 """
 
 import logging
+import sys
 from pathlib import Path
 
 from flasgger import Swagger
 from flask import Flask, jsonify, redirect, render_template, request
 
-import config
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# When running as a script (e.g. `python services/api/app.py`), ensure repo root is on sys.path
+# so `import config` (and `services.*`) work the same as in Docker (PYTHONPATH=/app).
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import config  # noqa: E402
 from services.api.db import (
     get_all_locations,
+    get_available_waste_types_for_selection,
     get_house_numbers_for_street,
     get_location_by_selection,
     get_location_schedule,
+    get_multi_waste_schedule_for_selection,
+    get_pdf_streetwide_waste_types_for_selection,
     get_schedule_group_schedule,
     get_streets_for_village,
     get_unique_villages,
@@ -31,7 +41,6 @@ from services.common.logging_utils import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 app = Flask(
     __name__,
     template_folder=str(REPO_ROOT / "services" / "web" / "templates"),
@@ -285,6 +294,65 @@ def api_schedule():
     return jsonify(schedule)
 
 
+@app.route("/api/v1/schedule-multi", methods=["GET"])
+def api_schedule_multi():
+    """
+    Get combined schedule for a selection across waste types (bendros/plastikas/stiklas).
+    ---
+    tags:
+      - Schedule
+    parameters:
+      - name: seniunija
+        in: query
+        type: string
+        required: true
+      - name: village
+        in: query
+        type: string
+        required: true
+      - name: street
+        in: query
+        type: string
+        required: false
+        description: If village has streets, this is required. Empty string means "all village".
+      - name: house_numbers
+        in: query
+        type: string
+        required: false
+        description: Required when bendros is split into house-number buckets for the selected street.
+    responses:
+      200:
+        description: Combined schedules and flattened dates with waste_type markers.
+      400:
+        description: Bad request (missing required parameters)
+    """
+    seniunija = request.args.get("seniunija", "")
+    village = request.args.get("village", "")
+    street = request.args.get("street", None)
+    house_numbers = request.args.get("house_numbers", None)
+
+    if not (seniunija and village):
+        return jsonify({"error": "Must provide seniunija and village"}), 400
+
+    # Normalize selection like api_schedule does (street param requirements)
+    if village_has_streets(seniunija, village):
+        if street is None:
+            return (
+                jsonify({"error": "This village has streets. Please select a street."}),
+                400,
+            )
+        street_value = street
+    else:
+        street_value = ""
+
+    # Note: we intentionally do NOT hard-fail when bendros requires house buckets.
+    # The UI can still show plastikas/stiklas while prompting for bendros bucket selection.
+    result = get_multi_waste_schedule_for_selection(
+        seniunija=seniunija, village=village, street=street_value, house_numbers=house_numbers
+    )
+    return jsonify(result)
+
+
 @app.route("/api/v1/schedule-group/<schedule_group_id>", methods=["GET"])
 def api_schedule_group(schedule_group_id: str):
     """
@@ -388,7 +456,16 @@ def api_streets():
             streets:
               type: array
               items:
-                type: string
+                type: object
+                properties:
+                  street:
+                    type: string
+                  available_waste_types:
+                    type: array
+                    items:
+                      type: string
+                  bendros_requires_house_numbers:
+                    type: boolean
       400:
         description: Missing required parameters
     """
@@ -399,7 +476,19 @@ def api_streets():
         return jsonify({"error": "seniunija and village parameters required"}), 400
 
     streets = get_streets_for_village(seniunija, village)
-    return jsonify({"streets": streets})
+    enriched = []
+    for street in streets:
+        avail = get_available_waste_types_for_selection(
+            seniunija=seniunija, village=village, street=street, house_numbers=None
+        )
+        enriched.append(
+            {
+                "street": street,
+                "available_waste_types": sorted(avail.get("available_waste_types") or []),
+                "bendros_requires_house_numbers": bool(avail.get("bendros_requires_house_numbers")),
+            }
+        )
+    return jsonify({"streets": enriched})
 
 
 @app.route("/api/v1/house-numbers", methods=["GET"])
@@ -434,7 +523,14 @@ def api_house_numbers():
             house_numbers:
               type: array
               items:
-                type: string
+                type: object
+                properties:
+                  house_numbers:
+                    type: string
+                  available_waste_types:
+                    type: array
+                    items:
+                      type: string
       400:
         description: Missing required parameters
     """
@@ -447,7 +543,38 @@ def api_house_numbers():
 
     # street can be empty string for whole village
     house_numbers = get_house_numbers_for_street(seniunija, village, street or "")
-    return jsonify({"house_numbers": house_numbers})
+
+    enriched = []
+
+    # Add synthetic "Visiems" only when it is semantically valid:
+    # - Either bendros is NOT bucket-split for this street, OR
+    # - plastikas/stiklas applies street-wide in PDF data (house_numbers is NULL/''/'all').
+    street_value = street or ""
+    bendros_requires_house_numbers = street_has_house_numbers(seniunija, village, street_value)
+    pdf_streetwide_types = get_pdf_streetwide_waste_types_for_selection(
+        seniunija=seniunija, village=village, street=street_value
+    )
+    include_visiems = (not bendros_requires_house_numbers) or bool(pdf_streetwide_types)
+    if include_visiems:
+        avail = set(pdf_streetwide_types)
+        if not bendros_requires_house_numbers:
+            street_level_avail = get_available_waste_types_for_selection(
+                seniunija=seniunija, village=village, street=street_value, house_numbers=None
+            )
+            if "bendros" in (street_level_avail.get("available_waste_types") or []):
+                avail.add("bendros")
+        enriched.append({"house_numbers": "", "available_waste_types": sorted(avail)})
+    for bucket in house_numbers:
+        avail = get_available_waste_types_for_selection(
+            seniunija=seniunija, village=village, street=street or "", house_numbers=bucket
+        )
+        enriched.append(
+            {
+                "house_numbers": bucket,
+                "available_waste_types": sorted(avail.get("available_waste_types") or []),
+            }
+        )
+    return jsonify({"house_numbers": enriched})
 
 
 @app.route("/api/v1/available-calendars", methods=["GET"])
