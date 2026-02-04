@@ -237,9 +237,9 @@ def validate_file_and_data(
 
 if __name__ == "__main__":
     # Test validator
-    from fetcher import fetch_xlsx
+    from services.scraper.core.fetcher import fetch_xlsx
 
-    file_path = fetch_xlsx()
+    file_path, _headers, _byte_len = fetch_xlsx()
     is_valid, errors, data = validate_file_and_data(file_path)
     print(f"Valid: {is_valid}")
     if errors:

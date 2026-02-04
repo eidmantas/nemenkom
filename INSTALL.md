@@ -12,6 +12,7 @@ This guide will help you set up the Nemenčinė waste schedule system.
 ## Quick Start
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd nemenkom
@@ -20,6 +21,7 @@ This guide will help you set up the Nemenčinė waste schedule system.
 2. **Set up secrets** (see [Secrets Setup](#secrets-setup) below)
 
 3. **Build and run**
+
    ```bash
    make build
    make up
@@ -38,6 +40,7 @@ The application requires several secret files in the `secrets/` directory. These
 Create the following files in the `secrets/` directory (some are optional):
 
 #### 1. `api_key.txt`
+
 - **Purpose**: API authentication key for the REST API
 - **Format**: Single line with your API key (no quotes, no whitespace)
 - **Example**: `your-api-key-here`
@@ -48,6 +51,7 @@ Create the following files in the `secrets/` directory (some are optional):
   ```
 
 #### 2. `openrouter_api_key.txt` (optional)
+
 - **Purpose**: OpenRouter API key for AI-powered parsing of complex location patterns
 - **Format**: Single line with your OpenRouter API key
 - **How to get**:
@@ -56,6 +60,7 @@ Create the following files in the `secrets/` directory (some are optional):
   3. Copy the key to `secrets/openrouter_api_key.txt`
 
 #### 3. `groq_api_key.txt` (optional)
+
 - **Purpose**: Groq API key for AI-powered parsing of complex location patterns
 - **Format**: Single line with your Groq API key
 - **How to get**:
@@ -66,6 +71,7 @@ Create the following files in the `secrets/` directory (some are optional):
 At least one AI provider key is required for AI parsing.
 
 #### 4. `credentials.json`
+
 - **Purpose**: Google Service Account credentials for Calendar API access
 - **Format**: JSON file from Google Cloud Platform
 - **How to get**:
@@ -93,6 +99,7 @@ At least one AI provider key is required for AI parsing.
 ### Secret Files Structure
 
 After setup, your `secrets/` directory should look like:
+
 ```
 secrets/
 ├── .gitkeep              # Git placeholder (keeps directory in git)
@@ -119,6 +126,7 @@ python -c "import config; print(' All secrets loaded successfully')"
 ### Volume Mounts
 
 Both the `secrets/` directory and `config.py` are mounted as **read-only volumes** in Docker containers. This means:
+
 - Secrets and config are **not** copied into Docker images (more secure)
 - Secrets and config must exist on the host machine
 - Changes to secrets/config require container restart
@@ -126,10 +134,11 @@ Both the `secrets/` directory and `config.py` are mounted as **read-only volumes
 ### Docker Compose Configuration
 
 The `docker-compose.yaml` mounts both the secrets directory and config file:
+
 ```yaml
 volumes:
-  - ./secrets:/app/secrets:ro  # Read-only mount
-  - ./config.py:/app/config.py:ro  # Read-only mount (not baked into image)
+  - ./secrets:/app/secrets:ro # Read-only mount
+  - ./config.py:/app/config.py:ro # Read-only mount (not baked into image)
 ```
 
 **Note**: `config.py` is also in `.gitignore` and should not be committed. Copy `config.example.py` to `config.py` and customize it for your environment.
@@ -139,12 +148,14 @@ volumes:
 For local development without Docker:
 
 1. **Create virtual environment**
+
    ```bash
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 2. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -152,6 +163,7 @@ For local development without Docker:
 3. **Set up secrets** (same as above)
 
 4. **Run locally**
+
    ```bash
    # Run API server
    python services/api/app.py
@@ -169,7 +181,8 @@ For local development without Docker:
 
 **Problem**: A required secret file is missing.
 
-**Solution**: 
+**Solution**:
+
 1. Check that all required files exist in `secrets/` directory
 2. Verify file names match exactly (case-sensitive)
 3. See [Secrets Setup](#secrets-setup) above
@@ -184,7 +197,8 @@ For local development without Docker:
 
 **Problem**: Google Calendar API quota exceeded.
 
-**Solution**: 
+**Solution**:
+
 - Wait for quota to reset (daily limit)
 - The background worker will automatically retry every 5 minutes
 - Consider upgrading Google Cloud project quota if needed
@@ -193,7 +207,8 @@ For local development without Docker:
 
 **Problem**: Too many API requests too quickly.
 
-**Solution**: 
+**Solution**:
+
 - The system automatically retries with 5-minute intervals
 - Wait for rate limits to reset
 - For OpenAI-compatible providers: check your rate limits on the provider dashboard
@@ -210,6 +225,7 @@ For local development without Docker:
 ## Next Steps
 
 After installation:
+
 1. Run the scraper to populate the database: `make run-scraper`
 2. Check API health: `curl http://localhost:3333/api/v1/villages`
 3. View web interface: http://localhost:3333

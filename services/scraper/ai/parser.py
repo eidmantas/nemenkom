@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from services.common.throttle import backoff, throttle
@@ -34,7 +34,7 @@ class ParsedLocation(BaseModel):
     streets: list[ParsedStreet] = Field(default_factory=list)
 
 
-_agent_by_model: dict[tuple[str, str], Agent] = {}
+_agent_by_model: dict[tuple[str, str], Agent[None, ParsedLocation]] = {}
 
 
 def _get_provider_config(provider_name: str) -> dict:
@@ -44,7 +44,7 @@ def _get_provider_config(provider_name: str) -> dict:
     raise ValueError(f"Unknown AI provider: {provider_name}")
 
 
-def get_ai_agent(provider_name: str, model_id: str) -> Agent:
+def get_ai_agent(provider_name: str, model_id: str) -> Agent[None, ParsedLocation]:
     agent_key = (provider_name, model_id)
     agent = _agent_by_model.get(agent_key)
     if agent is None:
@@ -53,7 +53,7 @@ def get_ai_agent(provider_name: str, model_id: str) -> Agent:
         if not api_key:
             raise ValueError(f"Missing API key for AI provider: {provider_name}")
         provider = OpenAIProvider(api_key=api_key, base_url=provider_config.get("base_url"))
-        model = OpenAIModel(model_id, provider=provider)
+        model = OpenAIChatModel(model_id, provider=provider, settings={"temperature": 0})
         agent = Agent(
             model,
             system_prompt=(
@@ -68,9 +68,7 @@ def get_ai_agent(provider_name: str, model_id: str) -> Agent:
 
 def get_model_rotation() -> list[tuple[str, str]]:
     active_providers = {
-        provider["name"]: provider
-        for provider in config.AI_PROVIDERS
-        if provider.get("api_key")
+        provider["name"]: provider for provider in config.AI_PROVIDERS if provider.get("api_key")
     }
     if not active_providers:
         raise ValueError("No active AI providers configured")
@@ -79,7 +77,11 @@ def get_model_rotation() -> list[tuple[str, str]]:
     for entry in config.AI_MODEL_ROTATION:
         provider_name = entry.get("provider")
         model_id = entry.get("model")
-        if provider_name in active_providers and model_id:
+        if (
+            isinstance(provider_name, str)
+            and isinstance(model_id, str)
+            and provider_name in active_providers
+        ):
             rotation.append((provider_name, model_id))
 
     if not rotation:
@@ -87,10 +89,22 @@ def get_model_rotation() -> list[tuple[str, str]]:
     return rotation
 
 
-def run_agent_prompt(agent: Agent, prompt: str):
+def run_agent_prompt(agent: Agent[None, ParsedLocation], prompt: str):
     if hasattr(agent, "run_sync"):
         return agent.run_sync(prompt)
     return asyncio.run(agent.run(prompt))
+
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    if "rate limit" in msg or "429" in msg or "too many requests" in msg:
+        return True
+    exc_name = exc.__class__.__name__.lower()
+    return "ratelimit" in exc_name or "too many requests" in exc_name
+
+
+# Backward-compatible alias (older callers imported the underscored name).
+_is_rate_limit_error = is_rate_limit_error
 
 
 def create_parsing_prompt(kaimai_str: str, error_context: str | None = None) -> str:
@@ -366,7 +380,7 @@ def convert_to_parser_format(parsed_json: dict) -> list[tuple[str, str | None]]:
 
 
 def parse_with_ai(
-    kaimai_str: str, error_context: str | None = None, max_retries: int = 2
+    kaimai_str: str, error_context: str | None = None
 ) -> list[tuple[str, str | None]]:
     """
     Parse complex Kaimai string using PydanticAI + OpenAI-compatible providers with retry logic
@@ -377,7 +391,6 @@ def parse_with_ai(
     Args:
         kaimai_str: Location string from Kaimai column
         error_context: Optional context about previous parsing failures (for retries)
-        max_retries: Maximum number of retry attempts (default: 2)
 
     Returns:
         List of tuples: [(village_name, None), (street1, house_nums1), ...]
@@ -408,18 +421,24 @@ def parse_with_ai(
     last_error_context = error_context
 
     model_rotation = get_model_rotation()
-    for attempt in range(max_retries + 1):  # +1 for initial attempt
+    attempt_index = 0
+    while True:
+        provider_name = "<unknown>"
+        model_id = "<unknown>"
         try:
             throttle("ai")
 
             # Build error context for retry
             retry_context = last_error_context
-            if attempt > 0 and last_error:
-                retry_context = f"Attempt {attempt} failed: {last_error}\n" + (
+            if attempt_index > 0 and last_error:
+                retry_context = f"Attempt {attempt_index} failed: {last_error}\n" + (
                     last_error_context or ""
                 )
 
-            provider_name, model_id = model_rotation[attempt % len(model_rotation)]
+            provider_name, model_id = model_rotation[attempt_index % len(model_rotation)]
+            logger.info(
+                "AI parse attempt %s using %s:%s", attempt_index + 1, provider_name, model_id
+            )
             agent = get_ai_agent(provider_name, model_id)
             response = run_agent_prompt(agent, create_parsing_prompt(kaimai_str, retry_context))
 
@@ -458,23 +477,35 @@ def parse_with_ai(
             return result
 
         except Exception as e:
-            msg = str(e).lower()
-            if "rate limit" in msg or "429" in msg:
+            is_rate_limit = is_rate_limit_error(e)
+            if is_rate_limit:
                 backoff("ai_rate_limit")
-            last_error = str(e)
-            if attempt < max_retries:
-                # Build context for next retry
-                if not last_error_context:
-                    last_error_context = f"Previous attempt failed: {last_error}"
-                else:
-                    last_error_context = (
-                        f"{last_error_context}\nAttempt {attempt + 1} failed: {last_error}"
-                    )
-                continue  # Retry
             else:
-                # All retries exhausted
-                raise ValueError(
-                    f"AI parsing failed after {max_retries + 1} attempts. Last error: {last_error}"
-                ) from e
+                throttle("ai_retry", min_seconds=2.0, max_seconds=4.0)
+
+            last_error = str(e)
+            next_provider_name, next_model_id = model_rotation[
+                (attempt_index + 1) % len(model_rotation)
+            ]
+            logger.warning(
+                "AI parse failed using %s:%s (%s). Rotating to %s:%s",
+                provider_name,
+                model_id,
+                last_error,
+                next_provider_name,
+                next_model_id,
+            )
+            # Build context for next retry
+            if not last_error_context:
+                last_error_context = f"Previous attempt failed: {last_error}"
+            else:
+                last_error_context = (
+                    f"{last_error_context}\nAttempt {attempt_index + 1} failed: {last_error}"
+                )
+
+            # No max retry limit: keep rotating until success.
+
+            attempt_index += 1
+            continue  # Retry
 
     raise ValueError("AI parsing failed without a result")

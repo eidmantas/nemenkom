@@ -33,9 +33,14 @@ from services.common.db import get_db_connection
 # Test configuration
 TEST_PREFIX = "[TEST] "  # Prefix for all test calendars
 TEST_SCHEDULE_GROUP_ID = "test_real_api_sg"
-TEST_LOCATION_NAME = f"{TEST_PREFIX}Test Real API Village"
+TEST_SENIUNIJA_NAME = f"{TEST_PREFIX}Test Seniunija"
 TEST_DATES = ["2026-01-15", "2026-01-29", "2026-02-12"]
 TEST_WASTE_TYPE = "bendros"
+WASTE_TYPE_DISPLAY = {
+    "bendros": "Bendros atliekos",
+    "plastikas": "Plastikas",
+    "stiklas": "Stiklas",
+}
 
 # Calendar cleanup
 created_calendar_ids = []
@@ -71,7 +76,7 @@ def create_test_schedule_group(
         (seniunija, village, street, kaimai_hash)
         VALUES (?, ?, ?, ?)
     """,
-        ("Test Seniunija", "Test Village", "Test Street", kaimai_hash),
+        (TEST_SENIUNIJA_NAME, "Test Village", "Test Street", kaimai_hash),
     )
 
     conn.commit()
@@ -85,8 +90,8 @@ def create_test_schedule_group(
 def cleanup_test_calendars():
     """Remove all calendars with TEST_PREFIX (cleanup from previous interrupted runs)
 
-    Calendar names are formatted as: "Nemenčinė Atliekos - {location_name} - {waste_type}"
-    So we check if the calendar name contains TEST_PREFIX
+    Calendar names are formatted as: "{seniunija} - {waste_type_display} - {short_hash}"
+    So we check if the calendar name contains TEST_PREFIX via seniunija.
     """
     try:
         from services.calendar import get_google_calendar_service
@@ -101,7 +106,7 @@ def cleanup_test_calendars():
         deleted_count = 0
         for calendar in calendars:
             calendar_name = calendar.get("summary", "")
-            # Calendar names are: "Nemenčinė Atliekos - [TEST] Test Real API Village - bendros"
+            # Calendar names are: "[TEST] Test Seniunija - Bendros atliekos - cs_123abc"
             if TEST_PREFIX in calendar_name:
                 try:
                     service.calendars().delete(calendarId=calendar["id"]).execute()
@@ -244,7 +249,8 @@ def test_real_calendar_creation_and_cleanup():
     calendar_info = get_existing_calendar_info(calendar_id)
     assert calendar_info is not None, "Failed to get calendar info"
     assert calendar_info["calendar_id"] == calendar_id, "Calendar ID mismatch"
-    assert "Nemenčinė Atliekos" in calendar_info["calendar_name"], "Calendar name format incorrect"
+    assert TEST_SENIUNIJA_NAME in calendar_info["calendar_name"], "Calendar name format incorrect"
+    assert "Bendros atliekos" in calendar_info["calendar_name"], "Calendar waste type missing"
 
     # Verify subscription link format
     subscription_link = generate_calendar_subscription_link(calendar_id)
@@ -255,7 +261,7 @@ def test_real_calendar_creation_and_cleanup():
     # Verify calendar appears in list
     calendars = list_available_calendars()
     calendar_names = [cal["calendar_name"] for cal in calendars]
-    assert any(TEST_LOCATION_NAME in name for name in calendar_names), "Calendar not found in list"
+    assert any(TEST_SENIUNIJA_NAME in name for name in calendar_names), "Calendar not found in list"
 
     print(f" Real calendar test passed: {calendar_info['calendar_name']}")
 
@@ -272,7 +278,8 @@ def test_real_calendar_with_different_waste_types():
         result = create_calendar_for_schedule_group(schedule_group_id=test_sg_id)
         require_calendar_result(result)
         assert result["success"] is True
-        assert waste_type in result["calendar_name"]
+        expected_label = WASTE_TYPE_DISPLAY.get(waste_type, waste_type)
+        assert expected_label in result["calendar_name"]
 
         created_calendar_ids.append(result["calendar_id"])
         print(f" Created {waste_type} calendar: {result['calendar_name']}")
@@ -390,7 +397,7 @@ def test_real_calendar_listing():
     calendars = list_available_calendars()
 
     # Filter for our test calendars
-    test_calendars = [cal for cal in calendars if TEST_LOCATION_NAME in cal["calendar_name"]]
+    test_calendars = [cal for cal in calendars if TEST_SENIUNIJA_NAME in cal["calendar_name"]]
 
     if len(created_calendar_ids) < 3:
         pytest.skip("Not enough calendars created due to quota limits")

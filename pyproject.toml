@@ -13,6 +13,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
+"services/api/app.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "services"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -33,6 +37,8 @@ exclude = [
   "venv",
   ".venv",
   "env",
+  "tmp",
+  "node_modules",
   "services/web",
   "tests",
 ]

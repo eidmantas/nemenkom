@@ -60,6 +60,18 @@ def _read_secret_file_optional(filename: str) -> str | None:
 
 DEBUG = os.getenv("DEBUG", "1") == "1"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
+MARKER_CACHE_ENABLED = os.getenv("MARKER_CACHE_ENABLED", "1") == "1"
+MARKER_CACHE_DIR = os.getenv("MARKER_CACHE_DIR", "tmp/marker_cache")
+
+# PDF sources (plastikas/stiklas). Used by services/scraper_pdf when running with `--source`.
+PDF_PLASTIKAS_URL = os.getenv(
+    "PDF_PLASTIKAS_URL",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20grafikas/%E2%80%9E2026%20m-%20sausio%2C%20vasario%2C%20kovo%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
+)
+PDF_STIKLAS_URL = os.getenv(
+    "PDF_STIKLAS_URL",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Stiklo%20pakuot%C4%97s/2026%20m-%20sausio%2C%20vasario%2C%20kovo%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
+)
 
 
 AI_PROVIDERS = [
@@ -73,16 +85,43 @@ AI_PROVIDERS = [
         "base_url": "https://api.groq.com/openai/v1",
         "api_key": _read_secret_file_optional("groq_api_key.txt"),
     },
+    {
+        "name": "huggingface",
+        "base_url": "https://router.huggingface.co/v1",
+        "api_key": _read_secret_file_optional("huggingface_api_key.txt"),
+    },
+    {
+        # Gemini OpenAI-compatible endpoint (Google AI Studio / Generative Language API).
+        # Note: model IDs differ from OpenRouter; see docs for available models.
+        "name": "gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "api_key": _read_secret_file_optional("gemini_api_key.txt"),
+    },
+    {
+        "name": "mistral",
+        "base_url": "https://api.mistral.ai/v1",
+        "api_key": _read_secret_file_optional("mistral_api_key.txt"),
+    },
 ]
 
 # Rotation order: providers/models are tried in this sequence across retries.
 AI_MODEL_ROTATION = [
-    {"provider": "openrouter", "model": "openai/gpt-oss-120b:free"},
-    {"provider": "openrouter", "model": "google/gemini-2.0-flash-exp:free"},
-    {"provider": "openrouter", "model": "google/gemma-3-27b-it:free"},
-    {"provider": "openrouter", "model": "qwen/qwen3-coder:free"},
+    # Groq (fast / generous rate limits compared to OpenRouter)
     {"provider": "groq", "model": "llama-3.3-70b-versatile"},
     {"provider": "groq", "model": "llama-3.1-8b-instant"},
+    # Gemini (OpenAI-compatible). Keep text-only models.
+    {"provider": "gemini", "model": "gemini-3-flash-preview"},
+    {"provider": "gemini", "model": "gemini-2.5-flash"},
+    {"provider": "gemini", "model": "gemini-2.5-flash-lite"},
+    # Mistral (OpenAI-compatible)
+    {"provider": "mistral", "model": "mistral-large-latest"},
+    {"provider": "mistral", "model": "devstral-small-latest"},
+    {"provider": "mistral", "model": "mistral-small-latest"},
+    # OpenRouter (free models; names are OpenRouter-specific) - disabled for now
+    # {"provider": "openrouter", "model": "openai/gpt-oss-120b:free"},
+    # {"provider": "openrouter", "model": "google/gemini-2.0-flash-exp:free"},
+    # {"provider": "openrouter", "model": "google/gemma-3-27b-it:free"},
+    # {"provider": "openrouter", "model": "qwen/qwen3-coder:free"},
 ]
 
 
@@ -110,7 +149,9 @@ try:
     if not any(provider.get("api_key") for provider in AI_PROVIDERS):
         raise ValueError(
             "No AI provider API keys found. Add at least one of: "
-            "secrets/openrouter_api_key.txt or secrets/groq_api_key.txt"
+            "secrets/openrouter_api_key.txt, secrets/groq_api_key.txt, "
+            "secrets/huggingface_api_key.txt, secrets/gemini_api_key.txt, "
+            "secrets/mistral_api_key.txt"
         )
 except (FileNotFoundError, ValueError) as e:
     raise RuntimeError(

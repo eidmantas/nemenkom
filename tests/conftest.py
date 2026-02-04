@@ -31,6 +31,8 @@ def temp_db():
     import services.calendar as calendar_module
     import services.common.db as db_module
     import services.common.db_helpers as db_helpers_module
+    import services.scraper_pdf.mapping as pdf_mapping_module
+    import services.scraper_pdf.parser as pdf_parser_module
 
     db_fd, db_path = tempfile.mkstemp(suffix=".db")
     conn = sqlite3.connect(db_path)
@@ -54,6 +56,9 @@ def temp_db():
         patch.object(db_module, "get_db_connection", mock_get_conn),
         patch.object(calendar_module, "get_db_connection", mock_get_conn),
         patch.object(db_helpers_module, "get_db_connection", mock_get_conn),
+        # scraper_pdf imports get_db_connection directly; patch its local reference too
+        patch.object(pdf_parser_module, "get_db_connection", mock_get_conn),
+        patch.object(pdf_mapping_module, "get_db_connection", mock_get_conn),
     ):
         yield conn, db_path
 

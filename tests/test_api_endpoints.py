@@ -444,7 +444,7 @@ def test_api_streets_endpoint_requires_seniūnija(test_db_with_village_and_stree
             assert response.status_code == 200
             data = response.get_json()
             assert "streets" in data
-            assert "Main Street" in data["streets"]
+            assert any(s.get("street") == "Main Street" for s in data["streets"])
     finally:
         api_db_module.get_db_connection = original_get_conn
 
