@@ -7,7 +7,7 @@ This guide will help you set up the Nemenčinė waste schedule system.
 - Docker and Docker Compose (or Podman and Podman Compose)
 - Python 3.14+ (for local development)
 - Google Cloud Platform account (for Google Calendar integration)
-- OpenRouter account (for AI parsing)
+- OpenAI-compatible provider account (OpenRouter, Groq, etc.) for AI parsing
 
 ## Quick Start
 
@@ -33,9 +33,9 @@ This guide will help you set up the Nemenčinė waste schedule system.
 
 The application requires several secret files in the `secrets/` directory. These files are **NOT** committed to git for security reasons.
 
-### Required Secret Files
+### Secret Files
 
-Create the following files in the `secrets/` directory:
+Create the following files in the `secrets/` directory (some are optional):
 
 #### 1. `api_key.txt`
 - **Purpose**: API authentication key for the REST API
@@ -47,15 +47,25 @@ Create the following files in the `secrets/` directory:
   openssl rand -hex 32 > secrets/api_key.txt
   ```
 
-#### 2. `openrouter_api_key.txt`
+#### 2. `openrouter_api_key.txt` (optional)
 - **Purpose**: OpenRouter API key for AI-powered parsing of complex location patterns
 - **Format**: Single line with your OpenRouter API key
-- **How to get**: 
+- **How to get**:
   1. Sign up at https://openrouter.ai/
   2. Create an API key at https://openrouter.ai/keys
   3. Copy the key to `secrets/openrouter_api_key.txt`
 
-#### 3. `credentials.json`
+#### 3. `groq_api_key.txt` (optional)
+- **Purpose**: Groq API key for AI-powered parsing of complex location patterns
+- **Format**: Single line with your Groq API key
+- **How to get**:
+  1. Sign up at https://console.groq.com/
+  2. Create an API key
+  3. Copy the key to `secrets/groq_api_key.txt`
+
+At least one AI provider key is required for AI parsing.
+
+#### 4. `credentials.json`
 - **Purpose**: Google Service Account credentials for Calendar API access
 - **Format**: JSON file from Google Cloud Platform
 - **How to get**:
@@ -87,7 +97,8 @@ After setup, your `secrets/` directory should look like:
 secrets/
 ├── .gitkeep              # Git placeholder (keeps directory in git)
 ├── api_key.txt               # Your API key
-├── openrouter_api_key.txt    # Your OpenRouter API key
+├── openrouter_api_key.txt    # Your OpenRouter API key (optional)
+├── groq_api_key.txt          # Your Groq API key (optional)
 └── credentials.json          # Google Service Account credentials
 ```
 
@@ -185,7 +196,7 @@ For local development without Docker:
 **Solution**: 
 - The system automatically retries with 5-minute intervals
 - Wait for rate limits to reset
-- For OpenRouter API: Check your rate limits at https://openrouter.ai/
+- For OpenAI-compatible providers: check your rate limits on the provider dashboard
 
 ## Security Notes
 

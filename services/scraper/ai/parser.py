@@ -9,8 +9,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.models.openrouter import OpenRouterModel
-from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from services.common.throttle import backoff, throttle
 from services.scraper.ai.cache import get_cache
@@ -34,14 +34,26 @@ class ParsedLocation(BaseModel):
     streets: list[ParsedStreet] = Field(default_factory=list)
 
 
-_agent_by_model: dict[str, Agent] = {}
+_agent_by_model: dict[tuple[str, str], Agent] = {}
 
 
-def get_ai_agent(model_id: str) -> Agent:
-    agent = _agent_by_model.get(model_id)
+def _get_provider_config(provider_name: str) -> dict:
+    for provider in config.AI_PROVIDERS:
+        if provider.get("name") == provider_name:
+            return provider
+    raise ValueError(f"Unknown AI provider: {provider_name}")
+
+
+def get_ai_agent(provider_name: str, model_id: str) -> Agent:
+    agent_key = (provider_name, model_id)
+    agent = _agent_by_model.get(agent_key)
     if agent is None:
-        provider = OpenRouterProvider(api_key=config.OPENROUTER_API_KEY)
-        model = OpenRouterModel(model_id, provider=provider)
+        provider_config = _get_provider_config(provider_name)
+        api_key = provider_config.get("api_key")
+        if not api_key:
+            raise ValueError(f"Missing API key for AI provider: {provider_name}")
+        provider = OpenAIProvider(api_key=api_key, base_url=provider_config.get("base_url"))
+        model = OpenAIModel(model_id, provider=provider)
         agent = Agent(
             model,
             system_prompt=(
@@ -50,8 +62,29 @@ def get_ai_agent(model_id: str) -> Agent:
             ),
             output_type=ParsedLocation,
         )
-        _agent_by_model[model_id] = agent
+        _agent_by_model[agent_key] = agent
     return agent
+
+
+def get_model_rotation() -> list[tuple[str, str]]:
+    active_providers = {
+        provider["name"]: provider
+        for provider in config.AI_PROVIDERS
+        if provider.get("api_key")
+    }
+    if not active_providers:
+        raise ValueError("No active AI providers configured")
+
+    rotation: list[tuple[str, str]] = []
+    for entry in config.AI_MODEL_ROTATION:
+        provider_name = entry.get("provider")
+        model_id = entry.get("model")
+        if provider_name in active_providers and model_id:
+            rotation.append((provider_name, model_id))
+
+    if not rotation:
+        raise ValueError("No AI models configured for active providers")
+    return rotation
 
 
 def run_agent_prompt(agent: Agent, prompt: str):
@@ -336,7 +369,7 @@ def parse_with_ai(
     kaimai_str: str, error_context: str | None = None, max_retries: int = 2
 ) -> list[tuple[str, str | None]]:
     """
-    Parse complex Kaimai string using PydanticAI + OpenRouter with retry logic
+    Parse complex Kaimai string using PydanticAI + OpenAI-compatible providers with retry logic
 
     Uses cache and rate limiter for efficiency.
     Returns same format as parse_village_and_streets() for seamless integration.
@@ -374,7 +407,7 @@ def parse_with_ai(
     last_error = None
     last_error_context = error_context
 
-    model_ids = [config.OPENROUTER_MODEL] + list(config.OPENROUTER_FALLBACK_MODELS)
+    model_rotation = get_model_rotation()
     for attempt in range(max_retries + 1):  # +1 for initial attempt
         try:
             throttle("ai")
@@ -386,8 +419,8 @@ def parse_with_ai(
                     last_error_context or ""
                 )
 
-            model_id = model_ids[attempt % len(model_ids)]
-            agent = get_ai_agent(model_id)
+            provider_name, model_id = model_rotation[attempt % len(model_rotation)]
+            agent = get_ai_agent(provider_name, model_id)
             response = run_agent_prompt(agent, create_parsing_prompt(kaimai_str, retry_context))
 
             output = (

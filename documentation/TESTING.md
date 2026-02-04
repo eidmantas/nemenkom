@@ -42,10 +42,10 @@ The Makefile automatically checks for venv and uses it. If venv doesn't exist, t
 ### Docker Build (Tests Run Automatically)
 Tests run during Docker build - build fails if tests fail.
 
-Docker builds run `pytest -v` by default. If OpenRouter credentials are not mounted into the build environment, AI integration tests will fail.
+Docker builds run `pytest -v` by default. If AI provider credentials are not mounted into the build environment, AI integration tests will fail.
 
 ```bash
-# Build (tests run automatically; AI integration tests require OpenRouter key)
+# Build (tests run automatically; AI integration tests require provider key)
 podman-compose build
 
 # Or build specific service
@@ -62,14 +62,14 @@ podman-compose build web
 ### What's Tested
 -  Parser functions (`parse_village_and_streets`, `extract_dates_from_cell`)
 -  Parser router (`should_use_ai_parser` logic)
--  AI parser integration (OpenRouter API calls, validation, format conversion)
+-  AI parser integration (OpenAI-compatible API calls, validation, format conversion)
 -  Database operations (hash generation, schedule grouping)
 -  API endpoints (`/api/v1/locations`, `/api/v1/schedule`)
 -  End-to-end flow (XLSX → DB → API)
 
 ### AI Integration Tests
 
-AI integration tests make real OpenRouter API calls and use tokens:
+AI integration tests make real OpenAI-compatible API calls and use tokens:
 - Tests use temporary cache databases (fresh API calls every time)
 - Tests current code and prompt logic, not cached results
 - Marked with `@pytest.mark.ai_integration`
