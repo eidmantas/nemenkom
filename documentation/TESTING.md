@@ -45,12 +45,11 @@ The Makefile automatically checks for venv and uses it. If venv doesn't exist, t
 
 ### Docker Build (Tests Run Automatically)
 
-Tests run during Docker build - build fails if tests fail.
-
-Docker builds run `pytest -v` by default. If AI provider credentials are not mounted into the build environment, AI integration tests will fail.
+Docker builds do not run the full test suite automatically by default. For release confidence,
+run tests locally with `make test` (and optionally `make lint` / `make typecheck`) before building.
 
 ```bash
-# Build (tests run automatically; AI integration tests require provider key)
+# Build images
 podman-compose build
 
 # Or build specific service

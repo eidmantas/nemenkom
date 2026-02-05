@@ -10,13 +10,11 @@ PDF Parser module - Extracts tables from PDF using marker-pdf (HTML output).
 # 5) dedupe + persistence
 
 import datetime
-import hashlib
 import json
 import logging
 import re
 import sqlite3
 import time
-from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import cast
@@ -243,7 +241,7 @@ def _dump_pdf_ai_failure(
     try:
         path = Path("tmp/pdf_ai_failures.jsonl")
         payload = {
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "provider": provider_name,
             "model": model_id,
             "waste_type": waste_type,
@@ -312,7 +310,16 @@ class HTMLTableParser(HTMLParser):
     def _fill_active_spans(self) -> None:
         while self._col_idx < len(self._rowspans):
             span = self._rowspans[self._col_idx]
-            remaining = int(span.get("remaining", 0) or 0)
+            raw_remaining = span.get("remaining", 0)
+            if isinstance(raw_remaining, (int, float)):
+                remaining = int(raw_remaining)
+            elif isinstance(raw_remaining, str):
+                try:
+                    remaining = int(raw_remaining)
+                except ValueError:
+                    remaining = 0
+            else:
+                remaining = 0
             if remaining <= 0:
                 break
             self._current_row.append(str(span.get("value", "")).strip())
@@ -333,7 +340,7 @@ class HTMLTableParser(HTMLParser):
                 }
             self._col_idx += 1
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]] | None) -> None:
         if tag == "table":
             self._in_table = True
             self._current_table = []
@@ -351,7 +358,7 @@ class HTMLTableParser(HTMLParser):
         elif tag == "br" and self._in_cell:
             self._current_cell.append("\n")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in ("td", "th") and self._in_cell:
             cell_text = "".join(self._current_cell).strip()
             self._append_cell(cell_text, self._current_cell_colspan, self._current_cell_rowspan)
@@ -369,7 +376,7 @@ class HTMLTableParser(HTMLParser):
             self._in_table = False
             self._current_table = []
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self._in_cell:
             self._current_cell.append(data)
 
@@ -1238,7 +1245,7 @@ def infer_month_columns(section: pd.DataFrame) -> dict[str, str]:
                 found.add(normalized)
     if found and not set(found).issubset(set(ordered)):
         raise ValueError(f"Unexpected month headers {sorted(found)} for {expected} month columns.")
-    return {name: section.columns[2 + idx] for idx, name in enumerate(ordered)}
+    return {name: str(section.columns[2 + idx]) for idx, name in enumerate(ordered)}
 
 
 def normalize_waste_type(waste_type: str) -> str:

@@ -229,7 +229,10 @@ After installation:
 1. Run the scraper to populate the database: `make run-scraper`
 2. Check API health: `curl http://localhost:3333/api/v1/villages`
 3. View web interface: http://localhost:3333
-4. Check calendar creation status in logs: `make logs-scraper`
+4. Check container logs (scraper / scraper_pdf / calendar) for calendar creation status:
+   - `podman-compose logs -f scraper`
+   - `podman-compose logs -f scraper_pdf`
+   - `podman-compose logs -f calendar`
 
 ## Additional Resources
 

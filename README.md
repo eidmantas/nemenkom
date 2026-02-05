@@ -118,11 +118,14 @@ This runs before each commit:
 ### Run Scraper
 
 ```bash
-# Simple subset only (traditional parser, no AI needed)
-python services/scraper/main.py --simple-subset
-
 # Full parsing (traditional + AI parser) - processes all entries
 python services/scraper/main.py
+
+# Skip AI parsing (traditional parser only)
+python services/scraper/main.py --skip-ai
+
+# Force parsing even if the remote XLSX is unchanged (bypass HEAD skip)
+python services/scraper/main.py --force
 ```
 
 ### Run PDF Scraper (MVP)

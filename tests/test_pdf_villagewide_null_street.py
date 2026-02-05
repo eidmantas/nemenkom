@@ -2,8 +2,6 @@ import json
 import sqlite3
 from datetime import date
 
-import pytest
-
 from services.scraper.core.db_writer import write_location_schedule
 from services.scraper_pdf.parser import ensure_pdf_parsed_rows_table
 

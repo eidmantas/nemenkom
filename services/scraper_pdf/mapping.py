@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import sqlite3
-import unicodedata
 
 import requests
 
@@ -46,11 +44,6 @@ def ensure_name_mappings_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _strip_diacritics(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text)
-    return "".join(ch for ch in text if not unicodedata.combining(ch))
-
-
 def _strip_json_code_fence(content: str) -> str:
     text = content.strip()
     if text.startswith("```"):
@@ -61,17 +54,6 @@ def _strip_json_code_fence(content: str) -> str:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
     return text
-
-
-def _normalize(text: str, suffixes: tuple[str, ...]) -> str:
-    if not text:
-        return ""
-    lowered = _strip_diacritics(text.strip().lower())
-    for suffix in suffixes:
-        lowered = lowered.replace(f" {suffix}", "").replace(suffix, "")
-    lowered = lowered.replace(".", " ").replace(",", " ").replace("(", " ").replace(")", " ")
-    lowered = " ".join(lowered.split())
-    return lowered
 
 
 def _get_provider_config(provider_name: str) -> dict:

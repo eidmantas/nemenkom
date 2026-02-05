@@ -116,10 +116,9 @@ def run_scraper(
                 etag = headers.get("ETag")
                 last_modified = headers.get("Last-Modified")
                 try:
+                    content_length_header = headers.get("Content-Length")
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers.get("Content-Length") is not None
-                        else byte_len
+                        int(content_length_header) if content_length_header is not None else byte_len
                     )
                 except Exception:
                     content_length = byte_len

@@ -341,10 +341,9 @@ def main():
                 etag = headers.get("ETag") if headers else None
                 last_modified = headers.get("Last-Modified") if headers else None
                 try:
+                    content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers and headers.get("Content-Length") is not None
-                        else byte_len
+                        int(content_length_header) if content_length_header is not None else byte_len
                     )
                 except Exception:
                     content_length = byte_len
@@ -376,10 +375,9 @@ def main():
                 etag = headers.get("ETag") if headers else None
                 last_modified = headers.get("Last-Modified") if headers else None
                 try:
+                    content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers and headers.get("Content-Length") is not None
-                        else byte_len
+                        int(content_length_header) if content_length_header is not None else byte_len
                     )
                 except Exception:
                     content_length = byte_len

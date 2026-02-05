@@ -17,6 +17,24 @@ All notable changes to this project will be documented in this file.
 
 - (none yet)
 
+## [1.0.0-rc2] - 2026-02-05
+
+### Added
+
+- One-time forced re-parse on container start via env vars (`FORCE_PARSE_ON_START=1`, `SCRAPER_PDF_USE_AI=1`) to re-run parsers even when remote sources are unchanged.
+- XLSX CLI `--force` flag to bypass HEAD-based “unchanged” skip when you need to rebuild derived data.
+
+### Fixed
+
+- Deep-link restore / mobile dropdown reliability (eliminated “chunky” load ordering and tap failures).
+- Removed “Prenumeruoti visus” button (multi-popup opens are blocked by modern browsers).
+- PDF parsing for “mega cells” spanning multiple seniūnija sections (Kirzinė / Maišiagalos plastikas+stiklas correctness).
+- PDF village-wide `NULL` vs `''` street matching in API queries (plastikas/stiklas availability + schedules now inherit correctly).
+
+### Changed
+
+- Removed custom marker-pdf HTML caching; rely on marker-pdf behavior and the source fetch cache (HEAD/hash) for idempotency.
+
 ## [1.0.0-rc1] - 2026-02-04
 
 ### Added
