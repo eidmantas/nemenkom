@@ -61,6 +61,18 @@ def _read_secret_file_optional(filename: str) -> str | None:
 DEBUG = os.getenv("DEBUG", "1") == "1"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 
+# Optional (docker-compose) scheduler knobs:
+# - FORCE_PARSE_ON_START=1
+#     Force a one-time re-parse on container startup for BOTH XLSX + PDF
+#     (useful when code changes but the remote files are unchanged).
+# - SCRAPER_PDF_USE_AI=1
+#     Enable AI parsing for PDF splitting in the `scraper_pdf` scheduler.
+#
+# Notes:
+# - These env vars are read by the schedulers directly (not via this config module).
+# - A small sentinel file is written under `services/database/` so the force-run won't
+#   repeat on restarts.
+
 # PDF sources (plastikas/stiklas). Used by services/scraper_pdf when running with `--source`.
 PDF_PLASTIKAS_URL = os.getenv(
     "PDF_PLASTIKAS_URL",
