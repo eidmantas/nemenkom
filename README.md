@@ -131,18 +131,18 @@ python services/scraper/main.py --force
 ### Run PDF Scraper (MVP)
 
 ```bash
-# Default: AI disabled (no token usage)
+# Default: AI enabled
 python services/scraper_pdf/main.py /path/to/file.pdf
 
-# Enable AI parsing explicitly
-python services/scraper_pdf/main.py /path/to/file.pdf --use-ai
+# Skip AI parsing explicitly
+python services/scraper_pdf/main.py /path/to/file.pdf --skip-ai
 
 # Production-style: download from URL and skip re-parse if the PDF content hash is unchanged
-python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf' --use-ai
+python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf'
 
 # Shortcut (uses config.PDF_PLASTIKAS_URL / config.PDF_STIKLAS_URL)
-python services/scraper_pdf/main.py --source plastikas --use-ai
-python services/scraper_pdf/main.py --source stiklas --use-ai
+python services/scraper_pdf/main.py --source plastikas
+python services/scraper_pdf/main.py --source stiklas
 ```
 
 Outputs:
@@ -160,7 +160,7 @@ If you deploy a new parser but the remote XLSX/PDF files are unchanged, the sche
 normally skip work. You can force a one-time re-parse on container startup via env vars:
 
 - `FORCE_PARSE_ON_START=1`: force XLSX + PDF parsing once on start (bypasses skip logic)
-- `SCRAPER_PDF_USE_AI=1`: (optional) enable AI parsing for PDF splits
+- PDF scheduler uses AI by default; use `--skip-ai` only for debugging.
 
 The schedulers write a small sentinel file under `services/database/` so the forced run
 won't repeat on container restarts.

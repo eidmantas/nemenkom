@@ -65,8 +65,6 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 # - FORCE_PARSE_ON_START=1
 #     Force a one-time re-parse on container startup for BOTH XLSX + PDF
 #     (useful when code changes but the remote files are unchanged).
-# - SCRAPER_PDF_USE_AI=1
-#     Enable AI parsing for PDF splitting in the `scraper_pdf` scheduler.
 #
 # Notes:
 # - These env vars are read by the schedulers directly (not via this config module).

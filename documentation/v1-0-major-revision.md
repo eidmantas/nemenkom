@@ -248,7 +248,7 @@ Use this list verbatim to resume work without extra context.
    - If rerunning, paste new outputs into the supplement and compare against prior results.
 
 5) **Enable AI parsing for PDF (optional)**
-   - Run: `venv/bin/python services/scraper_pdf/main.py /path/to/glass.pdf --use-ai`
+   - Default is AI enabled; run: `venv/bin/python services/scraper_pdf/main.py /path/to/glass.pdf`
    - Confirm `pdf_ai_parser_cache` is populated.
    - Verify `pdf_parsed_rows.exclude_streets_json` is filled.
    - If AI providers time out or 429, rotation should failover automatically; check logs.

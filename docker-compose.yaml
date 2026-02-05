@@ -47,8 +47,6 @@ services:
       # Optional one-time forced re-parse on container start (bypasses HEAD+hash skips).
       # Creates a sentinel file under services/database so it won't repeat on restarts.
       # - FORCE_PARSE_ON_START=1
-      # Optional: enable AI parsing for PDF splits (needed for some complex multi-seniūnija cells).
-      # - SCRAPER_PDF_USE_AI=1
     restart: unless-stopped
 
   calendar:

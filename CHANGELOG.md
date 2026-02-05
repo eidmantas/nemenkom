@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- One-time forced re-parse on container start via env vars (`FORCE_PARSE_ON_START=1`, `SCRAPER_PDF_USE_AI=1`) to re-run parsers even when remote sources are unchanged.
+- One-time forced re-parse on container start via env var (`FORCE_PARSE_ON_START=1`) to re-run parsers even when remote sources are unchanged.
 - XLSX CLI `--force` flag to bypass HEAD-based “unchanged” skip when you need to rebuild derived data.
 
 ### Fixed

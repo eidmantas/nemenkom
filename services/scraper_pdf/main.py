@@ -278,9 +278,9 @@ def main():
         help="Force parsing even if the same URL+content hash was already parsed successfully.",
     )
     parser.add_argument(
-        "--use-ai",
+        "--skip-ai",
         action="store_true",
-        help="Enable AI parsing (default: disabled).",
+        help="Skip AI parsing (default: enabled).",
     )
     parser.add_argument(
         "--year",
@@ -327,7 +327,7 @@ def main():
         conn.close()
 
         try:
-            rc = run_pdf_scraper(local_path, args.year, skip_ai=not args.use_ai)
+            rc = run_pdf_scraper(local_path, args.year, skip_ai=args.skip_ai)
             conn = get_db_connection()
             _log_fetch(
                 conn,
@@ -401,7 +401,7 @@ def main():
             conn.close()
             raise
 
-    return run_pdf_scraper(args.file, args.year, skip_ai=not args.use_ai)
+    return run_pdf_scraper(args.file, args.year, skip_ai=args.skip_ai)
 
 
 if __name__ == "__main__":
