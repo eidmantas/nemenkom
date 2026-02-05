@@ -22,7 +22,16 @@ from services.common.logging_utils import setup_logging
 from services.common.migrations import init_database
 
 
-def _run_one(source: str) -> bool:
+def _env_true(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _one_time_flag_path(flag_name: str) -> Path:
+    db_dir = Path(__file__).parent.parent / "database"
+    return db_dir / f".{flag_name}"
+
+
+def _run_one(source: str, *, force: bool = False, use_ai: bool = False) -> bool:
     """
     Run scraper_pdf for one configured source.
     Returns True if command completed successfully.
@@ -50,6 +59,10 @@ def _run_one(source: str) -> bool:
                 "--year",
                 "2026",
             ]
+            if use_ai:
+                sys.argv.append("--use-ai")
+            if force:
+                sys.argv.append("--force")
             rc = pdf_main()
         finally:
             sys.argv = argv_prev
@@ -64,11 +77,11 @@ def _run_one(source: str) -> bool:
         return False
 
 
-def run_pdf_job() -> bool:
+def run_pdf_job(*, force: bool = False, use_ai: bool = False) -> bool:
     logger = logging.getLogger(__name__)
     logger.info("Running PDF scraper job")
-    ok1 = _run_one("plastikas")
-    ok2 = _run_one("stiklas")
+    ok1 = _run_one("plastikas", force=force, use_ai=use_ai)
+    ok2 = _run_one("stiklas", force=force, use_ai=use_ai)
     return ok1 and ok2
 
 
@@ -103,7 +116,18 @@ def main() -> None:
     print(
         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running initial PDF scrape on startup..."
     )
-    run_pdf_job()
+    use_ai = _env_true("SCRAPER_PDF_USE_AI")
+    force_on_start = _env_true("FORCE_PARSE_ON_START") or _env_true("SCRAPER_PDF_FORCE_ON_START")
+    flag_path = _one_time_flag_path("force_pdf_on_start_done")
+    if force_on_start and not flag_path.exists():
+        ok = run_pdf_job(force=True, use_ai=use_ai)
+        if ok:
+            try:
+                flag_path.touch()
+            except Exception:
+                pass
+    else:
+        run_pdf_job(use_ai=use_ai)
 
     last_run_date = datetime.now().date()
     last_run_hour = None
@@ -114,7 +138,7 @@ def main() -> None:
         if should_run_now():
             target_hour = now.time().hour
             if last_run_date != current_date or last_run_hour != target_hour:
-                run_pdf_job()
+                run_pdf_job(use_ai=use_ai)
                 last_run_date = current_date
                 last_run_hour = target_hour
         time.sleep(60)

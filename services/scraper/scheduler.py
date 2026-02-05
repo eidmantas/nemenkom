@@ -4,6 +4,7 @@ Runs immediately on startup, then schedules runs at 11:00 and 18:00 daily
 """
 
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -18,12 +19,22 @@ from services.common.migrations import init_database
 from services.scraper.main import run_scraper
 
 
-def run_scraper_job():
+def _env_true(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _one_time_flag_path(flag_name: str) -> Path:
+    # Stored inside the mounted DB volume so it survives container restarts.
+    db_dir = Path(__file__).parent.parent / "database"
+    return db_dir / f".{flag_name}"
+
+
+def run_scraper_job(*, force: bool = False) -> bool:
     """Run the scraper job"""
     logger = logging.getLogger(__name__)
     logger.info("Running scraper job")
     try:
-        exit_code = run_scraper(skip_ai=False)  # Full parsing with AI (default)
+        exit_code = run_scraper(skip_ai=False, force=force)  # Full parsing with AI (default)
 
         if exit_code == 0:
             logger.info("Scraper completed successfully")
@@ -70,7 +81,18 @@ def main():
 
     # Run immediately on startup
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running initial scraper on startup...")
-    run_scraper_job()
+    force_on_start = _env_true("FORCE_PARSE_ON_START") or _env_true("SCRAPER_FORCE_ON_START")
+    flag_path = _one_time_flag_path("force_xlsx_on_start_done")
+    if force_on_start and not flag_path.exists():
+        ok = run_scraper_job(force=True)
+        if ok:
+            try:
+                flag_path.touch()
+            except Exception:
+                # Never fail startup due to flag persistence.
+                pass
+    else:
+        run_scraper_job()
 
     # Track last run time to avoid duplicate runs
     last_run_date = datetime.now().date()

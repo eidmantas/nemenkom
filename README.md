@@ -151,6 +151,17 @@ Marker cache:
 Marker-pdf manages its own internal caching/model downloads. This repo does not implement
 additional marker output caching.
 
+### One-time forced re-parse on container start (optional)
+
+If you deploy a new parser but the remote XLSX/PDF files are unchanged, the schedulers will
+normally skip work. You can force a one-time re-parse on container startup via env vars:
+
+- `FORCE_PARSE_ON_START=1`: force XLSX + PDF parsing once on start (bypasses skip logic)
+- `SCRAPER_PDF_USE_AI=1`: (optional) enable AI parsing for PDF splits
+
+The schedulers write a small sentinel file under `services/database/` so the forced run
+won't repeat on container restarts.
+
 Note: `marker-pdf==1.10.1` currently declares `openai<2.0.0`. We pin `openai>=2.16.0`
 for other components, so pip may warn about a dependency conflict. This does not affect
 PDF table extraction, but keep it in mind if installing dependencies strictly.
