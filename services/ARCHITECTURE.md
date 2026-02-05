@@ -339,3 +339,32 @@ Old streams are not deleted immediately; they enter pending clean, post user not
 - **Rate limiting**: throttling handled in calendar client utilities (calendar APIs only).
 - **Concurrency**: calendar worker is single-threaded polling.
 - **Observability**: logs in worker and scraper; DB retains fetch history in `data_fetches`.
+
+## 12. Future Improvement: Explicit Schedule Applicability (scope_level)
+
+Problem statement:
+
+- Today we sometimes encode “applies to whole village” implicitly as `street == ''` (in `locations`)
+  and sometimes as `street IS NULL` (e.g. PDF-derived `pdf_parsed_rows` before normalization).
+- This makes matching rules fragile and forces query logic to rely on `COALESCE(...)` patterns.
+
+Current mitigation (v1.0):
+
+- We normalize PDF “no street” to `''` on write and keep SQL queries NULL-safe.
+- This is intentionally minimal to reduce migration risk during release stabilization.
+
+Proposed Phase 2 model (industry practice):
+
+- Introduce an explicit applicability level for schedule rules (rather than inferring from strings):
+  - `scope_level = 'village' | 'street' | 'bucket'`
+- Store applicability using nullable IDs (or nullable text keys as an intermediate step):
+  - `scope_level='village'` → no street, no bucket
+  - `scope_level='street'` → street present, no bucket
+  - `scope_level='bucket'` → street + bucket present
+- Enforce invariants with DB constraints (CHECK) so invalid/ambiguous states cannot be stored.
+
+Why this helps:
+
+- Removes the `NULL` vs `''` ambiguity permanently.
+- Makes API matching logic simpler and more reliable (filter by `scope_level` instead of guessing).
+- Makes it easier to support additional “containment” semantics later (e.g., house-number ranges).

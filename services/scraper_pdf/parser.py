@@ -513,6 +513,11 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
         dates = item.get("dates") or []
         dates_hash = generate_dates_hash(dates) if dates else ""
         dates_json = json.dumps([d.isoformat() for d in dates], ensure_ascii=False)
+        # Normalize optional dimensions. We consistently store "no street" as empty string rather
+        # than NULL to match the existing `locations.street == ''` convention and avoid NULL-vs-empty
+        # mismatches in API queries.
+        street = (item.get("street") or "").strip()
+        mapped_street = (item.get("mapped_street") or "").strip()
         conn.execute(
             """
             INSERT INTO pdf_parsed_rows (
@@ -532,8 +537,8 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
                 item.get("mapped_seniunija"),
                 item.get("village"),
                 item.get("mapped_village"),
-                item.get("street"),
-                item.get("mapped_street"),
+                street,
+                mapped_street,
                 item.get("house_numbers"),
                 json.dumps(item.get("exclude_streets") or [], ensure_ascii=False),
                 dates_json,

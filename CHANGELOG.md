@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
 - Document URL update/year-rollover handling for PDF/XLSX sources and UX continuity (H2 plan, yearly roll).
 - BUG: marker-pdf drops glass Kovo 30 row (Avižienių/Aleksandravo + Paberžės + Nemenčinės + Maišiagalos); investigate extraction settings/fallback.
+- Phase 2: make schedule applicability explicit (village vs street vs bucket) to avoid `NULL`/`''` ambiguity; see `services/ARCHITECTURE.md` (“Future Improvement: Explicit Schedule Applicability (scope_level)”).
 - Standardize UI copy in Lithuanian, add English translations, and add a language selector (static files + templates).
 
 ## [Unreleased]
