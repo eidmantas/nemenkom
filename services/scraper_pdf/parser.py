@@ -707,6 +707,11 @@ def _validate_pdf_ai_output(kaimai_str: str, parsed: PdfParsedCell) -> None:
     if not parsed.groups:
         return
     lowered = kaimai_str.lower()
+
+    expected_labels = _extract_seniunija_labels(kaimai_str)
+    expected_bases = {_normalize_seniunija_label(s) for s in expected_labels}
+    multi_seniunija = len(expected_bases) >= 2
+
     if (
         parsed.seniunija is None
         and "sen." in lowered
@@ -718,8 +723,103 @@ def _validate_pdf_ai_output(kaimai_str: str, parsed: PdfParsedCell) -> None:
         if any(token in village for token in ["kaimai", "sen.", "seniūnija"]):
             raise ValueError(f"AI output contains header-like village: {group.village}")
 
+    # Multi-seniūnija guardrail:
+    # If the input contains multiple seniūnija headers, the output MUST assign group.seniunija
+    # and it must cover at least that many distinct seniūnija values.
+    if multi_seniunija:
+        missing = [g for g in parsed.groups if not (g.seniunija or "").strip()]
+        if missing:
+            raise ValueError(
+                "AI output missing group.seniunija for multi-seniunija input "
+                f"(expected at least {len(expected_bases)} distinct seniunija values: {sorted(expected_bases)})"
+            )
+        distinct_bases = {
+            _normalize_seniunija_label(g.seniunija or "") for g in parsed.groups if g.seniunija
+        }
+        if len(distinct_bases) < len(expected_bases):
+            raise ValueError(
+                "AI output has too few distinct group.seniunija values for multi-seniunija input "
+                f"(got {len(distinct_bases)}, expected >= {len(expected_bases)}; expected={sorted(expected_bases)} got={sorted(distinct_bases)})"
+            )
+
+
+# Match both abbreviated and full forms, including plural/genitive:
+# - "<X> sen." / "<X> sen"
+# - "<X> seniūnija" / "<X> seniunija"
+# - "<X> seniūnijos"
+#
+# Use a lookahead instead of \b because "sen." ends with a dot (non-word), and \b would not match.
+_SENIUNIJA_LABEL_RE = re.compile(
+    r"(?P<name>[A-ZĄČĘĖĮŠŲŪŽ][A-Za-zĄČĘĖĮŠŲŪŽąčęėįšųūž\-\s]{1,60}?)\s+"
+    r"(?P<suffix>sen\.?|seniūnija|seniunija|seniūnijos)"
+    r"(?=\s|$|:)",
+    flags=re.IGNORECASE,
+)
+
+
+def _normalize_seniunija_label(value: str) -> str:
+    """
+    Normalize a seniūnija label to its base name for comparison/deduping.
+
+    Examples:
+      - "Maišiagalos sen." -> "maišiagalos"
+      - "Maišiagalos seniūnijos" -> "maišiagalos"
+      - "Maišiagalos seniunija" -> "maišiagalos"
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s{2,}", " ", text)
+    # Drop trailing suffix tokens (and optional punctuation).
+    text = re.sub(
+        r"\s+(sen\.?|seniūnija|seniunija|seniūnijos)\s*\.?$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = text.strip(" ,:\t\n").strip()
+    return text.lower()
+
+
+def _extract_seniunija_labels(kaimai_str: str) -> list[str]:
+    """
+    Extract ordered, de-duplicated seniūnija labels from a cell string.
+    We accept both abbreviations and full forms:
+      - "<X> sen."
+      - "<X> seniūnija" / "<X> seniunija"
+      - "<X> seniūnijos"
+    """
+    text = str(kaimai_str or "")
+    labels: list[str] = []
+    seen: set[str] = set()
+    for m in _SENIUNIJA_LABEL_RE.finditer(text):
+        name = (m.group("name") or "").strip(" ,:\n\t")
+        if not name:
+            continue
+        label = f"{name} sen."
+        base = _normalize_seniunija_label(label)
+        if not base or base in seen:
+            continue
+        seen.add(base)
+        labels.append(label)
+    return labels
+
 
 def create_pdf_parsing_prompt(kaimai_str: str) -> str:
+    expected_labels = _extract_seniunija_labels(kaimai_str)
+    expected_bases = {_normalize_seniunija_label(s) for s in expected_labels}
+    expected_count = len(expected_bases)
+    multi_hint = ""
+    if expected_count >= 2:
+        # Provide a hard constraint for multi-seniūnija cells so the model is forced to assign per-group seniors.
+        multi_hint = f"""
+
+### Multi-seniūnija constraint (hard requirement)
+- The input contains {expected_count} seniūnija headers: {json.dumps(expected_labels, ensure_ascii=False)}
+- For this input, you MUST set group.seniunija for EVERY group (do not leave it null).
+- Your output must include at least {expected_count} distinct group.seniunija values (one per section).
+- Do NOT merge sections (avoid values like "A sen., B sen."). Use ONE seniūnija per group.
+"""
     return f"""You are extracting structured locations from a Lithuanian waste-schedule PDF cell.
 Return ONLY valid JSON (no markdown, no code fences, no explanations).
 
@@ -746,6 +846,7 @@ Return ONLY valid JSON (no markdown, no code fences, no explanations).
 - If the cell contains multiple seniūnija sections, output groups for EACH village under EACH seniūnija section.
 - If you truly cannot infer a seniūnija for a group, set group.seniunija=null.
 - Never put "sen." / "seniūnija" / "kaimai" into the village field.
+{multi_hint}
 
 ### Street vs village
 - "village" is a settlement name (usually ends with "k." or "vs."), not a street.
@@ -810,7 +911,18 @@ def parse_pdf_cell_with_ai(
 
     cached = get_pdf_ai_cache(kaimai_str, waste_type)
     if cached is not None:
-        return cached
+        # Validate cached output under the current rules. If it fails (e.g. multi-seniūnija cell with
+        # missing per-group seniunija), fall back to re-parsing so we can self-heal old cache entries.
+        try:
+            _validate_pdf_ai_output(kaimai_str, cached)
+            return cached
+        except Exception as exc:
+            logger.info(
+                "Cached PDF AI parse invalid; will re-parse (waste_type=%s). Error=%s Input=%s",
+                waste_type or "unknown",
+                exc,
+                kaimai_str[:200],
+            )
 
     model_rotation = [
         (provider_name, model_id)
@@ -861,15 +973,12 @@ def parse_pdf_cell_with_ai(
                     model_id,
                     json.dumps(payload, ensure_ascii=False),
                 )
+                # Never log API keys/tokens.
                 logger.info(
-                    "PDF AI request (%s:%s) url=%s headers=%s",
+                    "PDF AI request (%s:%s) url=%s auth=Bearer <redacted>",
                     provider_name,
                     model_id,
                     f"{base_url}/chat/completions",
-                    json.dumps(
-                        {"Authorization": f"Bearer {api_key}"},
-                        ensure_ascii=False,
-                    ),
                 )
                 resp = requests.post(
                     f"{base_url}/chat/completions",
@@ -938,6 +1047,20 @@ def parse_pdf_cell_with_ai(
                     attempt == 0
                     and isinstance(exc, ValueError)
                     and ("header-like village" in str(exc) or "missing seniunija" in str(exc))
+                ):
+                    current_prompt = (
+                        f"{prompt}\n\nValidation error: {exc}. "
+                        "Fix the JSON output accordingly and return corrected JSON only."
+                    )
+                    continue
+                if (
+                    attempt == 0
+                    and isinstance(exc, ValueError)
+                    and (
+                        "multi-seniunija" in str(exc)
+                        or "distinct group.seniunija" in str(exc)
+                        or "missing group.seniunija" in str(exc)
+                    )
                 ):
                     current_prompt = (
                         f"{prompt}\n\nValidation error: {exc}. "
