@@ -198,7 +198,7 @@ Finish `services/scraper_pdf` normalization and compare parsed outputs for:
 
 ### 2026-02-03
 - Added row-level PDF normalization output (`*.rows.csv`) as phase-1 truth before AI/splitting.
-- Added marker-pdf HTML cache with `--clear-marker-cache` flag for repeatable runs.
+- Removed custom marker-pdf HTML caching; we rely on marker-pdf behavior and the source fetch cache (HEAD/hash) for idempotency.
 - Fixed header pre-rows, month-column mapping, and waste-type fallback (carry last label).
 - Added row-merge heuristic for split location lines and fail-fast validation for empty-month rows.
 - Plastic rows match screenshots across all pages; glass mostly matches with remaining gaps noted.
@@ -232,7 +232,7 @@ Use this list verbatim to resume work without extra context.
    - Run: `venv/bin/python services/scraper_pdf/main.py /path/to/glass.pdf`
    - Ensure `.rows.csv`, `.parsed.csv`, and `.raw.csv` are generated for inspection.
    - Confirm multiple page headers are handled and rows are populated.
-   - Use `--clear-marker-cache` when changing extraction settings.
+   - No marker output cache to clear; re-run with `--force` when you want to rebuild parsed output.
 
 3) **Inspect raw tables**
    - Open `.rows.csv` to verify row-level locations + month values before splitting.

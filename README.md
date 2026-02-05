@@ -148,8 +148,8 @@ Outputs:
 - `*.raw.csv` — raw marker-pdf rows for debugging
 
 Marker cache:
-- Cached HTML under `tmp/marker_cache` (override with `MARKER_CACHE_DIR`)
-- Clear cache with `--clear-marker-cache`
+Marker-pdf manages its own internal caching/model downloads. This repo does not implement
+additional marker output caching.
 
 Note: `marker-pdf==1.10.1` currently declares `openai<2.0.0`. We pin `openai>=2.16.0`
 for other components, so pip may warn about a dependency conflict. This does not affect

@@ -564,46 +564,6 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
     conn.close()
 
 
-@dataclass
-class MarkerCacheEntry:
-    html: str
-    cache_path: Path
-
-
-def _hash_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def _load_marker_cache(file_path: Path, output_format: str) -> MarkerCacheEntry | None:
-    if not config.MARKER_CACHE_ENABLED:
-        return None
-    cache_dir = Path(config.MARKER_CACHE_DIR)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    file_hash = _hash_file(file_path)
-    cache_path = cache_dir / f"{file_path.stem}-{file_hash}-{output_format}.json"
-    if not cache_path.exists():
-        return None
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        html = payload.get("html") if isinstance(payload, dict) else None
-        if not html:
-            return None
-        return MarkerCacheEntry(html=html, cache_path=cache_path)
-    except Exception:
-        return None
-
-
-def _write_marker_cache(cache_path: Path, html: str, output_format: str) -> None:
-    payload = {"html": html, "output_format": output_format}
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-
-
 def extract_marker_tables(file_path: Path) -> list[pd.DataFrame]:
     try:
         from marker.config.parser import ConfigParser
@@ -613,32 +573,19 @@ def extract_marker_tables(file_path: Path) -> list[pd.DataFrame]:
         logger.warning("marker-pdf not available: %s", exc)
         return []
 
-    # marker-pdf output is expensive; cache the HTML by file hash.
     output_format = "html"
-    cache_entry = _load_marker_cache(file_path, output_format)
-    if cache_entry:
-        html = cache_entry.html
-    else:
-        config_parser = ConfigParser({"output_format": output_format})
-        converter = TableConverter(
-            config=config_parser.generate_config_dict(),
-            artifact_dict=create_model_dict(),
-            processor_list=config_parser.get_processors(),
-            renderer=config_parser.get_renderer(),
-        )
-        rendered = converter(str(file_path))
-        rendered_dict = (
-            rendered.model_dump() if hasattr(rendered, "model_dump") else rendered.dict()
-        )
-        html = rendered_dict.get("html", "")
-        if not html:
-            return []
-        if config.MARKER_CACHE_ENABLED:
-            file_hash = _hash_file(file_path)
-            cache_path = (
-                Path(config.MARKER_CACHE_DIR) / f"{file_path.stem}-{file_hash}-{output_format}.json"
-            )
-            _write_marker_cache(cache_path, html, output_format)
+    config_parser = ConfigParser({"output_format": output_format})
+    converter = TableConverter(
+        config=config_parser.generate_config_dict(),
+        artifact_dict=create_model_dict(),
+        processor_list=config_parser.get_processors(),
+        renderer=config_parser.get_renderer(),
+    )
+    rendered = converter(str(file_path))
+    rendered_dict = rendered.model_dump() if hasattr(rendered, "model_dump") else rendered.dict()
+    html = rendered_dict.get("html", "")
+    if not html:
+        return []
 
     parser = HTMLTableParser()
     parser.feed(html)

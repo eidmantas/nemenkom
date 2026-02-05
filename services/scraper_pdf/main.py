@@ -288,20 +288,7 @@ def main():
         default=2026,
         help="Year for date validation (default: 2026)",
     )
-    parser.add_argument(
-        "--clear-marker-cache",
-        action="store_true",
-        help="Clear cached marker-pdf output before parsing.",
-    )
     args = parser.parse_args()
-
-    if args.clear_marker_cache:
-        from shutil import rmtree
-
-        cache_dir = Path(config.MARKER_CACHE_DIR)
-        if cache_dir.exists():
-            rmtree(cache_dir)
-            print(f"Cleared marker cache: {cache_dir}")
 
     if args.source and not args.url and not args.file:
         if args.source == "plastikas":
