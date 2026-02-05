@@ -3,10 +3,13 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # Install dependencies
-COPY requirements-scraper-pdf.txt .
-# NOTE: pip resolver can fail on deep/conflicting optional deps (e.g. anthropic from marker-pdf vs pydantic-ai).
-# We intentionally use the legacy resolver here to mimic local "force install" behavior for release builds.
-RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements-scraper-pdf.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# `marker-pdf` still pins `openai<2` and `anthropic<0.47`. We install it, then explicitly
+# force-upgrade the SDKs we actually want for the rest of the system.
+RUN pip install --no-cache-dir marker-pdf==1.10.2 \
+  && pip install --no-cache-dir --no-deps openai==2.16.0 anthropic==0.77.1
 
 # Needed code
 COPY services/scraper_pdf services/scraper_pdf

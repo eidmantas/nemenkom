@@ -10,13 +10,11 @@ PDF Parser module - Extracts tables from PDF using marker-pdf (HTML output).
 # 5) dedupe + persistence
 
 import datetime
-import hashlib
 import json
 import logging
 import re
 import sqlite3
 import time
-from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import cast
@@ -243,7 +241,7 @@ def _dump_pdf_ai_failure(
     try:
         path = Path("tmp/pdf_ai_failures.jsonl")
         payload = {
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "provider": provider_name,
             "model": model_id,
             "waste_type": waste_type,
@@ -312,7 +310,16 @@ class HTMLTableParser(HTMLParser):
     def _fill_active_spans(self) -> None:
         while self._col_idx < len(self._rowspans):
             span = self._rowspans[self._col_idx]
-            remaining = int(span.get("remaining", 0) or 0)
+            raw_remaining = span.get("remaining", 0)
+            if isinstance(raw_remaining, (int, float)):
+                remaining = int(raw_remaining)
+            elif isinstance(raw_remaining, str):
+                try:
+                    remaining = int(raw_remaining)
+                except ValueError:
+                    remaining = 0
+            else:
+                remaining = 0
             if remaining <= 0:
                 break
             self._current_row.append(str(span.get("value", "")).strip())
@@ -333,7 +340,7 @@ class HTMLTableParser(HTMLParser):
                 }
             self._col_idx += 1
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]] | None) -> None:
         if tag == "table":
             self._in_table = True
             self._current_table = []
@@ -351,7 +358,7 @@ class HTMLTableParser(HTMLParser):
         elif tag == "br" and self._in_cell:
             self._current_cell.append("\n")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in ("td", "th") and self._in_cell:
             cell_text = "".join(self._current_cell).strip()
             self._append_cell(cell_text, self._current_cell_colspan, self._current_cell_rowspan)
@@ -369,7 +376,7 @@ class HTMLTableParser(HTMLParser):
             self._in_table = False
             self._current_table = []
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self._in_cell:
             self._current_cell.append(data)
 
@@ -513,6 +520,11 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
         dates = item.get("dates") or []
         dates_hash = generate_dates_hash(dates) if dates else ""
         dates_json = json.dumps([d.isoformat() for d in dates], ensure_ascii=False)
+        # Normalize optional dimensions. We consistently store "no street" as empty string rather
+        # than NULL to match the existing `locations.street == ''` convention and avoid NULL-vs-empty
+        # mismatches in API queries.
+        street = (item.get("street") or "").strip()
+        mapped_street = (item.get("mapped_street") or "").strip()
         conn.execute(
             """
             INSERT INTO pdf_parsed_rows (
@@ -532,8 +544,8 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
                 item.get("mapped_seniunija"),
                 item.get("village"),
                 item.get("mapped_village"),
-                item.get("street"),
-                item.get("mapped_street"),
+                street,
+                mapped_street,
                 item.get("house_numbers"),
                 json.dumps(item.get("exclude_streets") or [], ensure_ascii=False),
                 dates_json,
@@ -559,46 +571,6 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
     conn.close()
 
 
-@dataclass
-class MarkerCacheEntry:
-    html: str
-    cache_path: Path
-
-
-def _hash_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def _load_marker_cache(file_path: Path, output_format: str) -> MarkerCacheEntry | None:
-    if not config.MARKER_CACHE_ENABLED:
-        return None
-    cache_dir = Path(config.MARKER_CACHE_DIR)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    file_hash = _hash_file(file_path)
-    cache_path = cache_dir / f"{file_path.stem}-{file_hash}-{output_format}.json"
-    if not cache_path.exists():
-        return None
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        html = payload.get("html") if isinstance(payload, dict) else None
-        if not html:
-            return None
-        return MarkerCacheEntry(html=html, cache_path=cache_path)
-    except Exception:
-        return None
-
-
-def _write_marker_cache(cache_path: Path, html: str, output_format: str) -> None:
-    payload = {"html": html, "output_format": output_format}
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-
-
 def extract_marker_tables(file_path: Path) -> list[pd.DataFrame]:
     try:
         from marker.config.parser import ConfigParser
@@ -608,32 +580,19 @@ def extract_marker_tables(file_path: Path) -> list[pd.DataFrame]:
         logger.warning("marker-pdf not available: %s", exc)
         return []
 
-    # marker-pdf output is expensive; cache the HTML by file hash.
     output_format = "html"
-    cache_entry = _load_marker_cache(file_path, output_format)
-    if cache_entry:
-        html = cache_entry.html
-    else:
-        config_parser = ConfigParser({"output_format": output_format})
-        converter = TableConverter(
-            config=config_parser.generate_config_dict(),
-            artifact_dict=create_model_dict(),
-            processor_list=config_parser.get_processors(),
-            renderer=config_parser.get_renderer(),
-        )
-        rendered = converter(str(file_path))
-        rendered_dict = (
-            rendered.model_dump() if hasattr(rendered, "model_dump") else rendered.dict()
-        )
-        html = rendered_dict.get("html", "")
-        if not html:
-            return []
-        if config.MARKER_CACHE_ENABLED:
-            file_hash = _hash_file(file_path)
-            cache_path = (
-                Path(config.MARKER_CACHE_DIR) / f"{file_path.stem}-{file_hash}-{output_format}.json"
-            )
-            _write_marker_cache(cache_path, html, output_format)
+    config_parser = ConfigParser({"output_format": output_format})
+    converter = TableConverter(
+        config=config_parser.generate_config_dict(),
+        artifact_dict=create_model_dict(),
+        processor_list=config_parser.get_processors(),
+        renderer=config_parser.get_renderer(),
+    )
+    rendered = converter(str(file_path))
+    rendered_dict = rendered.model_dump() if hasattr(rendered, "model_dump") else rendered.dict()
+    html = rendered_dict.get("html", "")
+    if not html:
+        return []
 
     parser = HTMLTableParser()
     parser.feed(html)
@@ -702,6 +661,11 @@ def _validate_pdf_ai_output(kaimai_str: str, parsed: PdfParsedCell) -> None:
     if not parsed.groups:
         return
     lowered = kaimai_str.lower()
+
+    expected_labels = _extract_seniunija_labels(kaimai_str)
+    expected_bases = {_normalize_seniunija_label(s) for s in expected_labels}
+    multi_seniunija = len(expected_bases) >= 2
+
     if (
         parsed.seniunija is None
         and "sen." in lowered
@@ -713,8 +677,103 @@ def _validate_pdf_ai_output(kaimai_str: str, parsed: PdfParsedCell) -> None:
         if any(token in village for token in ["kaimai", "sen.", "seniūnija"]):
             raise ValueError(f"AI output contains header-like village: {group.village}")
 
+    # Multi-seniūnija guardrail:
+    # If the input contains multiple seniūnija headers, the output MUST assign group.seniunija
+    # and it must cover at least that many distinct seniūnija values.
+    if multi_seniunija:
+        missing = [g for g in parsed.groups if not (g.seniunija or "").strip()]
+        if missing:
+            raise ValueError(
+                "AI output missing group.seniunija for multi-seniunija input "
+                f"(expected at least {len(expected_bases)} distinct seniunija values: {sorted(expected_bases)})"
+            )
+        distinct_bases = {
+            _normalize_seniunija_label(g.seniunija or "") for g in parsed.groups if g.seniunija
+        }
+        if len(distinct_bases) < len(expected_bases):
+            raise ValueError(
+                "AI output has too few distinct group.seniunija values for multi-seniunija input "
+                f"(got {len(distinct_bases)}, expected >= {len(expected_bases)}; expected={sorted(expected_bases)} got={sorted(distinct_bases)})"
+            )
+
+
+# Match both abbreviated and full forms, including plural/genitive:
+# - "<X> sen." / "<X> sen"
+# - "<X> seniūnija" / "<X> seniunija"
+# - "<X> seniūnijos"
+#
+# Use a lookahead instead of \b because "sen." ends with a dot (non-word), and \b would not match.
+_SENIUNIJA_LABEL_RE = re.compile(
+    r"(?P<name>[A-ZĄČĘĖĮŠŲŪŽ][A-Za-zĄČĘĖĮŠŲŪŽąčęėįšųūž\-\s]{1,60}?)\s+"
+    r"(?P<suffix>sen\.?|seniūnija|seniunija|seniūnijos)"
+    r"(?=\s|$|:)",
+    flags=re.IGNORECASE,
+)
+
+
+def _normalize_seniunija_label(value: str) -> str:
+    """
+    Normalize a seniūnija label to its base name for comparison/deduping.
+
+    Examples:
+      - "Maišiagalos sen." -> "maišiagalos"
+      - "Maišiagalos seniūnijos" -> "maišiagalos"
+      - "Maišiagalos seniunija" -> "maišiagalos"
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s{2,}", " ", text)
+    # Drop trailing suffix tokens (and optional punctuation).
+    text = re.sub(
+        r"\s+(sen\.?|seniūnija|seniunija|seniūnijos)\s*\.?$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = text.strip(" ,:\t\n").strip()
+    return text.lower()
+
+
+def _extract_seniunija_labels(kaimai_str: str) -> list[str]:
+    """
+    Extract ordered, de-duplicated seniūnija labels from a cell string.
+    We accept both abbreviations and full forms:
+      - "<X> sen."
+      - "<X> seniūnija" / "<X> seniunija"
+      - "<X> seniūnijos"
+    """
+    text = str(kaimai_str or "")
+    labels: list[str] = []
+    seen: set[str] = set()
+    for m in _SENIUNIJA_LABEL_RE.finditer(text):
+        name = (m.group("name") or "").strip(" ,:\n\t")
+        if not name:
+            continue
+        label = f"{name} sen."
+        base = _normalize_seniunija_label(label)
+        if not base or base in seen:
+            continue
+        seen.add(base)
+        labels.append(label)
+    return labels
+
 
 def create_pdf_parsing_prompt(kaimai_str: str) -> str:
+    expected_labels = _extract_seniunija_labels(kaimai_str)
+    expected_bases = {_normalize_seniunija_label(s) for s in expected_labels}
+    expected_count = len(expected_bases)
+    multi_hint = ""
+    if expected_count >= 2:
+        # Provide a hard constraint for multi-seniūnija cells so the model is forced to assign per-group seniors.
+        multi_hint = f"""
+
+### Multi-seniūnija constraint (hard requirement)
+- The input contains {expected_count} seniūnija headers: {json.dumps(expected_labels, ensure_ascii=False)}
+- For this input, you MUST set group.seniunija for EVERY group (do not leave it null).
+- Your output must include at least {expected_count} distinct group.seniunija values (one per section).
+- Do NOT merge sections (avoid values like "A sen., B sen."). Use ONE seniūnija per group.
+"""
     return f"""You are extracting structured locations from a Lithuanian waste-schedule PDF cell.
 Return ONLY valid JSON (no markdown, no code fences, no explanations).
 
@@ -741,6 +800,7 @@ Return ONLY valid JSON (no markdown, no code fences, no explanations).
 - If the cell contains multiple seniūnija sections, output groups for EACH village under EACH seniūnija section.
 - If you truly cannot infer a seniūnija for a group, set group.seniunija=null.
 - Never put "sen." / "seniūnija" / "kaimai" into the village field.
+{multi_hint}
 
 ### Street vs village
 - "village" is a settlement name (usually ends with "k." or "vs."), not a street.
@@ -805,7 +865,18 @@ def parse_pdf_cell_with_ai(
 
     cached = get_pdf_ai_cache(kaimai_str, waste_type)
     if cached is not None:
-        return cached
+        # Validate cached output under the current rules. If it fails (e.g. multi-seniūnija cell with
+        # missing per-group seniunija), fall back to re-parsing so we can self-heal old cache entries.
+        try:
+            _validate_pdf_ai_output(kaimai_str, cached)
+            return cached
+        except Exception as exc:
+            logger.info(
+                "Cached PDF AI parse invalid; will re-parse (waste_type=%s). Error=%s Input=%s",
+                waste_type or "unknown",
+                exc,
+                kaimai_str[:200],
+            )
 
     model_rotation = [
         (provider_name, model_id)
@@ -856,15 +927,12 @@ def parse_pdf_cell_with_ai(
                     model_id,
                     json.dumps(payload, ensure_ascii=False),
                 )
+                # Never log API keys/tokens.
                 logger.info(
-                    "PDF AI request (%s:%s) url=%s headers=%s",
+                    "PDF AI request (%s:%s) url=%s auth=Bearer <redacted>",
                     provider_name,
                     model_id,
                     f"{base_url}/chat/completions",
-                    json.dumps(
-                        {"Authorization": f"Bearer {api_key}"},
-                        ensure_ascii=False,
-                    ),
                 )
                 resp = requests.post(
                     f"{base_url}/chat/completions",
@@ -933,6 +1001,20 @@ def parse_pdf_cell_with_ai(
                     attempt == 0
                     and isinstance(exc, ValueError)
                     and ("header-like village" in str(exc) or "missing seniunija" in str(exc))
+                ):
+                    current_prompt = (
+                        f"{prompt}\n\nValidation error: {exc}. "
+                        "Fix the JSON output accordingly and return corrected JSON only."
+                    )
+                    continue
+                if (
+                    attempt == 0
+                    and isinstance(exc, ValueError)
+                    and (
+                        "multi-seniunija" in str(exc)
+                        or "distinct group.seniunija" in str(exc)
+                        or "missing group.seniunija" in str(exc)
+                    )
                 ):
                     current_prompt = (
                         f"{prompt}\n\nValidation error: {exc}. "
@@ -1163,7 +1245,7 @@ def infer_month_columns(section: pd.DataFrame) -> dict[str, str]:
                 found.add(normalized)
     if found and not set(found).issubset(set(ordered)):
         raise ValueError(f"Unexpected month headers {sorted(found)} for {expected} month columns.")
-    return {name: section.columns[2 + idx] for idx, name in enumerate(ordered)}
+    return {name: str(section.columns[2 + idx]) for idx, name in enumerate(ordered)}
 
 
 def normalize_waste_type(waste_type: str) -> str:

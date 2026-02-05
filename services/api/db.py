@@ -603,8 +603,8 @@ def get_available_waste_types_for_selection(
                 WHERE COALESCE(mapped_seniunija, seniunija) = :seniunija
                   AND COALESCE(mapped_village, village) = :village
                   AND (
-                    COALESCE(mapped_street, street) = :street
-                    OR COALESCE(mapped_street, street) = ''
+                    COALESCE(COALESCE(mapped_street, street), '') = :street
+                    OR COALESCE(COALESCE(mapped_street, street), '') = ''
                   )
                   AND waste_type IN ('plastikas', 'stiklas')
                 """,
@@ -619,8 +619,8 @@ def get_available_waste_types_for_selection(
                 WHERE COALESCE(mapped_seniunija, seniunija) = :seniunija
                   AND COALESCE(mapped_village, village) = :village
                   AND (
-                    COALESCE(mapped_street, street) = :street
-                    OR COALESCE(mapped_street, street) = ''
+                    COALESCE(COALESCE(mapped_street, street), '') = :street
+                    OR COALESCE(COALESCE(mapped_street, street), '') = ''
                   )
                   AND (
                     COALESCE(house_numbers, '') = :house_numbers
@@ -667,7 +667,7 @@ def get_pdf_streetwide_waste_types_for_selection(
             FROM pdf_parsed_rows
             WHERE COALESCE(mapped_seniunija, seniunija) = :seniunija
               AND COALESCE(mapped_village, village) = :village
-              AND COALESCE(mapped_street, street) = :street
+              AND COALESCE(COALESCE(mapped_street, street), '') = :street
               AND LOWER(COALESCE(house_numbers, '')) IN ('', 'all')
               AND waste_type IN ('plastikas', 'stiklas')
             """,
@@ -708,8 +708,8 @@ def _get_pdf_kaimai_hash_for_selection(
           kaimai_hash,
           COALESCE(house_numbers, '') as hn,
           CASE
-            WHEN COALESCE(mapped_street, street) = :street THEN 0
-            WHEN COALESCE(mapped_street, street) = '' THEN 1
+            WHEN COALESCE(COALESCE(mapped_street, street), '') = :street THEN 0
+            WHEN COALESCE(COALESCE(mapped_street, street), '') = '' THEN 1
             ELSE 2
           END as street_rank
         FROM pdf_parsed_rows
@@ -717,8 +717,8 @@ def _get_pdf_kaimai_hash_for_selection(
           AND COALESCE(mapped_seniunija, seniunija) = :seniunija
           AND COALESCE(mapped_village, village) = :village
           AND (
-            COALESCE(mapped_street, street) = :street
-            OR COALESCE(mapped_street, street) = ''
+            COALESCE(COALESCE(mapped_street, street), '') = :street
+            OR COALESCE(COALESCE(mapped_street, street), '') = ''
           )
     """
     params = {

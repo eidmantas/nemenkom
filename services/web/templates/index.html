@@ -112,6 +112,7 @@
         let currentHouseNumber = '';
         let villageHasStreets = false;
         let streetHasHouseNumbers = false;
+        let isRestoring = false;
         
         // Data storage
         let allVillages = [];
@@ -120,9 +121,11 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', function() {
-            loadVillages();
-            // Restore selections from URL
-            restoreFromURL();
+            (async () => {
+                // Load villages first so URL restore can be deterministic (no polling/sleeps).
+                await loadVillages();
+                await restoreFromURL();
+            })();
         });
 
         // Normalize Lithuanian characters to ASCII for search
@@ -155,8 +158,10 @@
                 const data = await response.json();
                 allVillages = data.villages || []; // Array of {seniunija, village} objects
                 populateVillageDatalist();
+                return true;
             } catch (error) {
                 console.error('Error loading villages:', error);
+                return false;
             }
         }
 
@@ -221,7 +226,9 @@
                     <span class="dropdown-item-text">${displayText}</span>
                     <span class="dropdown-item-chips">${chips}</span>
                 `;
-                item.onclick = () => {
+                item.onpointerdown = (e) => {
+                    // On mobile, pointerdown fires before input blur; this avoids lost taps.
+                    e.preventDefault();
                     input.value = displayText;
                     dropdown.style.display = 'none';
                     handleVillageSelection(v);
@@ -266,7 +273,8 @@
             }
         }
 
-        async function handleVillageSelection(villageObj) {
+        async function handleVillageSelection(villageObj, opts = {}) {
+            const skipURLUpdate = !!opts.skipURLUpdate;
             // Reset state
             currentVillage = villageObj; // Store the object {seniunija, village}
             currentStreet = '';
@@ -284,7 +292,7 @@
             clearCalendar();
             
             // Update URL
-            updateURL();
+            if (!skipURLUpdate) updateURL();
             
             if (!villageObj || !villageObj.seniunija || !villageObj.village) {
                 return;
@@ -315,14 +323,14 @@
                 if (hasWholeVillage && !hasOtherStreets) {
                     currentStreet = '';
                     document.getElementById('streetSelectGroup').style.display = 'none';
-                    loadHouseNumbers(villageObj, '');
+                    await loadHouseNumbers(villageObj, '');
                 } else if (hasOtherStreets) {
                     // Show street select - DON'T show "Visiems" if there are specific streets
                     document.getElementById('streetSelectGroup').style.display = '';
                 } else {
                     // No streets at all - can load schedule directly
                     document.getElementById('streetSelectGroup').style.display = 'none';
-                    loadSchedule(villageObj, null, null);
+                    await loadSchedule(villageObj, null, null);
                 }
             } catch (error) {
                 console.error('Error loading streets:', error);
@@ -386,7 +394,8 @@
                     <span class="dropdown-item-chips">${chips}</span>
                 `;
 
-                item.onclick = () => {
+                item.onpointerdown = (e) => {
+                    e.preventDefault();
                     input.value = entry.street || 'Visiems (visas kaimas)';
                     dropdown.style.display = 'none';
                     handleStreetSelection(entry.street || '');
@@ -425,7 +434,8 @@
             }
         }
 
-        async function handleStreetSelection(street) {
+        async function handleStreetSelection(street, opts = {}) {
+            const skipURLUpdate = !!opts.skipURLUpdate;
             // Reset house number
             currentStreet = street;
             currentHouseNumber = '';
@@ -439,14 +449,14 @@
             clearCalendar();
             
             // Update URL
-            updateURL();
+            if (!skipURLUpdate) updateURL();
             
             if (!currentVillage) {
                 return;
             }
 
             // Load house numbers
-            loadHouseNumbers(currentVillage, street);
+            await loadHouseNumbers(currentVillage, street);
         }
 
         async function loadHouseNumbers(villageObj, street) {
@@ -537,7 +547,8 @@
                     <span class="dropdown-item-chips">${chips}</span>
                 `;
 
-                item.onclick = () => {
+                item.onpointerdown = (e) => {
+                    e.preventDefault();
                     input.value = entry.house_numbers || (streetHasHouseNumbers ? 'Kitiems numeriams' : 'Visiems');
                     dropdown.style.display = 'none';
                     handleHouseNumberSelection(entry.house_numbers || '');
@@ -576,7 +587,8 @@
             }
         }
 
-        function handleHouseNumberSelection(houseNumber) {
+        function handleHouseNumberSelection(houseNumber, opts = {}) {
+            const skipURLUpdate = !!opts.skipURLUpdate;
             currentHouseNumber = houseNumber;
             
             if (!currentVillage || currentStreet === null || currentStreet === undefined) {
@@ -584,13 +596,15 @@
             }
             
             // Update URL
-            updateURL();
+            if (!skipURLUpdate) updateURL();
             
             loadSchedule(currentVillage, currentStreet, houseNumber);
         }
 
         // Update URL with current selections
-        function updateURL() {
+        function updateURL(opts = {}) {
+            if (isRestoring) return;
+            const replace = !!opts.replace;
             const params = new URLSearchParams();
             if (currentVillage && currentVillage.seniunija && currentVillage.village) {
                 params.set('seniunija', currentVillage.seniunija);
@@ -608,7 +622,11 @@
                 : window.location.pathname;
             
             // Update URL without page reload (using history API)
-            window.history.pushState({}, '', newURL);
+            if (replace) {
+                window.history.replaceState({}, '', newURL);
+            } else {
+                window.history.pushState({}, '', newURL);
+            }
         }
 
         // Restore selections from URL on page load
@@ -622,41 +640,36 @@
             if (!seniunija || !village) {
                 return; // No URL parameters, start fresh
             }
-            
-            // Wait for villages to load first
-            await new Promise(resolve => {
-                const checkVillages = setInterval(() => {
-                    if (allVillages.length > 0) {
-                        clearInterval(checkVillages);
-                        resolve();
-                    }
-                }, 100);
-            });
+
+            // If villages failed to load, restore can't proceed reliably.
+            if (!allVillages || allVillages.length === 0) {
+                return;
+            }
+
+            isRestoring = true;
             
             // Find matching village object
             const villageObj = allVillages.find(v => v.seniunija === seniunija && v.village === village);
             if (villageObj) {
                 document.getElementById('villageInput').value = `${villageObj.seniunija} / ${villageObj.village}`;
-                await handleVillageSelection(villageObj);
-                
-                // Wait a bit for streets to load
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await handleVillageSelection(villageObj, { skipURLUpdate: true });
                 
                 // Set street if provided
                 if (street !== null && allStreets.some(s => s.street === street)) {
                     document.getElementById('streetInput').value = street || 'Visiems (visas kaimas)';
-                    await handleStreetSelection(street);
-                    
-                    // Wait a bit for house numbers to load
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await handleStreetSelection(street, { skipURLUpdate: true });
                     
                     // Set house number if provided
                     if (house !== null && allHouseNumbers.some(h => h.house_numbers === house)) {
                         document.getElementById('houseNumberInput').value = house;
-                        handleHouseNumberSelection(house);
+                        handleHouseNumberSelection(house, { skipURLUpdate: true });
                     }
                 }
             }
+
+            // Write the final restored URL once, without polluting browser history.
+            isRestoring = false;
+            updateURL({ replace: true });
         }
 
         async function loadSchedule(villageObj, street, houseNumber) {
@@ -731,7 +744,7 @@
 
                 let actionHtml = '';
                 if (status === 'synced' && subscriptionLink) {
-                    actionHtml = `<a href="${subscriptionLink}" target="_blank" rel="noopener noreferrer" class="calendar-subscribe-button small">Prenumeruoti</a>`;
+                    actionHtml = `<a href="${subscriptionLink}" target="_blank" rel="noopener noreferrer" class="calendar-subscribe-button small">Google kalendorius</a>`;
                 } else if (status === 'pending') {
                     actionHtml = `<span class="calendar-status-pill pending">Kuriamas</span>`;
                 } else if (status === 'needs_update') {
@@ -749,19 +762,11 @@
                 `;
             }).join('');
 
-            const syncedLinks = availableWasteTypes
-                .map(wt => schedules[wt] && schedules[wt].subscription_link)
-                .filter(Boolean);
-            const subscribeAllButton = syncedLinks.length >= 2
-                ? `<button class="calendar-subscribe-button" onclick='subscribeAll(${JSON.stringify(syncedLinks)})'>Prenumeruoti visus (${syncedLinks.length})</button>`
-                : '';
-
             container.innerHTML = `
                 <h3>${displayName}</h3>
                 <div class="schedule-list">
                     ${schedBlocks}
                 </div>
-                ${subscribeAllButton ? `<div class="calendar-subscribe-section">${subscribeAllButton}<p class="calendar-subscribe-hint">Atsidarys atskiri prenumeratos langai kiekvienam tipui</p></div>` : ''}
             `;
         }
 
@@ -771,11 +776,6 @@
             document.getElementById('calendarLegend').innerHTML = '';
         }
 
-        function subscribeAll(links) {
-            if (!links || links.length === 0) return;
-            // Note: browsers may block multiple popups; user can click individual buttons if needed.
-            links.forEach((link) => window.open(link, '_blank', 'noopener,noreferrer'));
-        }
     </script>
 </body>
 </html>

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
 - Document URL update/year-rollover handling for PDF/XLSX sources and UX continuity (H2 plan, yearly roll).
 - BUG: marker-pdf drops glass Kovo 30 row (Avižienių/Aleksandravo + Paberžės + Nemenčinės + Maišiagalos); investigate extraction settings/fallback.
+- Phase 2: make schedule applicability explicit (village vs street vs bucket) to avoid `NULL`/`''` ambiguity; see `services/ARCHITECTURE.md` (“Future Improvement: Explicit Schedule Applicability (scope_level)”).
 - Standardize UI copy in Lithuanian, add English translations, and add a language selector (static files + templates).
 
 ## [Unreleased]
@@ -15,6 +16,25 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - (none yet)
+
+## [1.0.0-rc2] - 2026-02-05
+
+### Added
+
+- One-time forced re-parse on container start via env var (`FORCE_PARSE_ON_START=1`) to re-run parsers even when remote sources are unchanged.
+- XLSX CLI `--force` flag to bypass HEAD-based “unchanged” skip when you need to rebuild derived data.
+
+### Fixed
+
+- Deep-link restore / mobile dropdown reliability (eliminated “chunky” load ordering and tap failures).
+- Removed “Prenumeruoti visus” button (multi-popup opens are blocked by modern browsers).
+- PDF parsing for “mega cells” spanning multiple seniūnija sections (Kirzinė / Maišiagalos plastikas+stiklas correctness).
+- PDF village-wide `NULL` vs `''` street matching in API queries (plastikas/stiklas availability + schedules now inherit correctly).
+
+### Changed
+
+- Removed custom marker-pdf HTML caching; rely on marker-pdf behavior and the source fetch cache (HEAD/hash) for idempotency.
+- Calendar worker no longer posts cleanup notices or deletes deprecated calendars automatically; calendar deletion is now **manual-only** via `make clean-calendars*` (safer for local/prod).
 
 ## [1.0.0-rc1] - 2026-02-04
 
@@ -31,7 +51,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - API now always returns enriched objects for streets/house-numbers.
-- UI calendar renders combined dates across waste types, with per-waste-type markers and “subscribe all”.
+- UI calendar renders combined dates across waste types, with per-waste-type markers.
 - Dependency layout cleaned up: per-service `requirements-*.txt`, tests/tools in `requirements-dev.txt`.
 
 ## [0.1.5a] - 2026-01-30

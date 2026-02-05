@@ -7,8 +7,7 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 I’m trying to make waste pickup calendars **usable for day‑to‑day life** — by turning the schedules from `nemenkom.lt`
 into something you can subscribe to (Google Calendar) and then stop thinking about.
 
-It’s an **unofficial** community project and it may be done in a **very, very, very wrong way** 
-
+It’s an **unofficial** community project and it may be done in a **very, very, very wrong way**
 
 ## License
 
@@ -118,38 +117,53 @@ This runs before each commit:
 ### Run Scraper
 
 ```bash
-# Simple subset only (traditional parser, no AI needed)
-python services/scraper/main.py --simple-subset
-
 # Full parsing (traditional + AI parser) - processes all entries
 python services/scraper/main.py
+
+# Skip AI parsing (traditional parser only)
+python services/scraper/main.py --skip-ai
+
+# Force parsing even if the remote XLSX is unchanged (bypass HEAD skip)
+python services/scraper/main.py --force
 ```
 
 ### Run PDF Scraper (MVP)
 
 ```bash
-# Default: AI disabled (no token usage)
+# Default: AI enabled
 python services/scraper_pdf/main.py /path/to/file.pdf
 
-# Enable AI parsing explicitly
-python services/scraper_pdf/main.py /path/to/file.pdf --use-ai
+# Skip AI parsing explicitly
+python services/scraper_pdf/main.py /path/to/file.pdf --skip-ai
 
 # Production-style: download from URL and skip re-parse if the PDF content hash is unchanged
-python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf' --use-ai
+python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf'
 
 # Shortcut (uses config.PDF_PLASTIKAS_URL / config.PDF_STIKLAS_URL)
-python services/scraper_pdf/main.py --source plastikas --use-ai
-python services/scraper_pdf/main.py --source stiklas --use-ai
+python services/scraper_pdf/main.py --source plastikas
+python services/scraper_pdf/main.py --source stiklas
 ```
 
 Outputs:
+
 - `*.rows.csv` — row-level normalized output before splitting/AI (phase 1)
 - `*.parsed.csv` — split output (village/street rows)
 - `*.raw.csv` — raw marker-pdf rows for debugging
 
 Marker cache:
-- Cached HTML under `tmp/marker_cache` (override with `MARKER_CACHE_DIR`)
-- Clear cache with `--clear-marker-cache`
+Marker-pdf manages its own internal caching/model downloads. This repo does not implement
+additional marker output caching.
+
+### One-time forced re-parse on container start (optional)
+
+If you deploy a new parser but the remote XLSX/PDF files are unchanged, the schedulers will
+normally skip work. You can force a one-time re-parse on container startup via env vars:
+
+- `FORCE_PARSE_ON_START=1`: force XLSX + PDF parsing once on start (bypasses skip logic)
+- PDF scheduler uses AI by default; use `--skip-ai` only for debugging.
+
+The schedulers write a small sentinel file under `services/database/` so the forced run
+won't repeat on container restarts.
 
 Note: `marker-pdf==1.10.1` currently declares `openai<2.0.0`. We pin `openai>=2.16.0`
 for other components, so pip may warn about a dependency conflict. This does not affect

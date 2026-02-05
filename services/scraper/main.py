@@ -32,6 +32,7 @@ def run_scraper(
     file_path: Path | None = None,
     url: str | None = None,
     year: int = 2026,
+    force: bool = False,
 ):
     """Run the scraper with given parameters
 
@@ -40,6 +41,7 @@ def run_scraper(
         file_path: Path to local xlsx file (if not provided, will fetch from URL)
         url: URL to fetch xlsx from (uses default if not provided)
         year: Year for date validation
+        force: If True, bypass HEAD-based "unchanged" skip and re-parse anyway.
     """
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -79,7 +81,7 @@ def run_scraper(
             finally:
                 conn.close()
             head = head_url(url)
-            if is_unchanged_by_head(cached=cached, head=head):
+            if not force and is_unchanged_by_head(cached=cached, head=head):
                 assert head is not None
                 hint = head.etag or head.last_modified or "unchanged"
                 print(f" Skip: XLSX unchanged (HEAD match: {hint})")
@@ -107,16 +109,19 @@ def run_scraper(
 
         # Log successful source fetch metadata for future HEAD-based skips.
         try:
-            downloaded_from_url = headers is not None and str(file_path).startswith(tempfile.gettempdir())
+            downloaded_from_url = headers is not None and str(file_path).startswith(
+                tempfile.gettempdir()
+            )
             if downloaded_from_url:
                 assert headers is not None
                 content_hash = sha256_file(Path(file_path))
                 etag = headers.get("ETag")
                 last_modified = headers.get("Last-Modified")
                 try:
+                    content_length_header = headers.get("Content-Length")
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers.get("Content-Length") is not None
+                        int(content_length_header)
+                        if content_length_header is not None
                         else byte_len
                     )
                 except Exception:
@@ -174,10 +179,15 @@ def main():
         default=None,
         help="Path to local xlsx file (if not provided, will fetch from URL)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force parsing even if the remote XLSX is unchanged (bypass HEAD skip).",
+    )
     args = parser.parse_args()
 
     file_path = Path(args.file) if args.file else None
-    return run_scraper(skip_ai=args.skip_ai, file_path=file_path)
+    return run_scraper(skip_ai=args.skip_ai, file_path=file_path, force=args.force)
 
 
 if __name__ == "__main__":

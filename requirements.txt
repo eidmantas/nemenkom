@@ -1,13 +1,11 @@
-# Meta file for local development.
+# Single dependency set used by all production containers.
 #
-# Production containers install per-service requirements:
-# - requirements-web.txt
-# - requirements-scraper.txt
-# - requirements-calendar.txt
-# - requirements-scraper-pdf.txt
+# Dev/test tooling stays in `requirements-dev.txt`.
 #
-# For local development we keep a minimal baseline and rely on `requirements-dev.txt`
-# for test/lint tooling.
+# Notes:
+# - We want the latest OpenAI SDK (`openai>=2`). Some third-party tools (e.g. `marker-pdf`)
+#   still pin `openai<2`; those must be installed in a separate step (see `Dockerfile.scraper-pdf`)
+#   and then we force-upgrade `openai` afterwards.
 requests>=2.32.5
 pandas>=3.0.0
 openpyxl>=3.1.5
@@ -16,6 +14,7 @@ flasgger>=0.9.7.1
 google-auth>=2.48.0
 google-api-python-client>=2.188.0
 yoyo-migrations>=9.0.0
-pydantic-ai>=1.48.0
-openai>=1.65.2,<2.0.0
-marker-pdf==1.10.1
+
+# AI / PDF parsing
+pydantic-ai==1.55.0
+openai==2.16.0

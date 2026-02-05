@@ -278,9 +278,9 @@ def main():
         help="Force parsing even if the same URL+content hash was already parsed successfully.",
     )
     parser.add_argument(
-        "--use-ai",
+        "--skip-ai",
         action="store_true",
-        help="Enable AI parsing (default: disabled).",
+        help="Skip AI parsing (default: enabled).",
     )
     parser.add_argument(
         "--year",
@@ -288,20 +288,7 @@ def main():
         default=2026,
         help="Year for date validation (default: 2026)",
     )
-    parser.add_argument(
-        "--clear-marker-cache",
-        action="store_true",
-        help="Clear cached marker-pdf output before parsing.",
-    )
     args = parser.parse_args()
-
-    if args.clear_marker_cache:
-        from shutil import rmtree
-
-        cache_dir = Path(config.MARKER_CACHE_DIR)
-        if cache_dir.exists():
-            rmtree(cache_dir)
-            print(f"Cleared marker cache: {cache_dir}")
 
     if args.source and not args.url and not args.file:
         if args.source == "plastikas":
@@ -340,7 +327,7 @@ def main():
         conn.close()
 
         try:
-            rc = run_pdf_scraper(local_path, args.year, skip_ai=not args.use_ai)
+            rc = run_pdf_scraper(local_path, args.year, skip_ai=args.skip_ai)
             conn = get_db_connection()
             _log_fetch(
                 conn,
@@ -354,9 +341,10 @@ def main():
                 etag = headers.get("ETag") if headers else None
                 last_modified = headers.get("Last-Modified") if headers else None
                 try:
+                    content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers and headers.get("Content-Length") is not None
+                        int(content_length_header)
+                        if content_length_header is not None
                         else byte_len
                     )
                 except Exception:
@@ -389,9 +377,10 @@ def main():
                 etag = headers.get("ETag") if headers else None
                 last_modified = headers.get("Last-Modified") if headers else None
                 try:
+                    content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(headers.get("Content-Length"))
-                        if headers and headers.get("Content-Length") is not None
+                        int(content_length_header)
+                        if content_length_header is not None
                         else byte_len
                     )
                 except Exception:
@@ -412,7 +401,7 @@ def main():
             conn.close()
             raise
 
-    return run_pdf_scraper(args.file, args.year, skip_ai=not args.use_ai)
+    return run_pdf_scraper(args.file, args.year, skip_ai=args.skip_ai)
 
 
 if __name__ == "__main__":
