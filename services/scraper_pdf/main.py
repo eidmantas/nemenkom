@@ -343,7 +343,9 @@ def main():
                 try:
                     content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(content_length_header) if content_length_header is not None else byte_len
+                        int(content_length_header)
+                        if content_length_header is not None
+                        else byte_len
                     )
                 except Exception:
                     content_length = byte_len
@@ -377,7 +379,9 @@ def main():
                 try:
                     content_length_header = headers.get("Content-Length") if headers else None
                     content_length = (
-                        int(content_length_header) if content_length_header is not None else byte_len
+                        int(content_length_header)
+                        if content_length_header is not None
+                        else byte_len
                     )
                 except Exception:
                     content_length = byte_len

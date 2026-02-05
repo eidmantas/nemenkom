@@ -328,10 +328,11 @@ Old streams are not deleted immediately; they enter pending clean, post user not
 - `calendar/__init__.py` creates calendars, syncs events, and cleans up.
 - `calendar/worker.py` polls for unsynced streams and pending cleanup.
 
-### services/scraper_pdf (unreleased)
+### services/scraper_pdf
 
-- Prototype parser for PDF schedules.
-- Not part of the production ingest path.
+- PDF scraper for plastikas/stiklas schedules.
+- Runs on a scheduler (`scraper_pdf` compose service) and materializes parsed rows into
+  `schedule_groups` + `calendar_streams` so the API/UI can serve them like bendros.
 
 ## 11. Operational Concerns
 

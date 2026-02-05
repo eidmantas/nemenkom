@@ -50,7 +50,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - API now always returns enriched objects for streets/house-numbers.
-- UI calendar renders combined dates across waste types, with per-waste-type markers and “subscribe all”.
+- UI calendar renders combined dates across waste types, with per-waste-type markers.
 - Dependency layout cleaned up: per-service `requirements-*.txt`, tests/tools in `requirements-dev.txt`.
 
 ## [0.1.5a] - 2026-01-30

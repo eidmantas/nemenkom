@@ -113,4 +113,3 @@ def test_schedule_multi_includes_pdf_types_for_villagewide_null_street(temp_db):
         assert "plastikas" in (payload.get("available_waste_types") or [])
         assert "plastikas" in (payload.get("schedules") or {})
         assert (payload["schedules"]["plastikas"].get("dates") or [])[0]["date"] == "2026-02-02"
-

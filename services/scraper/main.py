@@ -109,7 +109,9 @@ def run_scraper(
 
         # Log successful source fetch metadata for future HEAD-based skips.
         try:
-            downloaded_from_url = headers is not None and str(file_path).startswith(tempfile.gettempdir())
+            downloaded_from_url = headers is not None and str(file_path).startswith(
+                tempfile.gettempdir()
+            )
             if downloaded_from_url:
                 assert headers is not None
                 content_hash = sha256_file(Path(file_path))
@@ -118,7 +120,9 @@ def run_scraper(
                 try:
                     content_length_header = headers.get("Content-Length")
                     content_length = (
-                        int(content_length_header) if content_length_header is not None else byte_len
+                        int(content_length_header)
+                        if content_length_header is not None
+                        else byte_len
                     )
                 except Exception:
                     content_length = byte_len
