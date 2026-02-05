@@ -1,10 +1,10 @@
-FROM python:3.14.1-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
 # Install dependencies
-COPY requirements-web.txt .
-RUN pip install --no-cache-dir -r requirements-web.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY services/api services/api
 COPY services/common services/common

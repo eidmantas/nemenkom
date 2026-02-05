@@ -7,8 +7,7 @@ A system for scraping, storing, and displaying waste pickup schedules from `neme
 I’m trying to make waste pickup calendars **usable for day‑to‑day life** — by turning the schedules from `nemenkom.lt`
 into something you can subscribe to (Google Calendar) and then stop thinking about.
 
-It’s an **unofficial** community project and it may be done in a **very, very, very wrong way** 
-
+It’s an **unofficial** community project and it may be done in a **very, very, very wrong way**
 
 ## License
 
@@ -146,6 +145,7 @@ python services/scraper_pdf/main.py --source stiklas
 ```
 
 Outputs:
+
 - `*.rows.csv` — row-level normalized output before splitting/AI (phase 1)
 - `*.parsed.csv` — split output (village/street rows)
 - `*.raw.csv` — raw marker-pdf rows for debugging

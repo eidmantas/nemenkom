@@ -16,7 +16,6 @@ from services.calendar import (
 )
 from services.common.db_helpers import (
     get_calendar_streams_needing_sync,
-    get_calendar_streams_pending_cleanup,
 )
 from services.common.logging_utils import setup_logging
 from services.common.migrations import init_database
@@ -36,45 +35,6 @@ def calendar_sync_worker():
 
     while True:
         try:
-            pending_streams = get_calendar_streams_pending_cleanup()
-            if pending_streams:
-                logger.info("Found %s calendar streams pending cleanup", len(pending_streams))
-
-            for stream in pending_streams:
-                calendar_stream_id = stream["id"]
-                calendar_id = stream.get("calendar_id")
-                pending_until = stream.get("pending_clean_until")
-                notice_sent_at = stream.get("pending_clean_notice_sent_at")
-
-                try:
-                    if calendar_id and not notice_sent_at:
-                        logger.info(
-                            "Posting cleanup notice for calendar_stream_id=%s",
-                            calendar_stream_id,
-                        )
-                        from services.calendar import post_cleanup_notice_for_stream
-
-                        post_cleanup_notice_for_stream(calendar_stream_id)
-
-                    if pending_until:
-                        from datetime import datetime as dt
-
-                        pending_until_dt = dt.fromisoformat(pending_until)
-                        if dt.now() >= pending_until_dt:
-                            logger.info(
-                                "Deleting deprecated calendar for calendar_stream_id=%s",
-                                calendar_stream_id,
-                            )
-                            from services.calendar import delete_calendar_for_stream
-
-                            delete_calendar_for_stream(calendar_stream_id)
-                except Exception as e:
-                    logger.exception(
-                        "Error processing pending cleanup for %s: %s",
-                        calendar_stream_id,
-                        e,
-                    )
-
             streams = get_calendar_streams_needing_sync()
 
             if streams:
