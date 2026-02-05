@@ -278,7 +278,7 @@ Use this list verbatim to resume work without extra context.
    - Note: complex test required a higher timeout (120s+) to return.
    - If rerunning, paste new outputs into the supplement and compare against prior results.
 
-5. **Enable AI parsing for PDF (optional)**
+5) **Enable AI parsing for PDF (optional)**
    - Default is AI enabled; run: `venv/bin/python services/scraper_pdf/main.py /path/to/glass.pdf`
    - Confirm `pdf_ai_parser_cache` is populated.
    - Verify `pdf_parsed_rows.exclude_streets_json` is filled.

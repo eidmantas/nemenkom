@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - Removed custom marker-pdf HTML caching; rely on marker-pdf behavior and the source fetch cache (HEAD/hash) for idempotency.
 - Calendar worker no longer posts cleanup notices or deletes deprecated calendars automatically; calendar deletion is now **manual-only** via `make clean-calendars*` (safer for local/prod).
 
+
 ## [1.0.0-rc1] - 2026-02-04
 
 ### Added
