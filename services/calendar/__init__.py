@@ -214,10 +214,10 @@ def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
     service = get_google_calendar_service()
     now = datetime.datetime.now()
 
-    notice_summary = " Svarbu: atnaujinkite kalendoriaus prenumeratą"
+    notice_summary = "Svarbu: atnaujinkite kalendoriaus prenumeratą"
     notice_description = (
-        "Šio adreso atliekų grafikas pasikeitė. "
-        "Prašome atnaujinti prenumeratą svetainėje (nemenkom.lt). "
+        "Dėl techninės klaidos šiam adresui buvo pakeistas kalendorius. "
+        "Prašome atnaujinti prenumeratą svetainėje (nemenkom.eidmantas.lt). "
         "Šis kalendorius bus pašalintas po 4 dienų."
     )
 
@@ -281,7 +281,7 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
         (calendar_stream_id,),
     )
     row = cursor.fetchone()
-    if not row or not row[0]:
+    if not row:
         conn.close()
         return
 
@@ -300,16 +300,15 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
     calendar_id = row[0]
     conn.close()
 
-    service = get_google_calendar_service()
-    throttle_calendar()
-    service.calendars().delete(calendarId=calendar_id).execute()
+    if calendar_id:
+        service = get_google_calendar_service()
+        throttle_calendar()
+        service.calendars().delete(calendarId=calendar_id).execute()
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM group_calendar_links WHERE calendar_stream_id = ?",
-        (calendar_stream_id,),
-    )
+    cursor.execute("DELETE FROM calendar_stream_events WHERE calendar_stream_id = ?", (calendar_stream_id,))
+    cursor.execute("DELETE FROM group_calendar_links WHERE calendar_stream_id = ?", (calendar_stream_id,))
     cursor.execute("DELETE FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     conn.commit()
     conn.close()

@@ -182,6 +182,20 @@ header h1 {
     text-align: left;
 }
 
+.hero-alert {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    text-align: left;
+    font-size: 0.94em;
+}
+
+.hero-alert-warning {
+    background: #fff6dd;
+    border: 1px solid #f1d48a;
+    color: #6b4f00;
+}
+
 .hero-support-copy {
     display: flex;
     flex-direction: column;
@@ -196,10 +210,25 @@ header h1 {
 
 .hero-support-actions {
     display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 320px;
+}
+
+.hero-support-action-row {
+    display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 10px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    width: 100%;
+}
+
+.hero-support-contact-label {
+    color: #66788a;
+    font-size: 0.88em;
+    font-weight: 600;
 }
 
 .hero-support-link {
@@ -712,7 +741,13 @@ button.calendar-subscribe-button {
     }
 
     .hero-support-actions {
-        justify-content: stretch;
+        min-width: 0;
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .hero-support-action-row {
+        justify-content: flex-start;
     }
 
     .hero-support-link {
