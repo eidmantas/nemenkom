@@ -1,240 +1,203 @@
 # Installation Guide
 
-This guide will help you set up the Nemenčinė waste schedule system.
+This project runs from local `config.py`, local `secrets/`, and the active SQLite DB under
+`services/database/`.
 
 ## Prerequisites
 
-- Docker and Docker Compose (or Podman and Podman Compose)
-- Python 3.14+ (for local development)
-- Google Cloud Platform account (for Google Calendar integration)
-- OpenAI-compatible provider account (OpenRouter, Groq, etc.) for AI parsing
+- Python `3.14+`
+- Podman or Docker for containerized runs
+- at least one AI provider key for PDF parsing
+- Google Calendar service account credentials if you want calendar sync
 
-## Quick Start
-
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd nemenkom
-   ```
-
-2. **Set up secrets** (see [Secrets Setup](#secrets-setup) below)
-
-3. **Build and run**
-
-   ```bash
-   make build
-   make up
-   ```
-
-4. **Access the application**
-   - Web UI: http://localhost:3333
-   - API Docs: http://localhost:3333/apidocs
-
-## Secrets Setup
-
-The application requires several secret files in the `secrets/` directory. These files are **NOT** committed to git for security reasons.
-
-### Secret Files
-
-Create the following files in the `secrets/` directory (some are optional):
-
-#### 1. `api_key.txt`
-
-- **Purpose**: API authentication key for the REST API
-- **Format**: Single line with your API key (no quotes, no whitespace)
-- **Example**: `your-api-key-here`
-- **How to generate**: Use a secure random string generator
-  ```bash
-  # Generate a secure API key
-  openssl rand -hex 32 > secrets/api_key.txt
-  ```
-
-#### 2. `openrouter_api_key.txt` (optional)
-
-- **Purpose**: OpenRouter API key for AI-powered parsing of complex location patterns
-- **Format**: Single line with your OpenRouter API key
-- **How to get**:
-  1. Sign up at https://openrouter.ai/
-  2. Create an API key at https://openrouter.ai/keys
-  3. Copy the key to `secrets/openrouter_api_key.txt`
-
-#### 3. `groq_api_key.txt` (optional)
-
-- **Purpose**: Groq API key for AI-powered parsing of complex location patterns
-- **Format**: Single line with your Groq API key
-- **How to get**:
-  1. Sign up at https://console.groq.com/
-  2. Create an API key
-  3. Copy the key to `secrets/groq_api_key.txt`
-
-At least one AI provider key is required for AI parsing.
-
-#### 4. `credentials.json`
-
-- **Purpose**: Google Service Account credentials for Calendar API access
-- **Format**: JSON file from Google Cloud Platform
-- **How to get**:
-  1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-  2. Create a new project (or select existing)
-  3. Enable "Google Calendar API"
-  4. Create a Service Account:
-     - Go to "IAM & Admin" → "Service Accounts"
-     - Click "Create Service Account"
-     - Give it a name (e.g., "nemenkom-calendar")
-     - Grant it "Editor" role (or "Calendar Admin" for more permissions)
-  5. Create a JSON key:
-     - Click on the service account
-     - Go to "Keys" tab
-     - Click "Add Key" → "Create new key"
-     - Select "JSON" format
-     - Download the file
-     - Save it as `secrets/credentials.json`
-  6. **Important**: Share your Google Calendar with the service account email:
-     - The service account email is in the JSON file (field: `client_email`)
-     - Go to your Google Calendar settings
-     - Share the calendar with this email address
-     - Give it "Make changes to events" permission
-
-### Secret Files Structure
-
-After setup, your `secrets/` directory should look like:
-
-```
-secrets/
-├── .gitkeep              # Git placeholder (keeps directory in git)
-├── api_key.txt               # Your API key
-├── openrouter_api_key.txt    # Your OpenRouter API key (optional)
-├── groq_api_key.txt          # Your Groq API key (optional)
-└── credentials.json          # Google Service Account credentials
-```
-
-### Verification
-
-To verify your secrets are set up correctly:
+## 1. Clone and Create Local Config
 
 ```bash
-# Check if all required files exist
-ls -la secrets/
-
-# Test configuration loading (will error if secrets are missing)
-python -c "import config; print(' All secrets loaded successfully')"
+git clone <repository-url>
+cd nemenkom
+cp config.example.py config.py
 ```
 
-## Docker Setup
+`config.py` is intentionally ignored by git.
 
-### Volume Mounts
+## 2. Prepare `secrets/`
 
-Both the `secrets/` directory and `config.py` are mounted as **read-only volumes** in Docker containers. This means:
+All real secret files go into `secrets/`.
 
-- Secrets and config are **not** copied into Docker images (more secure)
-- Secrets and config must exist on the host machine
-- Changes to secrets/config require container restart
+`secrets/` is ignored by git by default, except:
 
-### Docker Compose Configuration
+- `secrets/.gitkeep`
+- `secrets/*.example`
 
-The `docker-compose.yaml` mounts both the secrets directory and config file:
+### Required
 
-```yaml
-volumes:
-  - ./secrets:/app/secrets:ro # Read-only mount
-  - ./config.py:/app/config.py:ro # Read-only mount (not baked into image)
+#### `secrets/api_key.txt`
+
+API key for protected API calls.
+
+Example generator:
+
+```bash
+openssl rand -hex 32 > secrets/api_key.txt
 ```
 
-**Note**: `config.py` is also in `.gitignore` and should not be committed. Copy `config.example.py` to `config.py` and customize it for your environment.
+#### `secrets/credentials.json`
 
-## Development Setup
+Google Calendar service account JSON used by the calendar worker.
 
-For local development without Docker:
+Important:
 
-1. **Create virtual environment**
+- this must be a service account JSON, not an OAuth client JSON
+- the service account needs Calendar API access
+- calendars that the worker updates must be accessible to that service account
 
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### At least one AI provider key
 
-2. **Install dependencies**
+The PDF parser needs at least one live AI provider:
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+- `secrets/groq_api_key.txt`
+- `secrets/gemini_api_key.txt`
+- `secrets/mistral_api_key.txt`
+- `secrets/openrouter_api_key.txt`
+- `secrets/huggingface_api_key.txt`
 
-3. **Set up secrets** (same as above)
+The provider/model order is configured in `config.py` via `AI_MODEL_ROTATION`.
 
-4. **Run locally**
+### Expected shape
 
-   ```bash
-   # Run API server
-   python services/api/app.py
+```text
+secrets/
+├── .gitkeep
+├── api_key.txt
+├── credentials.json
+├── groq_api_key.txt
+├── gemini_api_key.txt
+├── mistral_api_key.txt
+├── openrouter_api_key.txt
+└── huggingface_api_key.txt
+```
 
-   # Run scraper
-   python services/scraper/scheduler.py
+Only one AI key is required, but having more than one is strongly recommended for failover.
 
-   # Run calendar worker
-   python services/calendar/worker.py
-   ```
+## 3. Install Dependencies
+
+### Local venv
+
+```bash
+make venv-install
+source venv/bin/activate
+```
+
+### Or manually
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+## 4. Verify Configuration
+
+```bash
+source venv/bin/activate
+python -c "import config; print('config ok')"
+```
+
+If this fails, the error message usually tells you which secret file is missing.
+
+## 5. Run Locally
+
+### API / website
+
+```bash
+source venv/bin/activate
+python services/api/app.py
+```
+
+Open `http://localhost:3333`.
+
+### XLSX scraper
+
+```bash
+source venv/bin/activate
+python services/scraper/main.py --force
+```
+
+### PDF scrapers
+
+```bash
+source venv/bin/activate
+python services/scraper_pdf/main.py --source plastikas --force
+python services/scraper_pdf/main.py --source stiklas --force
+```
+
+### Calendar worker
+
+```bash
+source venv/bin/activate
+python services/calendar/worker.py
+```
+
+## 6. Run with Containers
+
+```bash
+make build
+make up
+```
+
+The compose setup mounts:
+
+- `./config.py:/app/config.py:ro`
+- `./secrets:/app/secrets:ro`
+
+So secrets and config stay on the host and are not baked into images.
+
+## Common Checks
+
+### Which database is active?
+
+The app uses:
+
+- `services/database/waste_schedule.db`
+
+The root `waste_schedule.db` is only a manual snapshot/helper unless you explicitly copy it over.
+
+### Is PDF continuity working?
+
+Run the focused regression suite:
+
+```bash
+source venv/bin/activate
+pytest -q tests/test_pdf_continuity.py tests/test_calendar_sync.py tests/test_one_calendar_per_group.py tests/test_calendar_ux_flow.py
+```
+
+### Are secrets ignored?
+
+```bash
+git check-ignore -v secrets/api_key.txt secrets/credentials.json
+```
 
 ## Troubleshooting
 
-### Error: "Secret file not found"
+### `No active AI providers configured`
 
-**Problem**: A required secret file is missing.
+- add at least one real AI key file under `secrets/`
+- re-run `python -c "import config"`
 
-**Solution**:
+### `credentials.json` errors
 
-1. Check that all required files exist in `secrets/` directory
-2. Verify file names match exactly (case-sensitive)
-3. See [Secrets Setup](#secrets-setup) above
+- confirm it is a service account JSON
+- confirm `config.py` points at `secrets/credentials.json`
 
-### Error: "Secret file is empty"
+### PDF import is slow
 
-**Problem**: A secret file exists but is empty.
+That is normal for difficult provider cells. The parser retries across providers and may spend
+several minutes on complex rows.
 
-**Solution**: Add your API key/credentials to the file. See [Secrets Setup](#secrets-setup) above.
+## Related Docs
 
-### Error: "Calendar usage limits exceeded"
-
-**Problem**: Google Calendar API quota exceeded.
-
-**Solution**:
-
-- Wait for quota to reset (daily limit)
-- The background worker will automatically retry every 5 minutes
-- Consider upgrading Google Cloud project quota if needed
-
-### Error: "Rate Limit Exceeded"
-
-**Problem**: Too many API requests too quickly.
-
-**Solution**:
-
-- The system automatically retries with 5-minute intervals
-- Wait for rate limits to reset
-- For OpenAI-compatible providers: check your rate limits on the provider dashboard
-
-## Security Notes
-
-- **Never commit** `secrets/` directory to git (already in `.gitignore`)
-- **Never commit** `config.py` to git (contains loaded secrets)
-- Use strong, randomly generated API keys
-- Restrict Google Service Account permissions to minimum required
-- Rotate API keys periodically
-- Use read-only volume mounts in production
-
-## Next Steps
-
-After installation:
-
-1. Run the scraper to populate the database: `make run-scraper`
-2. Check API health: `curl http://localhost:3333/api/v1/villages`
-3. View web interface: http://localhost:3333
-4. Check container logs (scraper / scraper_pdf / calendar) for calendar creation status:
-   - `podman-compose logs -f scraper`
-   - `podman-compose logs -f scraper_pdf`
-   - `podman-compose logs -f calendar`
-
-## Additional Resources
-
-- [Architecture Documentation](documentation/ARCHITECTURE.md)
-- [API Documentation](http://localhost:3333/apidocs) (when running)
+- [README.md](README.md)
+- [RELEASE.md](RELEASE.md)
+- [services/ARCHITECTURE.md](services/ARCHITECTURE.md)
+- [documentation/TESTING.md](documentation/TESTING.md)

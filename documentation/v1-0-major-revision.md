@@ -1,223 +1,74 @@
 # v1.0 Major Revision Notes
 
-Note: the quarter-rollover continuity work for plastics/glass was carried forward into
-[`documentation/v1-1-continuity.md`](./v1-1-continuity.md). This file remains the v1.0 planning
-record; the v1.1 file is the current source for PDF calendar continuity behavior.
+This file is kept as the original v1.0 planning record.
 
-## Goal
+If you need the current shipped continuity behavior, use
+[v1-1-continuity.md](./v1-1-continuity.md).
 
-Ship a v1.0 release that remains stable with imperfect provider data and avoids exploding the
-number of Google calendars, while preparing for a future "single household calendar" model.
+## What v1.0 Solved
 
----
+v1.0 established the project shape:
 
-## Most Important (v1.0 Decision Gate)
+- stream-based calendars instead of per-household calendars
+- XLSX + PDF ingestion paths
+- UI support for separate waste-type availability
+- the first safe version of shared date-pattern calendars
 
-Prove whether **plastic/glass schedules can be safely merged into the same calendar stream as
-general waste**, based on schedule group timing overlap. If we cannot prove safe overlap, we keep
-separate calendars by waste type for v1.0.
+## Main v1.0 Constraint
 
-Evidence needed:
+We deliberately did **not** merge plastic/glass into the same stream as general waste.
 
-1. Extract PDF tables for plastic/glass, normalize to schedule groups.
-2. Compare schedule groups against general waste for the same locations.
-3. Quantify overlap/conflicts and define a safe merge rule.
+Reason:
 
----
+- provider datasets use different address shapes
+- PDF rows often describe a whole street with `house_numbers = all`
+- general waste often splits that same street into multiple house-number buckets
 
-## Current Reality (What We Have Today)
+That means a naive merge would over-subscribe or mis-assign users.
 
-### Data Model
+## Main v1.0 Risk We Carried Forward
 
-- `locations` stores address strings (seniunija, village, street, house_numbers) and a
-  `kaimai_hash`.
-- `schedule_groups` are keyed by the raw provider string (hash of `kaimai_str`) + waste type.
-- Calendar streams are built by date pattern (not per household).
+The original continuity key for PDF schedules was too dependent on raw provider wording:
 
-### Consequence
+```text
+schedule_group_id = hash(waste_type + kaimai_hash)
+kaimai_hash       = hash(raw PDF kaimai_str)
+```
 
-- If the waste provider changes formatting (ranges, suffixes, or text), the same real-world
-  address becomes a new `kaimai_hash`, producing separate schedule groups.
-- This leads to fragmentation, not mixing: the same household can appear in multiple groups if
-  formatting changes.
+So harmless provider wording changes could create new groups and eventually new calendars.
 
----
+That exact risk is what `1.1.0-rc1` fixes.
 
-## Why This Is Hard
+## Still Useful v1.0 Conclusions
 
-- Different waste types (general/plastic/glass) are provided using different address standards.
-- Even the same street can appear as:
-  - Street-only (no house numbers)
-  - Explicit ranges (`18-18U`)
-  - Lists (`27,29,31,33,35,37,37A,B,C`)
-- Some plastic/glass streets appear in the PDF but are missing in the general-waste `locations`
-  dataset (even in prod), which blocks automated merging or matching.
+- date-pattern calendars are a practical compromise for API limits
+- household-level canonical modeling remains a future project
+- house-number ranges cannot be safely exploded without an authoritative address source
+- glass/plastic should stay as separate waste-type calendars for now
 
-If we merge these blindly, we can over-subscribe or mis-assign.
+## House-Number Reality
 
----
+Examples still seen in source data:
 
-## Calendar Explosion Concern
-
-Creating a calendar per household could mean 10k+ calendars, which is likely infeasible under
-Google Calendar API rate limits.
-
-We need a strategy that:
-
-1. Keeps calendar count manageable.
-2. Preserves consistency for users.
-3. Can evolve later to household-level correctness.
-
----
-
-## Decision Options
-
-### Option A (Pragmatic, v1.0 Target)
-
-- Keep date-pattern calendars (current model).
-- Provide UI selection that makes waste-type availability obvious (v1.0 UX contract below).
-- Improve parsing + AI cache + PDF coverage.
-- Avoid household-level deduplication until we have authoritative address data.
-- Current finding: PDF glass/plastic vs general waste shows no exact date overlaps after
-  split/normalization; treat waste types as separate calendar streams for v1.0.
-
-### Option B (Idealistic, Future v1.x / v2.0)
-
-- Build a canonical household model.
-- Normalize house numbers into atomic or range-safe entries.
-- Use that as the single source of truth for all waste types.
-- Allow a single household calendar with waste-type overlays.
-
-Risk: Requires a major schema change and external address truth.
-
----
-
-## House Number Normalization Reality
-
-### Examples we already have
-
-- `1-1,1-2,5,7,9-1,9-2,11-1,11-2,13-1,13-2`
-- `27,29,31,33,35,37,37A,B,C`
 - `18-18U`
+- `27,29,31,33,35,37,37A,B,C`
+- `1-31A,2-14B`
 
-### Key observation
+This is why the system still treats `house_numbers` as a rule string rather than a canonical
+expanded address list.
 
-- We cannot safely expand ranges without a canonical address database.
-- Range strings are often ambiguous (e.g., `18-18U` might be letter suffixes or something else).
+## Future Work
 
-### Concrete mismatch we hit (why "explode everything" is risky)
+- authoritative address source exploration, likely outside OSM
+- parsed `house_numbers` structure with containment logic
+- better migration UX when the provider truly changes one street from one group to another
 
-Example: **Riešės seniūnija, Didžioji Riešė, Vanaginės g.**
+## Pointer Forward
 
-- PDF plastic/glass rows often come through as **`house_numbers = all`** for the whole street.
-- General waste `locations` (prod-synced) contains **multiple entries for the same street** split by house rules
-  (e.g. `1-31A,2-14B`, `33A-101`, `103,103A-119,68,68A,68B-80`).
+For the actual Q2 / quarter-rollover behavior, read:
 
-Consequence:
-
-- A strict `(seniunija, village, street, house_numbers)` match will not match `all` to the split buckets.
-- Naively exploding ranges into atomic houses would massively grow the dataset and still be incorrect without a
-  canonical address truth source.
-
-Recommended direction (v1.x/v2):
-
-- Keep `house_numbers` as a **rule string**, but also persist a **parsed structure** (kind + segments) and implement
-  a **containment predicate** (“does this user’s house number satisfy this rule?”) for selection/mapping.
-
-### Recommended normalization (if we ever do canonical)
-
-Store type + value, not just raw expansion:
-
-- `kind = list | range | inequality | single`
-- `value = "18-18U"` or `"27,29,31,33,35,37,37A,37B,37C"`
-- Future: if we move to per-house calendars, we will need authoritative address data and a
-  per-house-number normalization strategy (not just string ranges).
-
----
-
-## OSM (Nominatim) Experiment
-
-We tested Vanaginės g., Didžioji Riešė:
-
-- `18 Vanaginės g.` exists in OSM.
-- `37A` and `37B` exist.
-- `18A..18U` returned only road results, no house numbers.
-
-Conclusion: OSM is insufficient to validate suffix ranges.
-We need to explore an authoritative dataset (e.g., data.gov.lt).
-
----
-
-## PDF Scraper Status (Scraper PDF Service)
-
-### Current state
-
-- `services/scraper_pdf` exists (prototype).
-- Parsing is still incomplete for normalization into `schedule_groups`.
-
-### Plan
-
-1. Finish PDF normalization and output format compatibility.
-2. Compare general vs plastic/glass schedule groups.
-3. Analyze how many overlaps are safe to merge.
-
----
-
-## Calendar Consistency Risk (New XLSX Windows)
-
-- Provider sometimes ships new XLSX files containing only future months, not old months.
-- Need to re-verify in-place update logic:
-  - Calendar streams must extend, not reset.
-  - Tests exist but are not fully trusted.
-- Follow-up: PDF quarter rollover continuity and stream preservation are now implemented and
-  verified in [`documentation/v1-1-continuity.md`](./v1-1-continuity.md).
-
----
-
-## v1.0 Proposed Scope
-
-### Must-have
-
-- Stable calendar streams by date pattern.
-- PDF scraper normalization completed (marker-pdf HTML path).
-- AI parsing robust (cache, retries, rotation).
-
-### Should-have
-
-- Strong logging for AI rotation + retries.
-- Explicit docs for all data inconsistencies.
-- Safe rules for matching waste types without merging household calendars.
-
----
-
-## TODOs
-
-- Explore data.gov.lt for authoritative address/house-number datasets.
-- Validate XLSX "new window" behavior with new test cases.
-- Decide if/when to introduce canonical household schema.
-
----
-
-## Open Questions
-
-- Can we safely merge glass/plastic into general without over-subscribing?
-- Which waste types are guaranteed to match by street/house?
-- What is the maximum acceptable number of Google calendars in prod?
-
----
-
-## Next Step (Immediate)
-
-Finish `services/scraper_pdf` normalization and compare parsed outputs for:
-
-- general vs plastic vs glass
-- whether address patterns overlap cleanly or diverge
-
----
-
-## Follow-up Dev Log
-
-### 2026-01-31
+- [v1-1-continuity.md](./v1-1-continuity.md)
+- [../services/ARCHITECTURE.md](../services/ARCHITECTURE.md)
 
 - Decision: treat marker-pdf output as multiple tables per page, then merge into one logical table
   by normalizing headers and concatenating rows.

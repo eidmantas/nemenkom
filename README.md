@@ -1,216 +1,137 @@
 # Waste Schedule System
 
-A system for scraping, storing, and displaying waste pickup schedules from `nemenkom.lt` (Nemenčinės komunalininkas, Lithuania).
+Unofficial `nemenkom.lt` waste calendar project for Nemenčinė region.
 
-## Why this exists
+The goal is simple: turn provider schedules into something people can actually subscribe to and
+trust, instead of manually re-checking PDFs and spreadsheets every few months.
 
-I’m trying to make waste pickup calendars **usable for day‑to‑day life** — by turning the schedules from `nemenkom.lt`
-into something you can subscribe to (Google Calendar) and then stop thinking about.
+Public instance: https://nemenkom.eidmantas.lt
 
-It’s an **unofficial** community project and it may be done in a **very, very, very wrong way**
+## Current Release Track
 
-## License
+Current branch work targets `1.1.0-rc1`.
 
-Licensed under the **PolyForm Noncommercial License 1.0.0** (source-available, non-commercial).
-Commercial use requires permission. See `LICENSE`.
+The important change in this release is quarter-to-quarter PDF continuity:
+
+- existing plastic/glass Google calendars keep the same `calendar_id`
+- raw PDF wording drift no longer creates accidental duplicate calendars
+- real new villages / streets / house-number buckets still create new groups safely
+- calendar descriptions now refresh automatically with scope and change notes
+
+See:
+
+- [documentation/v1-1-continuity.md](documentation/v1-1-continuity.md)
+- [services/ARCHITECTURE.md](services/ARCHITECTURE.md)
+- [documentation/TESTING.md](documentation/TESTING.md)
+
+## Service Layout
+
+- `services/scraper`: XLSX ingestion for general waste
+- `services/scraper_pdf`: PDF ingestion for plastic and glass
+- `services/api` + `services/web`: read API and website
+- `services/calendar`: Google Calendar creation and sync worker
+- `services/database`: active SQLite database used by the app
+
+Important: the app uses `services/database/waste_schedule.db`.
+The root `waste_schedule.db` is only a manual snapshot / migration helper when we explicitly use it.
 
 ## Quick Start
 
-https://nemenkom.eidmantas.lt
-
-## This Project
-
-### Docker/Podman (Recommended)
-
-**Microservice Architecture:**
-
-- `web` service: Flask API and web interface (port 3333)
-- `scraper` service: Scheduled scraper (runs at 11:00 and 18:00 daily)
-- `calendar` service: Calendar creation + event sync worker
-
-**Using Makefile (recommended):**
+### Docker / Podman
 
 ```bash
-make up              # Start all services
-make down            # Stop services
-make restart         # Restart services
-make build           # Build images
-make clean           # Stop and remove containers/images
-make clean-podman    # Clean all podman containers/images
-make clean-all       # Full cleanup (podman + database)
-make clean-calendars-dry-run # Check for orphaned calendars (dry run)
-make clean-calendars # Delete orphaned calendars (requires confirmation)
-make db-reset        # Delete database file
+make build
+make up
 ```
 
-**Testing (Makefile):**
+Useful commands:
 
 ```bash
-make test     # Unit + integration tests (skips AI Agent + Google Calendar API)
-make test-ai  # AI Agent tests only (uses tokens)
-make test-calendar # Google Calendar API tests only
-make test-all # Tests including AI Agent (skips Google Calendar API)
+make up
+make down
+make restart
+make test
+make test-ai
+make test-calendar
 ```
 
-**Or directly with podman-compose:**
+Web UI: `http://localhost:3333`
+
+### Local Development
 
 ```bash
-# Start all services
-podman-compose up -d
-
-# View logs (all services)
-podman-compose logs -f
-
-# View logs (specific service)
-podman-compose logs -f scraper
-podman-compose logs -f web
-
-# Stop all services
-podman-compose down
-```
-
-For local development, `docker-compose.override.yaml` is automatically used (if it exists) to override the external Caddy network with a local default network. On RPI/production, the external Caddy network will be used from `docker-compose.yaml`.
-
-**Important:** Before running, ensure you have:
-
-- Set up secrets in `secrets/` directory (see [INSTALL.md](INSTALL.md))
-- Created `config.py` from `config.example.py` (config is mounted as volume, not baked into image)
-
-Web server: **http://localhost:3333**
-
-The database is stored in `./services/database/` and persists between restarts. The scraper automatically updates it twice daily.
-
-### Option 2: Manual Setup
-
-```bash
-# Create virtual environment and install dependencies
-make venv-install  # Or: python3 -m venv venv && venv/bin/pip install -r requirements.txt
-
-# Activate venv (optional - make commands use venv automatically)
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Initialize database
+make venv-install
+source venv/bin/activate
 python services/database/init.py
-```
-
-### Pre-commit (Optional)
-
-```bash
-pip install -r requirements-dev.txt
-pre-commit install
-```
-
-Or (recommended), using the project venv + Makefile:
-
-```bash
-make pre-commit-install
-```
-
-This runs before each commit:
-
-- **Gitleaks** - blocks secrets from entering git history
-- **Ruff** - linting and formatting
-- **Prettier** - formats markdown/yaml/json
-- **Pyright** - type checking
-- **pip-audit** - security vulnerabilities
-
-### Run Scraper
-
-```bash
-# Full parsing (traditional + AI parser) - processes all entries
-python services/scraper/main.py
-
-# Skip AI parsing (traditional parser only)
-python services/scraper/main.py --skip-ai
-
-# Force parsing even if the remote XLSX is unchanged (bypass HEAD skip)
-python services/scraper/main.py --force
-```
-
-### Run PDF Scraper (MVP)
-
-```bash
-# Default: AI enabled
-python services/scraper_pdf/main.py /path/to/file.pdf
-
-# Skip AI parsing explicitly
-python services/scraper_pdf/main.py /path/to/file.pdf --skip-ai
-
-# Production-style: download from URL and skip re-parse if the PDF content hash is unchanged
-python services/scraper_pdf/main.py --url 'https://example.com/plastic.pdf'
-
-# Shortcut (uses config.PDF_PLASTIKAS_URL / config.PDF_STIKLAS_URL)
-python services/scraper_pdf/main.py --source plastikas
-python services/scraper_pdf/main.py --source stiklas
-```
-
-Outputs:
-
-- `*.rows.csv` — row-level normalized output before splitting/AI (phase 1)
-- `*.parsed.csv` — split output (village/street rows)
-- `*.raw.csv` — raw marker-pdf rows for debugging
-
-Marker cache:
-Marker-pdf manages its own internal caching/model downloads. This repo does not implement
-additional marker output caching.
-
-### One-time forced re-parse on container start (optional)
-
-If you deploy a new parser but the remote XLSX/PDF files are unchanged, the schedulers will
-normally skip work. You can force a one-time re-parse on container startup via env vars:
-
-- `FORCE_PARSE_ON_START=1`: force XLSX + PDF parsing once on start (bypasses skip logic)
-- PDF scheduler uses AI by default; use `--skip-ai` only for debugging.
-
-The schedulers write a small sentinel file under `services/database/` so the forced run
-won't repeat on container restarts.
-
-Note: `marker-pdf==1.10.1` currently declares `openai<2.0.0`. We pin `openai>=2.16.0`
-for other components, so pip may warn about a dependency conflict. This does not affect
-PDF table extraction, but keep it in mind if installing dependencies strictly.
-
-### Run Web Server
-
-```bash
 python services/api/app.py
 ```
 
-Server runs on **http://localhost:3333**
+In separate shells:
 
-### Run Calendar Worker
+```bash
+source venv/bin/activate
+python services/scraper/main.py --force
+python services/scraper_pdf/main.py --source plastikas --force
+python services/scraper_pdf/main.py --source stiklas --force
+python services/calendar/worker.py
+```
+
+## Configuration and Secrets
+
+- Copy `config.example.py` to `config.py`.
+- Put local secrets into `secrets/`.
+- `secrets/` is ignored by git by default; only `.example` templates and `.gitkeep` stay tracked.
+
+Setup details live in [INSTALL.md](INSTALL.md).
+
+## Main Operational Flows
+
+### XLSX refresh
+
+```bash
+python services/scraper/main.py --force
+```
+
+Use this when the general-waste spreadsheet changed or when you want to rebuild from source.
+
+### PDF refresh
+
+```bash
+python services/scraper_pdf/main.py --source plastikas --force
+python services/scraper_pdf/main.py --source stiklas --force
+```
+
+The PDF flow uses:
+
+- marker-pdf for table extraction
+- AI providers for complex location splitting
+- canonical continuity matching to preserve old schedule groups and calendars when safe
+
+### Calendar sync
 
 ```bash
 python services/calendar/worker.py
 ```
 
-## API Testing
+The worker creates new Google calendars when needed and updates existing ones in place when
+`calendar_synced_at` is cleared by a data refresh.
 
-### List All Locations
+## Docs Map
 
-```bash
-curl http://localhost:3333/api/v1/locations
-```
-
-### Search Locations
-
-```bash
-curl "http://localhost:3333/api/v1/locations?q=Aleksandravas"
-```
-
-### Get Schedule for Location
-
-```bash
-curl "http://localhost:3333/api/v1/schedule?location_id=1"
-```
-
-### Get Schedule Group Info
-
-```bash
-curl "http://localhost:3333/api/v1/schedule-group/sg_f5f4eff319af?waste_type=bendros"
-```
+- [INSTALL.md](INSTALL.md): setup, secrets, local and container runbook
+- [RELEASE.md](RELEASE.md): deployment checklist for `1.1.0-rc1`
+- [services/ARCHITECTURE.md](services/ARCHITECTURE.md): current service and data-flow model
+- [documentation/v1-1-continuity.md](documentation/v1-1-continuity.md): PDF continuity design and Q2 verification
+- [documentation/TESTING.md](documentation/TESTING.md): test strategy and focused regression commands
+- [CHANGELOG.md](CHANGELOG.md): release history
 
 ## Security
 
-Repository scanned for secrets before going public (January 30, 2026) using [Gitleaks](https://github.com/gitleaks/gitleaks) and [TruffleHog](https://github.com/trufflesecurity/trufflehog). All 8 branches, 56 commits — no secrets found.
+- `config.py` is local-only and ignored by git.
+- `secrets/` is ignored by git.
+- Pre-commit and CI can run Gitleaks to block accidental secret commits.
 
-GitHub Actions run Gitleaks, Ruff, Pyright, and pip-audit on every push.
+## License
+
+Licensed under the **PolyForm Noncommercial License 1.0.0**.
+Commercial use requires permission. See `LICENSE`.

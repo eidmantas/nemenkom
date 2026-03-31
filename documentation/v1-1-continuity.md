@@ -2,25 +2,28 @@
 
 Target release: `1.1.0-rc1`
 
+This is the canonical document for the Q2 PDF continuity rollout.
+
 ## Goal
 
-Make quarter-to-quarter PDF updates safe for existing Google Calendar subscribers:
+Make quarterly plastic/glass updates safe for existing subscribers:
 
-- keep existing calendar-backed streams alive when the provider only changes raw PDF wording
-- let genuinely new villages / streets / house-number buckets create new groups safely
-- avoid silently merging two different future schedules back into one old calendar
-- show better scope/change context inside calendar and event descriptions
+- existing Google calendars must stay attached to the same stream
+- new quarter dates must replace the stream data in place
+- harmless PDF wording drift must not create duplicate calendars
+- genuinely new data must still be allowed to create new groups
 
-This document captures the implementation and the local Q2 verification for `feat/q2-check`.
+## Root Cause
 
-## The Underlying Issue
+The original PDF continuity key was too raw:
 
-Before this work, PDF continuity was too dependent on the raw provider cell text:
+```text
+schedule_group_id = hash(waste_type + kaimai_hash)
+kaimai_hash       = hash(raw PDF kaimai_str)
+```
 
-- `schedule_group_id = hash(waste_type + kaimai_hash)`
-- `kaimai_hash = hash(raw kaimai_str from PDF)`
-
-That breaks as soon as the provider changes grouping or wording between quarters.
+That means the provider could keep the same real-world area but change the wording and still
+accidentally force a new `kaimai_hash`.
 
 Real Q1 -> Q2 drift from `nemenkom.lt` included:
 
@@ -29,169 +32,126 @@ Real Q1 -> Q2 drift from `nemenkom.lt` included:
 - `Jonėnų 6 d. k.` -> `Jonėnų k.`
 - `2 d. Šiaurinės g.` -> `Šiaurinės g.`
 
-Those are usually the same real places, but they produce different raw hashes.
+There were two related issues too:
 
-There was a second issue too: some historical `pdf_parsed_rows` were saved without `seniūnija`,
-so exact matching would miss them later even when the provider finally included the admin name.
+- some historical PDF rows were saved without `seniūnija`
+- some Q2-style PDFs needed month inference from visible month context and filename, not a fixed January-first assumption
 
-The third issue was month inference for Q2-style PDFs. Some glass tables arrived as headerless
-`location | waste | date` blocks, and the parser could previously drift toward January when the
-table context did not carry the visible months strongly enough.
+## Final Implementation
 
-## Implemented Approach
+### 1. Keep using AI JSON, but stop trusting raw text for continuity
 
-### 1. Continuity is based on canonical parsed selections
+The PDF pipeline still uses AI to turn complex provider cells into structured JSON.
 
-We still use AI JSON parsing for the PDF cells. The difference is what happens after parsing.
+What changed is the key used after parsing.
 
-Each parsed selection is normalized into this canonical key:
+Each parsed selection is normalized into a canonical key:
 
 - `seniūnija`
 - `village`
 - `street`
 - `house_numbers`
 
-The normalization removes drift that should not matter for continuity:
+Normalization removes harmless drift:
 
 - village suffix noise like `k.` / `vs.` / `mstl.` / `m.`
 - street suffix formatting noise like `g.` / `al.` / `tak.`
-- diacritic-only differences
-- punctuation / spacing noise
-- `all` house-number sentinels
+- punctuation / spacing / diacritic noise
+- `house_numbers = all`
 
-This lets us answer:
+Implementation: `services/scraper_pdf/continuity.py`
 
-- “Is this the same real selection as before?”
+### 2. Match conservatively
 
-instead of only:
+The matching order is:
 
-- “Is this the same raw provider sentence as before?”
+1. exact canonical match
+2. admin-less fallback only when the historical row itself was saved without `seniūnija`
+3. historical-group reuse only when one old group clearly dominates the new parsed group
+4. otherwise keep the new raw hash
 
-### 2. Exact match first, conservative fallback second
+This is intentionally conservative. We prefer a new group over a wrong reuse.
 
-The continuity rule is intentionally conservative:
+### 3. Protect against future provider splits
 
-1. Reuse continuity on exact canonical match.
-2. Allow admin-less fallback only when the historical row itself was saved without `seniūnija`.
-3. If a whole new provider group clearly maps to one old historical group, let that old group win.
-4. If the match is ambiguous, create a new raw group instead of guessing.
+The dangerous case is:
 
-That means:
+- old group: `Akmenų g. + Gėlių g.` on one schedule
+- new provider data moves `Gėlių g.` to another schedule
 
-- street-level rows need an exact canonical `seniūnija + village + street (+ house_numbers)` match
-- village-wide rows need an exact canonical `seniūnija + village` match
-- real new places naturally fall back to new groups
+Without a conflict guard, both new rows could reuse one old hash and collapse back into one
+group. The continuity pass now prevents that:
 
-### 3. Group reuse exists for provider regrouping, not fuzzy magic
+- if one old hash is claimed by multiple incompatible new date sets
+- only the safest dominant successor keeps it
+- the rest fall back to another safe candidate or a new raw hash
 
-The “best group winner” logic is there for cases like this:
+So the failure mode becomes `new group` instead of `wrong old calendar`.
 
-- old group A = `Akmenų g., Gėlių g.`
-- old group B = `Gėlių g.`
-- new group = `Akmenų g., Gėlių g., Kaštonų g.`
+### 4. Preserve the actual calendar-bearing stream
 
-If we only reused per-row hashes, `Gėlių g.` would look ambiguous and we would often fragment
-the existing calendar unnecessarily.
+`services/scraper/core/db_writer.py` now preserves an existing calendar-bearing stream on the best
+successor during stream splits.
 
-So the code lets one historical group win only when it clearly dominates the new group:
+That is what keeps the real Google `calendar_id` stable even when grouping changes around it.
 
-- it matches more selections than the runner-up
-- it covers a meaningful share of the new group
-- and it gets an extra preference if it already owns a real calendar-backed stream
+### 5. Refresh calendar descriptions for reused calendars too
 
-If there is no clear winner, the code does not force continuity.
+`services/calendar/__init__.py` now rebuilds descriptions from stream scope and change metadata:
 
-### 4. Real future schedule splits degrade safely
+- waste type
+- seniūnija / village / street context
+- current date range
+- change note
 
-This was the last important safety fix.
+This happens both:
 
-Problem case:
+- when a brand-new calendar is created
+- when an old existing calendar is reused and resynced
 
-- old group = `Akmenų g., Gėlių g.` on one schedule
-- provider later moves `Gėlių g.` to another schedule
+## Why It Works
 
-Without a conflict guard, both new rows could reuse the same old hash and collapse back into one
-schedule group, which would be wrong.
+### Same area, new quarter
 
-Now the continuity pass resolves conflicts after matching:
+If the provider only moves Jan-Mar to Apr-Jun:
 
-- if one old hash is being reused by multiple new date patterns, we inspect the whole import
-- if one successor clearly dominates, only that successor keeps the old hash
-- the competing rows fall back to another safe historical hash or their new raw hash
-
-So if the provider truly splits a schedule, we prefer creating a new group over silently merging
-two distinct schedules into one old calendar.
-
-### 5. Calendar-bearing streams survive stream splits
-
-Even with correct hash reuse, regrouping can still fan one old stream out into multiple date
-patterns.
-
-`reconcile_calendar_streams()` now preserves the existing calendar-bearing stream on the best
-successor instead of always abandoning it and moving everything to new streams.
-
-That is what keeps the real Google `calendar_id` attached to the continuing stream.
-
-### 6. Month inference is now driven by visible month context
-
-PDF month assignment is no longer tied to a January-first assumption.
-
-The parser now uses:
-
-- months inferred from the PDF file name
-- neighboring table context
-- generalized month shifting over the visible month set
-- embedded `16 d.` style tokens repeated across visible months when that is clearly the table pattern
-
-This is what made the Q2 glass/plastic imports safe for April-June style PDFs, including the
-“1679-1680-1683 should support annual months” concern.
-
-## Why This Works
-
-### Same calendar, new months
-
-If the provider only rolls the quarter forward:
-
-- the parsed selections still canonically match the historical selections
-- the old `kaimai_hash` is reused
-- the existing `schedule_group` is updated in place
-- the linked `calendar_stream_id` survives
-- the same `calendar_id` remains attached
-- `calendar_synced_at` is cleared so the sync worker refreshes the real calendar
+- canonical selections match historical selections
+- historical `kaimai_hash` is reused
+- same `schedule_group` survives
+- same `calendar_stream_id` survives
+- same `calendar_id` survives
+- `calendar_synced_at` is cleared so the worker updates the existing Google calendar
 
 ### Empty database
 
 If the DB is empty:
 
-- there are no historical candidates
-- every row falls back to a raw new hash
-- new `schedule_groups` and `calendar_streams` are created normally
+- no historical candidates exist
+- every row keeps its raw new hash
+- groups and streams are created normally
 
-So there is no strange continuity behavior on first import.
+So there is no weird continuity behavior on first import.
 
-### Genuine new areas
+### Genuine new places
 
-If there is really a new village, a new street, or a new bucket:
+If there is a truly new village, street, or bucket:
 
 - there is no exact canonical match
-- there is no safe admin-less recovery
-- the row keeps its raw new hash
-
-So new data becomes new groups instead of stealing an old calendar.
+- no safe fallback applies
+- a new group is created
 
 ### Genuine provider regrouping
 
-If the provider changes the structure enough that the old grouping really no longer exists:
+If the provider really moves one street into a different schedule:
 
-- ambiguous rows stay conservative
-- conflict resolution prevents different date sets from sharing the same old hash
+- ambiguity stays conservative
+- conflict resolution stops incompatible rows from sharing one old hash
 
-That means the failure mode is “create a new group” rather than “silently keep the wrong old
-calendar”.
+That preserves correctness better than forcing continuity.
 
 ## Worked Examples
 
-### Example A: harmless raw rename
+### Example A: harmless rename
 
 Q1:
 
@@ -201,156 +161,73 @@ Q2:
 
 - `Riešės sen. Didžiosios Riešės mstl. (Akmenų g.)`
 
-Canonical result:
-
-- same `seniūnija`
-- same village after suffix normalization
-- same street
-
 Outcome:
 
-- reuse old hash
-- update old group
-- keep old calendar stream
+- village suffix normalizes away
+- old hash is reused
+- old calendar stream continues
 
-### Example B: historical row missing `seniūnija`
+### Example B: missing historical `seniūnija`
 
-Historical Q1 saved:
+Historical row was stored as:
 
 - `Platiniškių k. / Adomo Mickevičiaus g.`
-- no stored `seniūnija`
 
-Q2 arrives as:
+New row becomes:
 
-- `Zujūnų sen. Platiniškių k. tik Adomo Mickevičiaus g.`
-
-Exact canonical match fails because the historical admin is blank, but admin-less fallback is
-allowed here because the historical row itself was incomplete.
+- `Zujūnų sen. / Platiniškių k. / Adomo Mickevičiaus g.`
 
 Outcome:
 
-- reuse the historical hash
-- keep stream `cs_3e5c8fbacfa1`
-- continue the same glass calendar to `2026-06-26`
+- exact match would fail
+- admin-less fallback is allowed because the historical row lacked `seniūnija`
+- continuity is recovered safely
 
-### Example C: true future split
+### Example C: real split
 
-Q1:
+Old group:
 
-- `Akmenų g., Gėlių g.` on one schedule
+- `Akmenų g. + Gėlių g.` with one date pattern
 
-Q2:
+New provider data:
 
-- `Akmenų g.` on schedule A
-- `Gėlių g.` on schedule B
+- `Akmenų g.` keeps old pattern
+- `Gėlių g.` moves to a different pattern
 
 Outcome:
 
-- the old hash cannot safely own both date sets
-- only a dominant successor may keep it
-- the other row falls back to a new group
+- one successor may keep the old hash
+- the conflicting row gets a new safe group
+- we do not silently merge the two schedules back together
 
-This prevents the “one street moved to another schedule” bug.
+## Local Q2 Verification
 
-## User-Facing Calendar Metadata
+Starting from the original `1.0` DB snapshot and replaying current code against live Q2 sources:
 
-The Google calendar/event metadata is now more useful too.
+- `bendros`: `10 -> 10` existing calendar-backed streams preserved
+- `plastikas`: `3 -> 3` preserved
+- `stiklas`: `26 -> 26` preserved
+- no existing `calendar_id` was orphaned
 
-Calendar descriptions now include:
+Observed in-place updates:
 
-- waste type
-- scope summary from `seniūnija`, villages, streets, and specific house-number buckets when present
-- current date range
-- last update timestamp
-- change note (`pradinis publikavimas`, `grafikas nepasikeitė`, or `+N / -N` diff)
+- plastics moved from Q1 ranges onto Apr-Jun Q2 ranges while keeping the same streams
+- all `26` glass calendar-backed streams also moved to Q2 dates in place
 
-Event descriptions now include:
+## Operational Consequence
 
-- waste-specific instruction
-- short scope summary
-- note that the calendar is updated automatically
+For the `1.1 RC` rollout, production should receive:
 
-These descriptions are refreshed for both:
+- the updated code
+- the prepared `services/database/waste_schedule.db`
 
-- newly created calendars
-- already-existing calendars when they are reused or synced again
+After restart, the calendar worker should update those same existing calendars without requiring
+manual calendar recreation.
 
-This is intentionally scope-aware, so it can describe:
+## Related Files
 
-- `seniūnija + village`
-- `seniūnija + village + street`
-- `seniūnija + village + street + house_numbers`
-
-without dumping raw internal sentinels like `(all)` or `(null)`.
-
-## Local Verification
-
-### Focused regression suite
-
-Ran:
-
-```bash
-source venv/bin/activate
-pytest -q tests/test_pdf_continuity.py tests/test_calendar_sync.py tests/test_one_calendar_per_group.py
-```
-
-Result:
-
-- `28 passed`
-
-Broader regression sweep run earlier on this branch:
-
-- `49 passed`
-
-### Plastics
-
-Re-applied the real parsed plastics rows into the active local DB with the final continuity fix.
-
-Result:
-
-- existing calendar-backed streams preserved: `3 / 3`
-- orphaned existing streams: `0`
-
-Active local DB now shows:
-
-- `cs_67abadf5620c` -> `2026-04-01 .. 2026-06-01`
-- `cs_cfd369c84e65` -> `2026-04-02 .. 2026-06-02`
-- `cs_db08c63912b3` -> `2026-04-01 .. 2026-06-01`
-
-### Glass
-
-Replayed the real parsed Q2 glass rows into a clean pre-Q2 snapshot and then aligned the active
-local DB to the fixed result.
-
-Result:
-
-- existing calendar-backed streams preserved: `26 / 26`
-- orphaned existing streams: `0`
-
-The previously failing stream now continues correctly:
-
-- `cs_3e5c8fbacfa1` -> `2026-06-26`
-
-## Rollout Guidance
-
-For production `1.1.0-rc1` / Q2 rollover:
-
-1. Update the plastics and glass PDF links.
-2. Run the PDF imports.
-3. Verify that the existing calendar-backed stream IDs remain attached and now point at Q2 dates.
-4. Run the normal calendar sync worker.
-
-Expected result:
-
-- old calendars remain
-- new Q2 dates continue on those calendars when the real area is the same
-- genuinely new selections create new groups/streams safely
-- genuine provider-side schedule splits create new groups instead of silently corrupting old ones
-
-## Tradeoff
-
-This stays conservative on purpose.
-
-Some highly ambiguous regroupings will still create new groups instead of forcing continuity. That
-is the right failure mode for this system: correctness is more important than overly aggressive
-calendar preservation.
+- `services/scraper_pdf/continuity.py`
+- `services/scraper/core/db_writer.py`
+- `services/calendar/__init__.py`
+- `tests/test_pdf_continuity.py`
+- `tests/test_calendar_ux_flow.py`
