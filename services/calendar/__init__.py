@@ -216,8 +216,9 @@ def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
 
     notice_summary = "Svarbu: atnaujinkite kalendoriaus prenumeratą"
     notice_description = (
-        "Dėl techninės klaidos šiam adresui buvo pakeistas kalendorius. "
-        "Prašome atnaujinti prenumeratą svetainėje (nemenkom.eidmantas.lt). "
+        "Dėl techninės klaidos šis kalendorius nebesusisyncino su adresu. "
+        "Prašome svetainėje rankiniu būdu įsidėti atnaujintą kalendorių "
+        "(nemenkom.eidmantas.lt). "
         "Šis kalendorius bus pašalintas po 4 dienų."
     )
 

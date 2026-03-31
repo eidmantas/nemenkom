@@ -141,19 +141,25 @@ def process_pending_cleanup_streams(now: datetime.datetime | None = None) -> dic
 
     for stream in get_calendar_streams_pending_cleanup():
         calendar_stream_id = stream["id"]
-        pending_clean_until = _parse_db_timestamp(stream.get("pending_clean_until"))
-        notice_sent_at = _parse_db_timestamp(stream.get("pending_clean_notice_sent_at"))
+        try:
+            pending_clean_until = _parse_db_timestamp(stream.get("pending_clean_until"))
+            notice_sent_at = _parse_db_timestamp(stream.get("pending_clean_notice_sent_at"))
 
-        if pending_clean_until and current_time >= pending_clean_until:
-            logger.info("Deleting deprecated calendar stream %s", calendar_stream_id)
-            delete_calendar_for_stream(calendar_stream_id)
-            deleted += 1
-            continue
+            if pending_clean_until and current_time >= pending_clean_until:
+                logger.info("Deleting deprecated calendar stream %s", calendar_stream_id)
+                delete_calendar_for_stream(calendar_stream_id)
+                deleted += 1
+                continue
 
-        if not notice_sent_at and stream.get("calendar_id"):
-            logger.info("Posting cleanup notice for calendar stream %s", calendar_stream_id)
-            post_cleanup_notice_for_stream(calendar_stream_id)
-            noticed += 1
+            if not notice_sent_at and stream.get("calendar_id"):
+                logger.info("Posting cleanup notice for calendar stream %s", calendar_stream_id)
+                post_cleanup_notice_for_stream(calendar_stream_id)
+                noticed += 1
+        except Exception:
+            logger.exception(
+                "Failed to process pending cleanup for calendar stream %s",
+                calendar_stream_id,
+            )
 
     return {"noticed": noticed, "deleted": deleted}
 
