@@ -19,8 +19,8 @@
                 </svg>
                 Kodas (GitHub)
             </a>
-            <a href="https://github.com/eidmantas" target="_blank" rel="noopener noreferrer" class="top-header-link">
-                💬 Atsiliepimai / Prašymai
+            <a href="https://ko-fi.com/eidmantas" target="_blank" rel="noopener noreferrer" class="top-header-link">
+                ☕ Arbatpinigiai
             </a>
             <a href="/api-docs" class="top-header-link">
                 📖 API Documentation
@@ -46,10 +46,28 @@
                     </div>
                 </div>
 
-                <p class="subtitle subtitle-warning">
-                    <strong>⚠️ Gali būti daug klaidų — pasitikrinkite. ⚠️</strong> </br>
-                    Jei randate klaidų, prašau praneškite (kol kas per LinkedIn/GitHub <a href="https://github.com/eidmantas" target="_blank" rel="noopener noreferrer">@eidmantas</a>). Vėliau atsiras patogesnė funkcija tam.
-                </p>
+                <div class="hero-support">
+                    <div class="hero-support-copy">
+                        <strong>Jei įrankis naudingas, galite palikti arbatpinigių.</strong>
+                        <span>
+                            Taip pat galite susisiekti tiesiogiai, jei norite pasiūlyti patobulinimą ar pranešti apie problemą.
+                        </span>
+                    </div>
+                    <div class="hero-support-actions">
+                        <a href="https://ko-fi.com/eidmantas" target="_blank" rel="noopener noreferrer" class="hero-support-link hero-support-link-primary">
+                            ☕ Palikti arbatpinigių
+                        </a>
+                        <a
+                            href="#kontaktai"
+                            class="hero-support-link hero-support-link-secondary js-obfuscated-email"
+                            data-user="eidmantas.ivanauskas"
+                            data-domain="gmail.com"
+                            aria-label="Kontaktinis el. paštas"
+                        >
+                            Įkeliamas kontaktas...
+                        </a>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -122,11 +140,24 @@
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', function() {
             (async () => {
+                hydrateContactLinks();
                 // Load villages first so URL restore can be deterministic (no polling/sleeps).
                 await loadVillages();
                 await restoreFromURL();
             })();
         });
+
+        function hydrateContactLinks() {
+            const links = document.querySelectorAll('.js-obfuscated-email');
+            links.forEach((link) => {
+                const user = link.dataset.user || '';
+                const domain = link.dataset.domain || '';
+                if (!user || !domain) return;
+                const email = `${user}@${domain}`;
+                link.href = `mailto:${email}`;
+                link.textContent = email;
+            });
+        }
 
         // Normalize Lithuanian characters to ASCII for search
         // Allows typing "Riese" to match "Riešė"

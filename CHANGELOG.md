@@ -15,7 +15,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- (none yet)
+- `documentation/v1-1-continuity.md` as the canonical write-up for the Q2 / `1.1.0-rc1` PDF continuity rollout.
+
+### Changed
+
+- PDF rollover continuity now reuses historical hashes from canonical parsed selections instead of relying only on raw provider text.
+- Continuity conflict handling now degrades true provider-side schedule splits into new groups instead of silently merging different date sets back into one old calendar.
+- Calendar descriptions and event descriptions now include scope-aware context and change notes, and existing calendars are refreshed on reuse/sync.
 
 ## [1.0.0-rc2] - 2026-02-05
 

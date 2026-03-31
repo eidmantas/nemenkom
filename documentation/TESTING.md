@@ -72,6 +72,8 @@ podman-compose build web
 - Database operations (hash generation, schedule grouping)
 - API endpoints (`/api/v1/locations`, `/api/v1/schedule`)
 - End-to-end flow (XLSX → DB → API)
+- PDF continuity safeguards (canonical selection reuse, ambiguous fallback, split conflict safety)
+- Calendar metadata updates (scope-aware descriptions for calendars/events)
 
 ### AI Integration Tests
 
@@ -89,3 +91,23 @@ AI integration tests make real OpenAI-compatible API calls and use tokens:
 - **Test Database**: Created in-memory or temporary file (isolated per test)
 
 ## Future: GitHub Actions
+
+## Focused PDF Continuity Regression Suite
+
+When touching quarter-rollover behavior, run:
+
+```bash
+source venv/bin/activate
+pytest -q tests/test_pdf_continuity.py tests/test_calendar_sync.py tests/test_one_calendar_per_group.py
+```
+
+This suite covers:
+
+- raw-text rename continuity
+- missing-historical-`seniūnija` recovery
+- ambiguous overlap fallback
+- true future split safety
+- calendar / event description updates
+
+Implementation details and real Q2 verification live in
+[`documentation/v1-1-continuity.md`](./v1-1-continuity.md).

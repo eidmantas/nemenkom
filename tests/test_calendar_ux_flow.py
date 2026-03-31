@@ -121,3 +121,83 @@ def test_calendar_stream_updates_in_place_for_new_xlsx_window(temp_db):
     assert stream_row[1] is not None and "2026-03-05" in stream_row[1]
     assert stream_row[2] == "ux_window_calendar@google.com"
     assert stream_row[3] is None, "Stream should be marked for re-sync"
+
+
+def test_split_keeps_existing_calendar_on_dominant_successor(temp_db):
+    """
+    If a shared stream splits into multiple date patterns, keep the existing calendar on the
+    successor used by the most current selections instead of abandoning it immediately.
+    """
+    conn, _ = temp_db
+
+    waste_type = "bendros"
+    dates_initial = [date(2026, 1, 8), date(2026, 1, 22)]
+    dates_group_a = [date(2026, 2, 5), date(2026, 2, 19)]
+    dates_group_b = [date(2026, 3, 5), date(2026, 3, 19)]
+    kaimai_hash_a = "k1_split_keep_a"
+    kaimai_hash_b = "k1_split_keep_b"
+
+    schedule_group_a = find_or_create_schedule_group(conn, dates_initial, waste_type, kaimai_hash_a)
+    schedule_group_b = find_or_create_schedule_group(conn, dates_initial, waste_type, kaimai_hash_b)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates_initial, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_a, calendar_stream_id)
+    upsert_group_calendar_link(conn, schedule_group_b, calendar_stream_id)
+
+    cursor = conn.cursor()
+    cursor.executemany(
+        """
+        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            ("Test", "VillageA", "Street 1", None, kaimai_hash_a),
+            ("Test", "VillageA", "Street 2", None, kaimai_hash_a),
+            ("Test", "VillageA", "Street 3", None, kaimai_hash_a),
+            ("Test", "VillageB", "Street 9", None, kaimai_hash_b),
+        ],
+    )
+    conn.commit()
+
+    cursor.execute(
+        """
+        UPDATE calendar_streams
+        SET calendar_id = 'split_keep@google.com',
+            calendar_synced_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (calendar_stream_id,),
+    )
+    conn.commit()
+
+    # The dominant successor is group A because more locations currently point at it.
+    find_or_create_schedule_group(conn, dates_group_a, waste_type, kaimai_hash_a)
+    find_or_create_schedule_group(conn, dates_group_b, waste_type, kaimai_hash_b)
+    reconcile_calendar_streams(conn)
+    conn.commit()
+
+    cursor.execute(
+        "SELECT calendar_stream_id FROM group_calendar_links WHERE schedule_group_id = ?",
+        (schedule_group_a,),
+    )
+    group_a_stream = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT calendar_stream_id FROM group_calendar_links WHERE schedule_group_id = ?",
+        (schedule_group_b,),
+    )
+    group_b_stream = cursor.fetchone()[0]
+
+    assert group_a_stream == calendar_stream_id
+    assert group_b_stream != calendar_stream_id
+
+    cursor.execute(
+        """
+        SELECT calendar_id, calendar_synced_at, dates
+        FROM calendar_streams
+        WHERE id = ?
+        """,
+        (calendar_stream_id,),
+    )
+    stream_row = cursor.fetchone()
+    assert stream_row[0] == "split_keep@google.com"
+    assert stream_row[1] is None
+    assert "2026-02-05" in stream_row[2]

@@ -1,5 +1,8 @@
 # v1.0 Major Revision - Supplemental Notes
 
+Note: these are the original v1.0 exploration notes. The shipped continuity behavior for Q2 PDF
+rollover now lives in [`documentation/v1-1-continuity.md`](./v1-1-continuity.md).
+
 This file captures ad-hoc AI parsing tests and outputs so we can resume later without rerunning
 costly calls.
 

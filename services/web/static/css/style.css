@@ -169,6 +169,75 @@ header h1 {
     text-decoration: underline;
 }
 
+.hero-support {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #f7fbff 0%, #fffaf2 100%);
+    border: 1px solid #dce9f5;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    text-align: left;
+}
+
+.hero-support-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #435266;
+    font-size: 0.93em;
+}
+
+.hero-support-copy strong {
+    color: #243447;
+}
+
+.hero-support-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.hero-support-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.hero-support-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(44, 62, 80, 0.10);
+}
+
+.hero-support-link-primary {
+    background: #ffefe0;
+    border: 1px solid #f5c99c;
+    color: #9a4f00;
+}
+
+.hero-support-link-primary:hover {
+    background: #ffe6cf;
+}
+
+.hero-support-link-secondary {
+    background: #f5f8fb;
+    border: 1px solid #d6e0e8;
+    color: #2c3e50;
+}
+
+.hero-support-link-secondary:hover {
+    background: #eef3f7;
+}
+
 .selection-section {
     margin-bottom: 30px;
     background: white;
@@ -629,5 +698,24 @@ button.calendar-subscribe-button {
 @media (max-width: 768px) {
     .cascading-selects {
         grid-template-columns: 1fr;
+    }
+
+    .top-header-content {
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+    }
+
+    .hero-support {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .hero-support-actions {
+        justify-content: stretch;
+    }
+
+    .hero-support-link {
+        width: 100%;
     }
 }

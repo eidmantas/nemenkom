@@ -274,6 +274,47 @@ def test_sync_retries_failed_events(temp_db):
         assert event[3] is None, "Error message should be cleared"
 
 
+def test_sync_updates_event_and_calendar_descriptions(temp_db):
+    conn, _db_path = temp_db
+
+    kaimai_hash = "k1_test_sync_descriptions"
+    waste_type = "bendros"
+    calendar_id = "test_calendar_descriptions@google.com"
+    dates_current = ["2026-01-08", "2026-01-22"]
+    calendar_stream_id = create_test_calendar_stream_with_calendar(
+        temp_db, kaimai_hash, waste_type, dates_current, calendar_id
+    )
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
+        VALUES (?, ?, ?, 'created')
+        """,
+        (calendar_stream_id, "2026-01-08", "event1"),
+    )
+    conn.commit()
+
+    mock_service = MagicMock()
+    mock_event = {"id": "event_new"}
+    mock_service.events().insert().execute.return_value = mock_event
+
+    with patch("services.calendar.get_google_calendar_service", return_value=mock_service):
+        result = sync_calendar_for_calendar_stream(calendar_stream_id)
+
+    assert result["success"] is True
+    event_body = mock_service.events().insert.call_args.kwargs["body"]
+    assert "Taikoma:" in event_body["description"]
+    assert "Test seniūnija" in event_body["description"]
+    assert "Village" in event_body["description"]
+    assert "Street" in event_body["description"]
+
+    patch_body = mock_service.calendars().patch.call_args.kwargs["body"]
+    assert "Aprėptis:" in patch_body["description"]
+    assert "Pokytis: +1, -0" in patch_body["description"]
+    assert "2026-01-08 -> 2026-01-22" in patch_body["description"]
+
+
 def test_sync_handles_errors_gracefully(temp_db):
     """Test that sync handles API errors gracefully"""
     conn, db_path = temp_db

@@ -1,5 +1,9 @@
 # v1.0 Major Revision Notes
 
+Note: the quarter-rollover continuity work for plastics/glass was carried forward into
+[`documentation/v1-1-continuity.md`](./v1-1-continuity.md). This file remains the v1.0 planning
+record; the v1.1 file is the current source for PDF calendar continuity behavior.
+
 ## Goal
 
 Ship a v1.0 release that remains stable with imperfect provider data and avoids exploding the
@@ -165,6 +169,8 @@ We need to explore an authoritative dataset (e.g., data.gov.lt).
 - Need to re-verify in-place update logic:
   - Calendar streams must extend, not reset.
   - Tests exist but are not fully trusted.
+- Follow-up: PDF quarter rollover continuity and stream preservation are now implemented and
+  verified in [`documentation/v1-1-continuity.md`](./v1-1-continuity.md).
 
 ---
 
