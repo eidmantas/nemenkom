@@ -1,103 +1,113 @@
 # Testing Guide
 
-This project has three risk areas and the tests reflect that:
+## Overview
 
-1. parsing source data correctly
-2. preserving DB/calendar continuity correctly
-3. keeping API/UI behavior stable for real address selections
+Tests protect core functionality: **XLSX parsing → Database → API**. Ensures future changes (AI parser, etc.) don't break existing working code.
 
-## Recommended Test Layers
+## Test Structure
 
-### Fast local confidence
-
-```bash
-make test
+```
+tests/
+├── __init__.py
+├── conftest.py              # Shared fixtures (test DB, sample data)
+├── test_parser.py           # Unit tests: parser functions
+├── test_parser_router.py    # Unit tests: AI parser routing logic
+├── test_api_endpoints.py    # Integration tests: API endpoints
+└── test_e2e_xlsx_to_api.py  # Critical E2E: XLSX → DB → API
 ```
 
-This is the default day-to-day suite.
+## Running Tests
 
-### Focused `1.1 RC` continuity suite
+### Local Development
 
-Run this whenever touching PDF rollover, stream reconciliation, or calendar descriptions:
+**Using Makefile (recommended - automatically uses venv):**
+
+```bash
+# First time setup: create venv and install dependencies
+make venv-install
+
+# Run tests (automatically uses venv, no manual activation needed)
+make test              # Run tests (skips AI Agent + Google Calendar API)
+make test-ai           # Run AI Agent tests only
+make test-calendar     # Google Calendar API tests only
+make test-all          # Tests including AI Agent (skips Google Calendar API)
+```
+
+**Or directly with pytest (requires venv activation):**
+
+```bash
+source venv/bin/activate  # Activate venv first
+pytest tests/ -v
+pytest tests/test_e2e_xlsx_to_api.py  # Specific test file
+```
+
+The Makefile automatically checks for venv and uses it. If venv doesn't exist, test commands will prompt you to run `make venv-install` first.
+
+### Docker Build (Tests Run Automatically)
+
+Docker builds do not run the full test suite automatically by default. For release confidence,
+run tests locally with `make test` (and optionally `make lint` / `make typecheck`) before building.
+
+```bash
+# Build images
+podman-compose build
+
+# Or build specific service
+podman-compose build web
+```
+
+## Test Coverage
+
+### Critical Tests (Must Pass)
+
+1. **E2E Test**: Sample XLSX → Database → API returns correct dates
+2. **Parser Unit Tests**: Traditional parser handles known patterns correctly
+3. **API Integration Tests**: Endpoints return expected data structure
+
+### What's Tested
+
+- Parser functions (`parse_village_and_streets`, `extract_dates_from_cell`)
+- Parser router (`should_use_ai_parser` logic)
+- AI parser integration (OpenAI-compatible API calls, validation, format conversion)
+- Database operations (hash generation, schedule grouping)
+- API endpoints (`/api/v1/locations`, `/api/v1/schedule`)
+- End-to-end flow (XLSX → DB → API)
+- PDF continuity safeguards (canonical selection reuse, ambiguous fallback, split conflict safety)
+- Calendar metadata updates (scope-aware descriptions for calendars/events)
+
+### AI Integration Tests
+
+AI integration tests make real OpenAI-compatible API calls and use tokens:
+
+- Tests use temporary cache databases (fresh API calls every time)
+- Tests current code and prompt logic, not cached results
+- Marked with `@pytest.mark.ai_integration`
+- Test complex parsing patterns from real CSV data
+
+## Test Data
+
+- **Sample XLSX**: `tests/fixtures/sample_schedule.xlsx` (first 100 rows from real XLSX)
+  - Generated using existing project functions (`scraper.fetcher.fetch_xlsx`)
+- **Test Database**: Created in-memory or temporary file (isolated per test)
+
+## Future: GitHub Actions
+
+## Focused PDF Continuity Regression Suite
+
+When touching quarter-rollover behavior, run:
 
 ```bash
 source venv/bin/activate
-pytest -q \
-  tests/test_pdf_continuity.py \
-  tests/test_calendar_sync.py \
-  tests/test_one_calendar_per_group.py \
-  tests/test_calendar_ux_flow.py
+pytest -q tests/test_pdf_continuity.py tests/test_calendar_sync.py tests/test_one_calendar_per_group.py
 ```
 
-This suite protects:
+This suite covers:
 
 - raw-text rename continuity
-- missing historical `seniūnija` recovery
-- conservative fallback on ambiguous overlap
-- future schedule split safety
-- in-place stream preservation on new date windows
-- description refresh for reused calendars
+- missing-historical-`seniūnija` recovery
+- ambiguous overlap fallback
+- true future split safety
+- calendar / event description updates
 
-### Full local sweep
-
-```bash
-source venv/bin/activate
-pytest tests/ -v
-```
-
-## Important Test Files
-
-- `tests/test_e2e_xlsx_to_api.py`: XLSX -> DB -> API flow
-- `tests/test_pdf_continuity.py`: canonical PDF continuity rules
-- `tests/test_calendar_sync.py`: calendar worker sync behavior
-- `tests/test_one_calendar_per_group.py`: stream/calendar reuse expectations
-- `tests/test_calendar_ux_flow.py`: subscription stability and new-window behavior
-- `tests/test_api_endpoints.py`: API contracts
-
-## AI Tests
-
-AI integration tests make real provider calls and use tokens.
-
-Use them when changing:
-
-- prompts
-- provider rotation
-- response-shape coercion
-- marker/AI handoff logic
-
-Typical command:
-
-```bash
-make test-ai
-```
-
-## Calendar Tests
-
-Google Calendar API tests require valid credentials and should be treated as integration tests.
-
-Typical command:
-
-```bash
-make test-calendar
-```
-
-## Release-Critical Reality Check
-
-For `1.1.0-rc1`, automated tests are necessary but not sufficient. Before deploying a quarter
-rollover:
-
-1. start from a known DB snapshot
-2. run XLSX + PDF imports on current code
-3. compare calendar-backed stream IDs and `calendar_id`s before/after
-4. confirm `calendar_synced_at` is cleared only on the streams that truly need updates
-
-That manual rehearsal is documented in:
-
-- [v1-1-continuity.md](./v1-1-continuity.md)
-- [../RELEASE.md](../RELEASE.md)
-
-## Notes
-
-- The project uses `services/database/waste_schedule.db` as the active DB.
-- The root `waste_schedule.db` is only a manual snapshot/helper unless explicitly copied over.
-- PDF imports can be slow; that is normal for AI-heavy cells.
+Implementation details and real Q2 verification live in
+[`documentation/v1-1-continuity.md`](./v1-1-continuity.md).
