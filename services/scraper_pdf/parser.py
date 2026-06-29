@@ -16,8 +16,10 @@ import re
 import sqlite3
 import time
 from html.parser import HTMLParser
+from numbers import Integral
 from pathlib import Path
 from typing import cast
+from urllib.parse import unquote
 
 import pandas as pd
 import requests
@@ -52,10 +54,12 @@ from services.scraper.core.db_writer import (
     find_or_create_schedule_group,
     generate_dates_hash,
     generate_kaimai_hash,
+    generate_schedule_group_id,
     get_calendar_stream_id_for_schedule_group,
     reconcile_calendar_streams,
     upsert_group_calendar_link,
 )
+from services.scraper_pdf.continuity import assign_continuity_kaimai_hashes
 from services.scraper_pdf.mapping import apply_mappings
 
 
@@ -139,6 +143,8 @@ DEFAULT_HEADER = [
     "Lapkričio",
     "Gruodžio",
 ]
+
+MonthColumnRef = str | int
 
 
 def parse_street_with_house_numbers(street_str: str) -> tuple[str, str | None]:
@@ -512,11 +518,44 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
         return
     conn = get_db_connection()
     ensure_pdf_parsed_rows_table(conn)
-    conn.execute("DELETE FROM pdf_parsed_rows WHERE source_file = ?", (source_file,))
+    continuity_stats = assign_continuity_kaimai_hashes(conn, results, source_file=source_file)
+    waste_types = sorted(
+        {
+            (item.get("waste_type") or "").strip()
+            for item in results
+            if (item.get("waste_type") or "").strip()
+        }
+    )
+
+    previous_pairs: set[tuple[str, str]] = set()
+    if waste_types:
+        placeholders = ", ".join("?" for _ in waste_types)
+        previous_pairs = {
+            (row[0], row[1])
+            for row in conn.execute(
+                f"""
+                SELECT DISTINCT waste_type, kaimai_hash
+                FROM pdf_parsed_rows
+                WHERE waste_type IN ({placeholders})
+                """,
+                tuple(waste_types),
+            ).fetchall()
+        }
+        # A PDF import replaces the active dataset for its waste type(s).
+        # This keeps quarter rollovers unambiguous and prevents stale rows from shadowing the
+        # current schedule in API lookups.
+        conn.execute(
+            f"DELETE FROM pdf_parsed_rows WHERE waste_type IN ({placeholders})",
+            tuple(waste_types),
+        )
+
     touched_schedule_groups: set[tuple[str, str]] = set()  # (waste_type, kaimai_hash)
+    active_pairs: set[tuple[str, str]] = set()
     for item in results:
         kaimai_str = clean_cell(item.get("kaimai_str", ""))
-        kaimai_hash = generate_kaimai_hash(kaimai_str) if kaimai_str else ""
+        kaimai_hash = (item.get("kaimai_hash") or "").strip()
+        if not kaimai_hash and kaimai_str:
+            kaimai_hash = generate_kaimai_hash(kaimai_str)
         dates = item.get("dates") or []
         dates_hash = generate_dates_hash(dates) if dates else ""
         dates_json = json.dumps([d.isoformat() for d in dates], ensure_ascii=False)
@@ -557,6 +596,7 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
         # Materialize into schedule_groups/calendar_streams so the web/API can serve plastikas/stiklas schedules.
         waste_type = (item.get("waste_type") or "").strip()
         if waste_type and kaimai_hash and dates:
+            active_pairs.add((waste_type, kaimai_hash))
             touched_schedule_groups.add((waste_type, kaimai_hash))
             schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
             existing_stream_id = get_calendar_stream_id_for_schedule_group(conn, schedule_group_id)
@@ -564,9 +604,26 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
                 calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
                 upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
 
+    obsolete_pairs = previous_pairs - active_pairs
+    for waste_type, kaimai_hash in obsolete_pairs:
+        schedule_group_id = generate_schedule_group_id(kaimai_hash, waste_type)
+        conn.execute(
+            "DELETE FROM group_calendar_links WHERE schedule_group_id = ?",
+            (schedule_group_id,),
+        )
+
     # Keep streams consistent if any groups changed/added (split/merge behavior, pending cleanup, etc.)
-    if touched_schedule_groups:
+    if touched_schedule_groups or obsolete_pairs:
         reconcile_calendar_streams(conn)
+    logger.info(
+        "Saved %s PDF rows for %s (continuity: group=%s selection=%s raw=%s, obsolete_groups=%s)",
+        len(results),
+        ",".join(waste_types) if waste_types else "unknown",
+        continuity_stats["group_reuse_rows"],
+        continuity_stats["selection_reuse_rows"],
+        continuity_stats["raw_rows"],
+        len(obsolete_pairs),
+    )
     conn.commit()
     conn.close()
 
@@ -1090,6 +1147,109 @@ def normalize_month_name(value: str) -> str | None:
     return MONTH_ALIASES.get(key)
 
 
+def extract_month_names_from_text(value: object) -> list[str]:
+    if value is None:
+        return []
+    decoded = unquote(str(value))
+    months: list[str] = []
+    tokens = re.findall(r"[A-Za-zĄČĘĖĮŠŲŪŽąćęėįšųūž]+", decoded)
+    for token in tokens:
+        normalized = normalize_month_name(token)
+        if normalized and normalized not in months:
+            months.append(normalized)
+    return months
+
+
+def infer_month_names_from_file_path(file_path: Path) -> list[str]:
+    return extract_month_names_from_text(file_path.name)
+
+
+def get_explicit_active_month_names(section: pd.DataFrame) -> list[str]:
+    month_columns = {}
+    for col in section.columns:
+        normalized = normalize_month_name(col)
+        if normalized:
+            month_columns[normalized] = col
+
+    if not month_columns:
+        return []
+
+    active_months: list[str] = []
+    for month_name, col_name in month_columns.items():
+        if any(clean_cell(row.get(col_name, "")) for _, row in section.iterrows()):
+            active_months.append(month_name)
+
+    return active_months or list(month_columns.keys())
+
+
+def collect_table_month_hints(tables: list[pd.DataFrame]) -> list[list[str]]:
+    hints: list[list[str]] = []
+    for table in tables:
+        table_hints: list[str] = []
+        for section in split_table_by_headers(table):
+            for month_name in get_explicit_active_month_names(section):
+                if month_name not in table_hints:
+                    table_hints.append(month_name)
+        hints.append(table_hints)
+    return hints
+
+
+def find_next_table_month_hint(
+    table_month_hints: list[list[str]],
+    table_idx: int,
+) -> list[str] | None:
+    for future_hint in table_month_hints[table_idx + 1 :]:
+        if future_hint:
+            return future_hint
+    return None
+
+
+def choose_expected_month_names(
+    *,
+    expected_count: int,
+    file_path: Path,
+    last_month_names: list[str] | None,
+    preferred_month_names: list[str] | None = None,
+) -> list[str] | None:
+    if preferred_month_names and len(preferred_month_names) >= expected_count:
+        return preferred_month_names[:expected_count]
+
+    if last_month_names and len(last_month_names) >= expected_count:
+        return last_month_names[:expected_count]
+
+    file_month_names = infer_month_names_from_file_path(file_path)
+    if len(file_month_names) >= expected_count:
+        return file_month_names[:expected_count]
+
+    return None
+
+
+def build_contextual_default_header(
+    *,
+    column_count: int,
+    file_path: Path,
+    last_month_names: list[str] | None,
+    preferred_month_names: list[str] | None = None,
+) -> list[str]:
+    expected_count = max(column_count - 2, 0)
+    month_names = choose_expected_month_names(
+        expected_count=expected_count,
+        file_path=file_path,
+        last_month_names=last_month_names,
+        preferred_month_names=preferred_month_names,
+    ) or list(MONTH_MAPPING.keys())[:expected_count]
+    return DEFAULT_HEADER[:2] + month_names
+
+
+def get_row_cell(row: pd.Series, column_ref: MonthColumnRef) -> object:
+    if isinstance(column_ref, Integral):
+        index = int(column_ref)
+        if 0 <= index < len(row):
+            return row.iloc[index]
+        return ""
+    return row.get(column_ref, "")
+
+
 def clean_cell(value: object) -> str:
     if value is None or cast(bool, pd.isna(value)):
         return ""
@@ -1230,13 +1390,21 @@ def split_table_by_headers(df: pd.DataFrame) -> list[pd.DataFrame]:
     return sections
 
 
-def infer_month_columns(section: pd.DataFrame) -> dict[str, str]:
-    """Map month columns deterministically based on column count."""
+def infer_month_columns(
+    section: pd.DataFrame,
+    *,
+    expected_month_names: list[str] | None = None,
+) -> dict[str, MonthColumnRef]:
+    """Map month columns deterministically based on visible month context."""
     column_count = len(section.columns)
     if column_count < 3:
         return {}
     expected = column_count - 2
-    ordered = list(MONTH_MAPPING.keys())[:expected]
+    ordered = (
+        expected_month_names[:expected]
+        if expected_month_names and len(expected_month_names) >= expected
+        else list(MONTH_MAPPING.keys())[:expected]
+    )
     found = set()
     for _, row in section.iterrows():
         for cell in row.tolist():
@@ -1245,7 +1413,7 @@ def infer_month_columns(section: pd.DataFrame) -> dict[str, str]:
                 found.add(normalized)
     if found and not set(found).issubset(set(ordered)):
         raise ValueError(f"Unexpected month headers {sorted(found)} for {expected} month columns.")
-    return {name: str(section.columns[2 + idx]) for idx, name in enumerate(ordered)}
+    return {name: 2 + idx for idx, name in enumerate(ordered)}
 
 
 def normalize_waste_type(waste_type: str) -> str:
@@ -1329,11 +1497,13 @@ def parse_pdf(
         logger.error("No tables extracted from PDF using marker-pdf")
         return ([], raw_rows, normalized_rows)
     logger.info("Using %s tables after page selection", len(tables))
+    table_month_hints = collect_table_month_hints(tables)
 
     results = []
     pdf_waste_label = infer_pdf_waste_label(file_path)
 
     last_header = None
+    last_month_names: list[str] | None = None
     # Process each table
     for table_idx, table in enumerate(tables):
         logger.debug(f"Processing table {table_idx + 1}/{len(tables)}")
@@ -1341,9 +1511,15 @@ def parse_pdf(
         df = table if isinstance(table, pd.DataFrame) else table.df
         sections = split_table_by_headers(df)
         if not sections:
+            preferred_month_names = find_next_table_month_hint(table_month_hints, table_idx)
             if last_header and len(last_header) == df.shape[1]:
                 fallback = df.copy()
-                fallback.columns = last_header[: len(fallback.columns)]
+                fallback.columns = build_contextual_default_header(
+                    column_count=df.shape[1],
+                    file_path=file_path,
+                    last_month_names=last_month_names,
+                    preferred_month_names=preferred_month_names or last_month_names,
+                )
                 sections = [fallback.reset_index(drop=True)]
                 logger.warning(
                     "No header row in table %s; reusing previous header",
@@ -1352,7 +1528,12 @@ def parse_pdf(
             else:
                 if df.shape[1] <= len(DEFAULT_HEADER):
                     fallback = df.copy()
-                    fallback.columns = DEFAULT_HEADER[: df.shape[1]]
+                    fallback.columns = build_contextual_default_header(
+                        column_count=df.shape[1],
+                        file_path=file_path,
+                        last_month_names=last_month_names,
+                        preferred_month_names=preferred_month_names,
+                    )
                     sections = [fallback.reset_index(drop=True)]
                     logger.warning(
                         "No header row in table %s; using default header",
@@ -1400,14 +1581,32 @@ def parse_pdf(
                     month_columns[normalized] = col
 
             if not month_columns:
+                preferred_month_names = (
+                    table_month_hints[table_idx] or find_next_table_month_hint(table_month_hints, table_idx)
+                )
+                expected_month_names = choose_expected_month_names(
+                    expected_count=max(len(section.columns) - 2, 0),
+                    file_path=file_path,
+                    last_month_names=last_month_names,
+                    preferred_month_names=preferred_month_names,
+                )
                 try:
-                    month_columns = infer_month_columns(section)
+                    month_columns = infer_month_columns(
+                        section,
+                        expected_month_names=expected_month_names,
+                    )
                 except ValueError as exc:
                     raise ValueError(
                         f"Month inference failed for table {table_idx + 1} "
                         f"section {section_idx + 1}: {exc}"
                     ) from exc
             last_header = list(section.columns)
+            if month_columns:
+                active_month_names = []
+                for month_name, col_name in month_columns.items():
+                    if any(clean_cell(get_row_cell(scan_row, col_name)) for _, scan_row in section.iterrows()):
+                        active_month_names.append(month_name)
+                last_month_names = active_month_names or list(month_columns.keys())
 
             logger.debug(
                 "Found %s month columns: %s",
@@ -1415,20 +1614,31 @@ def parse_pdf(
                 list(month_columns.keys()),
             )
 
-            # Handle misaligned month headers on some glass pages (Sausio column holds Vasario).
-            shift_sausio_to_vasario = False
-            if "Sausio" in month_columns and "Vasario" in month_columns:
-                sa_col = month_columns["Sausio"]
-                va_col = month_columns["Vasario"]
-                has_sausio = False
-                has_vasario = False
+            # Handle misaligned two-month tables where the first visible month column
+            # actually carries the second month's data.
+            shift_first_visible_month: tuple[str, str] | None = None
+            visible_month_names = list(month_columns.keys())
+            if len(visible_month_names) == 2 and len(section.columns) == 4:
+                first_month_name, second_month_name = visible_month_names
+                first_month_num = MONTH_MAPPING.get(first_month_name)
+                second_month_num = MONTH_MAPPING.get(second_month_name)
+                first_col = month_columns[first_month_name]
+                second_col = month_columns[second_month_name]
+                has_first_month = False
+                has_second_month = False
                 for _, scan_row in section.iterrows():
-                    if clean_cell(scan_row.get(sa_col, "")):
-                        has_sausio = True
-                    if clean_cell(scan_row.get(va_col, "")):
-                        has_vasario = True
-                if has_sausio and not has_vasario and len(section.columns) == 4:
-                    shift_sausio_to_vasario = True
+                    if clean_cell(get_row_cell(scan_row, first_col)):
+                        has_first_month = True
+                    if clean_cell(get_row_cell(scan_row, second_col)):
+                        has_second_month = True
+                if (
+                    first_month_num is not None
+                    and second_month_num is not None
+                    and second_month_num - first_month_num == 1
+                    and has_first_month
+                    and not has_second_month
+                ):
+                    shift_first_visible_month = (first_month_name, second_month_name)
 
             # Process each row
             for idx, row in section.iterrows():
@@ -1440,7 +1650,7 @@ def parse_pdf(
                     "waste_type_cell": clean_cell(row.get(waste_type_col, "")),
                 }
                 for month_name, col_name in month_columns.items():
-                    row_raw[f"month_{month_name}"] = clean_cell(row.get(col_name, ""))
+                    row_raw[f"month_{month_name}"] = clean_cell(get_row_cell(row, col_name))
                 raw_rows.append(row_raw)
 
                 location_str = clean_cell(row.get(location_col, ""))
@@ -1553,32 +1763,58 @@ def parse_pdf(
                 all_dates = []
                 month_values: dict[str, str] = {}
                 for month_name, col_name in month_columns.items():
-                    cell_value = row.get(col_name, "")
+                    cell_value = get_row_cell(row, col_name)
                     month_values[month_name] = clean_cell(cell_value)
                     dates = extract_dates_from_cell(cell_value, month_name, year)
                     all_dates.extend(dates)
-                if shift_sausio_to_vasario:
-                    month_values["Vasario"] = month_values.get("Sausio", "")
-                    month_values["Sausio"] = ""
+                if shift_first_visible_month:
+                    first_month_name, second_month_name = shift_first_visible_month
+                    first_month_value = month_values.get(first_month_name, "")
+                    month_values[second_month_name] = first_month_value
+                    month_values[first_month_name] = ""
+                    first_month_num = MONTH_MAPPING.get(first_month_name)
+                    if first_month_num is not None:
+                        all_dates = [
+                            date_obj for date_obj in all_dates if date_obj.month != first_month_num
+                        ]
+                    all_dates.extend(
+                        extract_dates_from_cell(first_month_value, second_month_name, year)
+                    )
 
-                # If "Sausio" column is missing or empty, look for embedded day tokens in the location cell.
-                if not month_values.get("Sausio"):
+                # If the first visible month cell is fused into the location text, recover it there.
+                primary_month_name = next(iter(month_columns), None)
+                if primary_month_name and not month_values.get(primary_month_name):
+                    other_visible_months_empty = all(
+                        not month_values.get(name)
+                        for name in month_columns
+                        if name != primary_month_name
+                    )
                     embedded_dates = extract_dates_from_cell(
-                        location_str, "Sausio", year, require_day_suffix=True
+                        location_str,
+                        primary_month_name,
+                        year,
+                        require_day_suffix=True,
                     )
                     if embedded_dates:
-                        all_dates.extend(embedded_dates)
-                        month_values["Sausio"] = _format_day_list(embedded_dates)
+                        primary_value = _format_day_list(embedded_dates)
+                        month_values[primary_month_name] = primary_value
                         location_str = re.sub(r"\b\d{1,2}\s*d\.\b", "", location_str)
                         location_str = re.sub(r"\s{2,}", " ", location_str).strip()
-                        # If only one day is present and all other month cells are empty,
-                        # repeat it across visible months (common in glass tables).
-                        if len(embedded_dates) == 1 and all(
-                            not month_values.get(name) for name in month_columns
-                        ):
-                            fallback_value = month_values["Sausio"]
+                        # If only one day is present and all other visible month cells are empty,
+                        # repeat it across the visible months (common in glass tables).
+                        if len(embedded_dates) == 1 and other_visible_months_empty:
                             for name in month_columns:
-                                month_values[name] = fallback_value
+                                month_values[name] = primary_value
+                                all_dates.extend(
+                                    extract_dates_from_cell(
+                                        primary_value,
+                                        name,
+                                        year,
+                                        require_day_suffix=True,
+                                    )
+                                )
+                        else:
+                            all_dates.extend(embedded_dates)
 
                 normalized_rows.append(
                     {

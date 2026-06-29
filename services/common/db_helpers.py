@@ -190,6 +190,100 @@ def get_calendar_stream_id_for_schedule_group(schedule_group_id: str) -> str | N
     return row[0] if row else None
 
 
+def get_calendar_stream_scope(calendar_stream_id: str) -> dict:
+    """
+    Collect a human-readable scope for a calendar stream from both XLSX-backed locations
+    and PDF-parsed rows.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    rows: set[tuple[str, str, str, str]] = set()
+
+    cursor.execute(
+        """
+        SELECT DISTINCT
+            COALESCE(l.seniunija, ''),
+            COALESCE(l.village, ''),
+            COALESCE(l.street, ''),
+            COALESCE(l.house_numbers, '')
+        FROM group_calendar_links gcl
+        JOIN schedule_groups sg ON sg.id = gcl.schedule_group_id
+        JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
+        WHERE gcl.calendar_stream_id = ?
+        """,
+        (calendar_stream_id,),
+    )
+    rows.update(
+        (
+            str(seniunija or "").strip(),
+            str(village or "").strip(),
+            str(street or "").strip(),
+            str(house_numbers or "").strip(),
+        )
+        for seniunija, village, street, house_numbers in cursor.fetchall()
+    )
+
+    pdf_rows_table = cursor.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'pdf_parsed_rows'
+        """
+    ).fetchone()
+    if pdf_rows_table:
+        cursor.execute(
+            """
+            SELECT DISTINCT
+                COALESCE(NULLIF(pdf.mapped_seniunija, ''), NULLIF(pdf.seniunija, ''), ''),
+                COALESCE(NULLIF(pdf.mapped_village, ''), NULLIF(pdf.village, ''), ''),
+                COALESCE(NULLIF(pdf.mapped_street, ''), NULLIF(pdf.street, ''), ''),
+                COALESCE(pdf.house_numbers, '')
+            FROM group_calendar_links gcl
+            JOIN schedule_groups sg ON sg.id = gcl.schedule_group_id
+            JOIN pdf_parsed_rows pdf
+              ON pdf.kaimai_hash = sg.kaimai_hash
+             AND pdf.waste_type = sg.waste_type
+            WHERE gcl.calendar_stream_id = ?
+            """,
+            (calendar_stream_id,),
+        )
+        rows.update(
+            (
+                str(seniunija or "").strip(),
+                str(village or "").strip(),
+                str(street or "").strip(),
+                str(house_numbers or "").strip(),
+            )
+            for seniunija, village, street, house_numbers in cursor.fetchall()
+        )
+
+    conn.close()
+
+    def format_street_label(street: str, house_numbers: str) -> str:
+        house_numbers_clean = str(house_numbers or "").strip()
+        if house_numbers_clean.lower() in {"", "all", "all.", "null", "none"}:
+            return street
+        return f"{street} ({house_numbers_clean})"
+
+    seniunijos = sorted({row[0] for row in rows if row[0]})
+    villages = sorted({row[1] for row in rows if row[1]})
+    street_labels = sorted(
+        {
+            format_street_label(street, house_numbers)
+            for _seniunija, _village, street, house_numbers in rows
+            if street
+        }
+    )
+
+    return {
+        "seniunijos": seniunijos,
+        "villages": villages,
+        "street_labels": street_labels,
+        "selection_count": len(rows),
+    }
+
+
 def update_calendar_stream_calendar_id(calendar_stream_id: str, calendar_id: str) -> bool:
     """
     Update calendar_streams.calendar_id for a stream.

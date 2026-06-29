@@ -8,14 +8,24 @@ All notable changes to this project will be documented in this file.
 - Consider batch/partial commits for `write_parsed_data` to allow incremental inserts.
 - Document URL update/year-rollover handling for PDF/XLSX sources and UX continuity (H2 plan, yearly roll).
 - BUG: marker-pdf drops glass Kovo 30 row (Avižienių/Aleksandravo + Paberžės + Nemenčinės + Maišiagalos); investigate extraction settings/fallback.
-- Phase 2: make schedule applicability explicit (village vs street vs bucket) to avoid `NULL`/`''` ambiguity; see `services/ARCHITECTURE.md` (“Future Improvement: Explicit Schedule Applicability (scope_level)”).
+- Phase 2: make schedule applicability explicit (village vs street vs bucket) to avoid `NULL`/`''` ambiguity across XLSX and PDF sources.
 - Standardize UI copy in Lithuanian, add English translations, and add a language selector (static files + templates).
 
 ## [Unreleased]
 
 ### Added
 
-- (none yet)
+- `documentation/v1-1-continuity.md` as the canonical write-up for the Q2 / `1.1.0-rc1` PDF continuity rollout.
+- `tests/test_pdf_continuity.py` covering canonical PDF continuity reuse, ambiguous fallback, and future split safety.
+- Release runbook in `RELEASE.md` for the `1.1.0-rc1` deployment path.
+
+### Changed
+
+- PDF rollover continuity now reuses historical hashes from canonical parsed selections instead of relying only on raw provider text.
+- Continuity conflict handling now degrades true provider-side schedule splits into new groups instead of silently merging different date sets back into one old calendar.
+- Calendar descriptions and event descriptions now include scope-aware context and change notes, and existing calendars are refreshed on reuse/sync.
+- Month inference for Q2-style PDFs now follows visible month context and filename hints instead of assuming early-year windows.
+- Documentation was consolidated across `README.md`, `INSTALL.md`, `RELEASE.md`, `services/ARCHITECTURE.md`, and `documentation/*` around the `1.1.0-rc1` model.
 
 ## [1.0.0-rc2] - 2026-02-05
 

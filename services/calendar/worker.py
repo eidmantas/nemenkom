@@ -3,6 +3,7 @@ Calendar sync worker service.
 Creates calendars and keeps events in sync in the background.
 """
 
+import datetime
 import logging
 import sys
 import time
@@ -12,10 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from services.calendar import (
     create_calendar_for_calendar_stream,
+    delete_calendar_for_stream,
+    post_cleanup_notice_for_stream,
     sync_calendar_for_calendar_stream,
 )
 from services.common.db_helpers import (
     get_calendar_streams_needing_sync,
+    get_calendar_streams_pending_cleanup,
 )
 from services.common.logging_utils import setup_logging
 from services.common.migrations import init_database
@@ -95,6 +99,14 @@ def calendar_sync_worker():
                     )
                     continue
 
+            cleanup_result = process_pending_cleanup_streams()
+            if cleanup_result["noticed"] or cleanup_result["deleted"]:
+                logger.info(
+                    "Pending cleanup processed: noticed=%s, deleted=%s",
+                    cleanup_result["noticed"],
+                    cleanup_result["deleted"],
+                )
+
             logger.info(
                 "Calendar sync worker sleeping for %ss...",
                 RETRY_INTERVAL_SECONDS,
@@ -105,6 +117,51 @@ def calendar_sync_worker():
             logger.exception("Error in calendar sync worker: %s", e)
             logger.info("Retrying in %ss...", RETRY_INTERVAL_SECONDS)
             time.sleep(RETRY_INTERVAL_SECONDS)
+
+
+def _parse_db_timestamp(value: str | None) -> datetime.datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def process_pending_cleanup_streams(now: datetime.datetime | None = None) -> dict[str, int]:
+    """
+    Post update notices for deprecated calendars and delete them after the grace period.
+    """
+    logger = logging.getLogger(__name__)
+    current_time = now or datetime.datetime.now()
+    noticed = 0
+    deleted = 0
+
+    for stream in get_calendar_streams_pending_cleanup():
+        calendar_stream_id = stream["id"]
+        try:
+            pending_clean_until = _parse_db_timestamp(stream.get("pending_clean_until"))
+            notice_sent_at = _parse_db_timestamp(stream.get("pending_clean_notice_sent_at"))
+
+            if pending_clean_until and current_time >= pending_clean_until:
+                logger.info("Deleting deprecated calendar stream %s", calendar_stream_id)
+                delete_calendar_for_stream(calendar_stream_id)
+                deleted += 1
+                continue
+
+            if not notice_sent_at and stream.get("calendar_id"):
+                logger.info("Posting cleanup notice for calendar stream %s", calendar_stream_id)
+                post_cleanup_notice_for_stream(calendar_stream_id)
+                noticed += 1
+        except Exception:
+            logger.exception(
+                "Failed to process pending cleanup for calendar stream %s",
+                calendar_stream_id,
+            )
+
+    return {"noticed": noticed, "deleted": deleted}
 
 
 def main():

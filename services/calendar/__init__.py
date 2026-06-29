@@ -25,6 +25,7 @@ from services.common.calendar_client import (
 )
 from services.common.db import get_db_connection
 from services.common.db_helpers import (
+    get_calendar_stream_scope,
     get_calendar_stream_id_for_schedule_group,
     get_calendar_stream_info,
     update_calendar_stream_calendar_id,
@@ -35,6 +36,170 @@ from services.common.throttle import backoff
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+WASTE_TYPE_DISPLAY = {
+    "bendros": "Bendros atliekos",
+    "plastikas": "Plastikas",
+    "stiklas": "Stiklas",
+}
+
+WASTE_EVENT_SUMMARY = {
+    "bendros": "Buitinių atliekų surinkimas",
+    "plastikas": "Plastikinių atliekų surinkimas",
+    "stiklas": "Stiklinių atliekų surinkimas",
+}
+
+WASTE_EVENT_DESCRIPTION = {
+    "bendros": "Išvežkite bendrų atliekų konteinerį.",
+    "plastikas": "Išvežkite plastiko ir pakuočių atliekų konteinerį.",
+    "stiklas": "Išvežkite stiklo atliekų konteinerį.",
+}
+
+
+def _preview_values(values: list[str], *, limit: int = 4) -> str:
+    if not values:
+        return ""
+    shown = values[:limit]
+    if len(values) <= limit:
+        return ", ".join(shown)
+    return f"{', '.join(shown)} ir dar {len(values) - limit}"
+
+
+def _finish_sentence(text: str) -> str:
+    return text.rstrip(". ") + "."
+
+
+def _format_scope_line(scope: dict, *, detailed: bool) -> str:
+    parts: list[str] = []
+    seniunijos = scope.get("seniunijos") or []
+    villages = scope.get("villages") or []
+    street_labels = scope.get("street_labels") or []
+
+    if seniunijos:
+        if len(seniunijos) == 1:
+            parts.append(f"{seniunijos[0]} seniūnija")
+        else:
+            parts.append(f"{len(seniunijos)} seniūnijos: {_preview_values(seniunijos, limit=3)}")
+
+    if villages:
+        village_limit = 6 if detailed else 3
+        if len(villages) == 1:
+            parts.append(f"gyvenvietė: {villages[0]}")
+        else:
+            parts.append(f"gyvenvietės: {_preview_values(villages, limit=village_limit)}")
+
+    if street_labels:
+        street_limit = 8 if detailed else 4
+        if len(street_labels) == 1:
+            parts.append(f"gatvė: {street_labels[0]}")
+        else:
+            parts.append(f"gatvės: {_preview_values(street_labels, limit=street_limit)}")
+
+    return "; ".join(parts) if parts else "aprėptis nenustatyta"
+
+
+def _format_date_range(dates: list[str]) -> str:
+    if not dates:
+        return "nėra datų"
+    ordered = sorted(dates)
+    if len(ordered) == 1:
+        return ordered[0]
+    return f"{ordered[0]} -> {ordered[-1]}"
+
+
+def _build_change_note(
+    *,
+    stream_info: dict,
+    previous_dates: list[str] | None,
+    events_added: int,
+    events_deleted: int,
+) -> str:
+    current_dates = list(stream_info.get("dates") or [])
+    if previous_dates is None:
+        if stream_info.get("calendar_synced_at"):
+            return "Pokytis: aprašas atnaujintas."
+        return "Pokytis: pradinis publikavimas."
+
+    if events_added == 0 and events_deleted == 0:
+        return "Pokytis: grafikas nepasikeitė."
+
+    return (
+        f"Pokytis: +{events_added}, -{events_deleted}; "
+        f"laikotarpis {_format_date_range(previous_dates)} -> {_format_date_range(current_dates)}."
+    )
+
+
+def _build_calendar_description(
+    *,
+    calendar_stream_id: str,
+    stream_info: dict,
+    previous_dates: list[str] | None = None,
+    events_added: int = 0,
+    events_deleted: int = 0,
+) -> str:
+    scope = get_calendar_stream_scope(calendar_stream_id)
+    updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    waste_type_display = WASTE_TYPE_DISPLAY.get(stream_info["waste_type"], stream_info["waste_type"])
+
+    lines = [
+        "Nemenkom atliekų surinkimo kalendorius.",
+        f"Tipas: {waste_type_display}.",
+        _finish_sentence(f"Aprėptis: {_format_scope_line(scope, detailed=True)}"),
+    ]
+
+    if stream_info.get("first_date") and stream_info.get("last_date"):
+        lines.append(
+            "Dabartinis grafikas: "
+            f"{stream_info['first_date']} -> {stream_info['last_date']} "
+            f"({stream_info.get('date_count') or 0} datos)."
+        )
+
+    lines.append(f"Paskutinis atnaujinimas: {updated_at}.")
+    lines.append(
+        _build_change_note(
+            stream_info=stream_info,
+            previous_dates=previous_dates,
+            events_added=events_added,
+            events_deleted=events_deleted,
+        )
+    )
+
+    return "\n".join(lines)
+
+
+def _build_event_description(calendar_stream_id: str, waste_type: str) -> str:
+    scope = get_calendar_stream_scope(calendar_stream_id)
+    return "\n".join(
+        [
+            WASTE_EVENT_DESCRIPTION.get(waste_type, "Išvežkite atliekų konteinerį."),
+            _finish_sentence(f"Taikoma: {_format_scope_line(scope, detailed=False)}"),
+            "Kalendorius automatiškai atnaujinamas.",
+        ]
+    )
+
+
+def _refresh_calendar_metadata(
+    *,
+    service,
+    calendar_id: str,
+    calendar_stream_id: str,
+    stream_info: dict,
+    previous_dates: list[str] | None = None,
+    events_added: int = 0,
+    events_deleted: int = 0,
+) -> None:
+    description = _build_calendar_description(
+        calendar_stream_id=calendar_stream_id,
+        stream_info=stream_info,
+        previous_dates=previous_dates,
+        events_added=events_added,
+        events_deleted=events_deleted,
+    )
+    throttle_calendar()
+    service.calendars().patch(
+        calendarId=calendar_id,
+        body={"description": description},
+    ).execute()
 
 
 def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
@@ -49,10 +214,11 @@ def post_cleanup_notice_for_stream(calendar_stream_id: str) -> None:
     service = get_google_calendar_service()
     now = datetime.datetime.now()
 
-    notice_summary = " Svarbu: atnaujinkite kalendoriaus prenumeratą"
+    notice_summary = "Svarbu: atnaujinkite kalendoriaus prenumeratą"
     notice_description = (
-        "Šio adreso atliekų grafikas pasikeitė. "
-        "Prašome atnaujinti prenumeratą svetainėje (nemenkom.lt). "
+        "Dėl techninės klaidos šis kalendorius nebesusisyncino su adresu. "
+        "Prašome svetainėje rankiniu būdu įsidėti atnaujintą kalendorių "
+        "(nemenkom.eidmantas.lt). "
         "Šis kalendorius bus pašalintas po 4 dienų."
     )
 
@@ -116,7 +282,7 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
         (calendar_stream_id,),
     )
     row = cursor.fetchone()
-    if not row or not row[0]:
+    if not row:
         conn.close()
         return
 
@@ -135,16 +301,15 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
     calendar_id = row[0]
     conn.close()
 
-    service = get_google_calendar_service()
-    throttle_calendar()
-    service.calendars().delete(calendarId=calendar_id).execute()
+    if calendar_id:
+        service = get_google_calendar_service()
+        throttle_calendar()
+        service.calendars().delete(calendarId=calendar_id).execute()
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM group_calendar_links WHERE calendar_stream_id = ?",
-        (calendar_stream_id,),
-    )
+    cursor.execute("DELETE FROM calendar_stream_events WHERE calendar_stream_id = ?", (calendar_stream_id,))
+    cursor.execute("DELETE FROM group_calendar_links WHERE calendar_stream_id = ?", (calendar_stream_id,))
     cursor.execute("DELETE FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     conn.commit()
     conn.close()
@@ -222,6 +387,20 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
                             calendar_stream_id,
                         )
 
+                    try:
+                        _refresh_calendar_metadata(
+                            service=service,
+                            calendar_id=existing_calendar_id,
+                            calendar_stream_id=calendar_stream_id,
+                            stream_info=stream_info,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Could not refresh existing calendar description for %s: %s",
+                            existing_calendar_id,
+                            e,
+                        )
+
                     return {
                         "calendar_id": existing_calendar_id,
                         "calendar_name": calendar_info["calendar_name"],
@@ -241,38 +420,18 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
                     f"{calendar_stream_id} invalid, creating new one: {e}"
                 )
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                SELECT DISTINCT l.seniunija
-                FROM group_calendar_links gcl
-                JOIN schedule_groups sg ON gcl.schedule_group_id = sg.id
-                JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
-                WHERE gcl.calendar_stream_id = ?
-                LIMIT 1
-            """,
-                (calendar_stream_id,),
-            )
-            row = cursor.fetchone()
-            seniunija = row[0] if row else "Nemenčinė"
-        finally:
-            conn.close()
+        scope = get_calendar_stream_scope(calendar_stream_id)
+        seniunija = scope["seniunijos"][0] if scope["seniunijos"] else "Nemenčinė"
 
         waste_type = stream_info["waste_type"]
-        waste_type_display = {
-            "bendros": "Bendros atliekos",
-            "plastikas": "Plastikas",
-            "stiklas": "Stiklas",
-        }.get(waste_type, waste_type)
+        waste_type_display = WASTE_TYPE_DISPLAY.get(waste_type, waste_type)
 
         short_hash = calendar_stream_id[:6] if len(calendar_stream_id) >= 6 else calendar_stream_id
 
         calendar_name = f"{seniunija} - {waste_type_display} - {short_hash}"
-        calendar_description = (
-            f"Buitinių atliekų surinkimo grafikas: {seniunija} seniūnija, "
-            f"{waste_type_display}. Automatiškai atnaujinamas."
+        calendar_description = _build_calendar_description(
+            calendar_stream_id=calendar_stream_id,
+            stream_info=stream_info,
         )
 
         logger.debug("Getting Google Calendar service for %s", calendar_stream_id)
@@ -562,15 +721,13 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> dict:
         service = get_google_calendar_service()
         waste_type = stream_info["waste_type"]
 
-        waste_type_display = {
-            "bendros": "Buitinių atliekų surinkimas",
-            "plastikas": "Plastikinių atliekų surinkimas",
-            "stiklas": "Stiklinių atliekų surinkimas",
-        }.get(waste_type, f"{waste_type} surinkimas")
+        waste_type_display = WASTE_EVENT_SUMMARY.get(waste_type, f"{waste_type} surinkimas")
+        event_description = _build_event_description(calendar_stream_id, waste_type)
 
         events_added = 0
         events_deleted = 0
         events_retried = 0
+        previous_dates = sorted(existing_dates)
 
         for date_str in dates_to_delete:
             event_id = existing_events[date_str]["event_id"]
@@ -607,7 +764,7 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> dict:
 
                 event = {
                     "summary": waste_type_display,
-                    "description": "Išvežkite bendrų šiukšlių dėžę",
+                    "description": event_description,
                     "start": {
                         "dateTime": datetime.datetime(
                             event_date.year,
@@ -681,7 +838,7 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> dict:
 
                 event = {
                     "summary": waste_type_display,
-                    "description": "Išvežkite bendrų šiukšlių dėžę",
+                    "description": event_description,
                     "start": {
                         "dateTime": datetime.datetime(
                             event_date.year,
@@ -747,6 +904,24 @@ def sync_calendar_for_calendar_stream(calendar_stream_id: str) -> dict:
                 conn.close()
 
         update_calendar_stream_calendar_synced(calendar_stream_id)
+        stream_info = get_calendar_stream_info(calendar_stream_id)
+        if stream_info:
+            try:
+                _refresh_calendar_metadata(
+                    service=service,
+                    calendar_id=calendar_id,
+                    calendar_stream_id=calendar_stream_id,
+                    stream_info=stream_info,
+                    previous_dates=previous_dates,
+                    events_added=events_added,
+                    events_deleted=events_deleted,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Could not refresh calendar description for %s: %s",
+                    calendar_stream_id,
+                    e,
+                )
 
         total_time = time.time() - start_time
         logger.info(

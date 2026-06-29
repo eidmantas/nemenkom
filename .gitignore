@@ -3,7 +3,6 @@ samples/
 *.db
 *.sqlite
 *.sqlite3
-RELEASE.md
 
 # Python virtual environment
 venv/
@@ -50,9 +49,8 @@ config-gcp-creds.json
 token.json
 
 # Secrets folder (Service Account credentials, API keys, etc.)
-# Ignore actual secret files, but keep template files (.example) and .gitkeep
-secrets/*.txt
-secrets/*.json
+# Ignore everything in secrets/ by default, but keep templates and the placeholder
+secrets/*
 !secrets/.gitkeep
 !secrets/*.example
 

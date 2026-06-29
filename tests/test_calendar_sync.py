@@ -4,10 +4,11 @@ Tests adding, deleting, and updating events when dates change
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from services.calendar import sync_calendar_for_calendar_stream
+from services.calendar import delete_calendar_for_stream, sync_calendar_for_calendar_stream
+from services.calendar.worker import process_pending_cleanup_streams
 from services.common.db_helpers import update_calendar_stream_calendar_id
 from services.scraper.core.db_writer import (
     find_or_create_calendar_stream,
@@ -274,6 +275,47 @@ def test_sync_retries_failed_events(temp_db):
         assert event[3] is None, "Error message should be cleared"
 
 
+def test_sync_updates_event_and_calendar_descriptions(temp_db):
+    conn, _db_path = temp_db
+
+    kaimai_hash = "k1_test_sync_descriptions"
+    waste_type = "bendros"
+    calendar_id = "test_calendar_descriptions@google.com"
+    dates_current = ["2026-01-08", "2026-01-22"]
+    calendar_stream_id = create_test_calendar_stream_with_calendar(
+        temp_db, kaimai_hash, waste_type, dates_current, calendar_id
+    )
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
+        VALUES (?, ?, ?, 'created')
+        """,
+        (calendar_stream_id, "2026-01-08", "event1"),
+    )
+    conn.commit()
+
+    mock_service = MagicMock()
+    mock_event = {"id": "event_new"}
+    mock_service.events().insert().execute.return_value = mock_event
+
+    with patch("services.calendar.get_google_calendar_service", return_value=mock_service):
+        result = sync_calendar_for_calendar_stream(calendar_stream_id)
+
+    assert result["success"] is True
+    event_body = mock_service.events().insert.call_args.kwargs["body"]
+    assert "Taikoma:" in event_body["description"]
+    assert "Test seniūnija" in event_body["description"]
+    assert "Village" in event_body["description"]
+    assert "Street" in event_body["description"]
+
+    patch_body = mock_service.calendars().patch.call_args.kwargs["body"]
+    assert "Aprėptis:" in patch_body["description"]
+    assert "Pokytis: +1, -0" in patch_body["description"]
+    assert "2026-01-08 -> 2026-01-22" in patch_body["description"]
+
+
 def test_sync_handles_errors_gracefully(temp_db):
     """Test that sync handles API errors gracefully"""
     conn, db_path = temp_db
@@ -345,3 +387,86 @@ def test_sync_empty_dates(temp_db):
     )
     row = cursor.fetchone()
     assert row[0] is not None, "calendar_synced_at should be set even for empty schedule"
+
+
+def test_process_pending_cleanup_streams_posts_notice_before_expiry():
+    pending_stream = {
+        "id": "cs_pending_notice",
+        "calendar_id": "old_calendar@group.calendar.google.com",
+        "pending_clean_until": (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        "pending_clean_notice_sent_at": None,
+    }
+
+    with (
+        patch("services.calendar.worker.get_calendar_streams_pending_cleanup", return_value=[pending_stream]),
+        patch("services.calendar.worker.post_cleanup_notice_for_stream") as post_notice,
+        patch("services.calendar.worker.delete_calendar_for_stream") as delete_stream,
+    ):
+        result = process_pending_cleanup_streams(now=datetime.now())
+
+    assert result == {"noticed": 1, "deleted": 0}
+    post_notice.assert_called_once_with("cs_pending_notice")
+    delete_stream.assert_not_called()
+
+
+def test_process_pending_cleanup_streams_deletes_after_expiry():
+    pending_stream = {
+        "id": "cs_pending_delete",
+        "calendar_id": "old_calendar@group.calendar.google.com",
+        "pending_clean_until": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "pending_clean_notice_sent_at": None,
+    }
+
+    with (
+        patch("services.calendar.worker.get_calendar_streams_pending_cleanup", return_value=[pending_stream]),
+        patch("services.calendar.worker.post_cleanup_notice_for_stream") as post_notice,
+        patch("services.calendar.worker.delete_calendar_for_stream") as delete_stream,
+    ):
+        result = process_pending_cleanup_streams(now=datetime.now())
+
+    assert result == {"noticed": 0, "deleted": 1}
+    post_notice.assert_not_called()
+    delete_stream.assert_called_once_with("cs_pending_delete")
+
+
+def test_delete_calendar_for_stream_removes_orphan_without_calendar_id(temp_db):
+    conn, _db_path = temp_db
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO calendar_streams (
+            id, waste_type, dates_hash, dates, first_date, last_date, date_count,
+            pending_clean_started_at, pending_clean_until
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, DATETIME(CURRENT_TIMESTAMP, '+1 day'))
+        """,
+        (
+            "cs_orphan_cleanup",
+            "plastikas",
+            "hash_cleanup",
+            json.dumps(["2026-04-01"]),
+            "2026-04-01",
+            "2026-04-01",
+            1,
+        ),
+    )
+    cursor.execute(
+        """
+        INSERT INTO calendar_stream_events (calendar_stream_id, date, event_id, status)
+        VALUES (?, ?, ?, 'created')
+        """,
+        ("cs_orphan_cleanup", "2026-04-01", "event_old"),
+    )
+    conn.commit()
+
+    delete_calendar_for_stream("cs_orphan_cleanup")
+
+    cursor.execute("SELECT 1 FROM calendar_streams WHERE id = ?", ("cs_orphan_cleanup",))
+    assert cursor.fetchone() is None
+
+    cursor.execute(
+        "SELECT 1 FROM calendar_stream_events WHERE calendar_stream_id = ?",
+        ("cs_orphan_cleanup",),
+    )
+    assert cursor.fetchone() is None

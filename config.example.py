@@ -74,11 +74,11 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 # PDF sources (plastikas/stiklas). Used by services/scraper_pdf when running with `--source`.
 PDF_PLASTIKAS_URL = os.getenv(
     "PDF_PLASTIKAS_URL",
-    "https://www.nemenkom.lt/uploads/failai/atliekos/Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20grafikas/%E2%80%9E2026%20m-%20sausio%2C%20vasario%2C%20kovo%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20grafikas/%E2%80%9E2026%20m-%20balandis%2C%20gegu%C5%BE%C4%97%2C%20bir%C5%BEelis%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
 )
 PDF_STIKLAS_URL = os.getenv(
     "PDF_STIKLAS_URL",
-    "https://www.nemenkom.lt/uploads/failai/atliekos/Stiklo%20pakuot%C4%97s/2026%20m-%20sausio%2C%20vasario%2C%20kovo%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Stiklo%20pakuot%C4%97s/2026%20m-%20balandis%2C%20gegu%C5%BE%C4%97%2C%20bir%C5%BEelis%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui)%20(1).pdf",
 )
 
 

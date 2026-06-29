@@ -359,6 +359,93 @@ def test_calendar_creation_only_for_schedule_groups_not_villages(temp_db):
     assert stream_info["calendar_id"] == calendar_id, "All villages should share the same calendar"
 
 
+def test_calendar_creation_description_includes_scope(temp_db):
+    conn, _db_path = temp_db
+
+    kaimai_hash = "k1_test_calendar_description"
+    waste_type = "bendros"
+    dates = [date(2026, 1, 8)]
+
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
+
+    conn.execute(
+        """
+        INSERT INTO locations (seniunija, village, street, kaimai_hash)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("Test", "Village", "Street", kaimai_hash),
+    )
+    conn.commit()
+
+    mock_service = MagicMock()
+    mock_calendar = {"id": "desc_calendar@google.com", "summary": "Desc Calendar"}
+    mock_service.calendars().insert().execute.return_value = mock_calendar
+
+    with patch("services.calendar.get_google_calendar_service", return_value=mock_service):
+        result = create_calendar_for_schedule_group(schedule_group_id)
+
+    assert result["success"] is True
+    calendar_body = mock_service.calendars().insert.call_args.kwargs["body"]
+    assert "Aprėptis:" in calendar_body["description"]
+    assert "Test seniūnija" in calendar_body["description"]
+    assert "Village" in calendar_body["description"]
+    assert "Street" in calendar_body["description"]
+    assert "Pokytis: pradinis publikavimas." in calendar_body["description"]
+
+
+def test_existing_calendar_description_is_refreshed_on_reuse(temp_db):
+    conn, _db_path = temp_db
+
+    kaimai_hash = "k1_test_existing_calendar_description_refresh"
+    waste_type = "bendros"
+    dates = [date(2026, 1, 8)]
+
+    schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
+    calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
+    upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
+
+    conn.execute(
+        """
+        INSERT INTO locations (seniunija, village, street, kaimai_hash)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("Test", "Village", "Street", kaimai_hash),
+    )
+    conn.commit()
+
+    mock_service = MagicMock()
+    mock_calendar = {"id": "existing_desc_calendar@google.com", "summary": "Existing Desc Calendar"}
+    mock_service.calendars().insert().execute.return_value = mock_calendar
+
+    existing_info = {
+        "calendar_id": mock_calendar["id"],
+        "calendar_name": mock_calendar["summary"],
+        "description": "",
+        "subscription_link": f"https://calendar.google.com/calendar/render?cid={mock_calendar['id']}",
+        "timeZone": "Europe/Vilnius",
+    }
+
+    with (
+        patch("services.calendar.get_google_calendar_service", return_value=mock_service),
+        patch("services.calendar.get_existing_calendar_info", return_value=existing_info),
+    ):
+        first = create_calendar_for_schedule_group(schedule_group_id)
+        second = create_calendar_for_schedule_group(schedule_group_id)
+
+    assert first["success"] is True
+    assert second["success"] is True
+    assert second.get("existing") is True
+    assert mock_service.calendars().patch.call_count == 1
+
+    patch_body = mock_service.calendars().patch.call_args.kwargs["body"]
+    assert "Aprėptis:" in patch_body["description"]
+    assert "Test seniūnija" in patch_body["description"]
+    assert "Village" in patch_body["description"]
+    assert "Street" in patch_body["description"]
+
+
 def test_no_duplicate_calendar_creation_on_retry(temp_db):
     """Test that retrying calendar creation doesn't create duplicates"""
     conn, db_path = temp_db

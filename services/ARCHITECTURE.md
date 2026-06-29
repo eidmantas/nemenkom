@@ -1,371 +1,253 @@
 # Services Architecture
 
-## 1. Service Boundaries and Responsibilities
+This file describes the current `1.1.0-rc1` architecture, not the original v1.0 draft.
 
-```
-┌─────────────┐     ┌───────────────┐     ┌───────────────┐
-│  Scraper    │ --> │ SQLite DB     │ <-- │ API + Web     │
-│ (services/  │     │ (services/    │     │ (services/    │
-│  scraper)   │     │  database)    │     │  api, web)    │
-└─────┬───────┘     └──────┬────────┘     └──────┬────────┘
-      │                   │                      │
-      │                   │                      │
-      ▼                   ▼                      ▼
-┌─────────────────────────────────────────────────────────┐
-│ Calendar Worker (services/calendar)                     │
-│ - Creates Google Calendars for streams                  │
-│ - Syncs events in place                                 │
-│ - Handles pending clean + deletion workflow             │
-└─────────────────────────────────────────────────────────┘
-```
+## Service Boundaries
 
-### Scraper (services/scraper)
-
-- Ingests XLSX, validates, parses, and writes normalized records into SQLite.
-- Owns stream reconciliation and link updates after data refresh.
-
-### API + Web (services/api, services/web)
-
-- Read-only access to schedules and calendar metadata.
-- Produces subscription URLs and status.
-
-### Calendar Worker (services/calendar)
-
-- Creates calendars and syncs events for streams.
-- Handles pending-clean notices and deletion for obsolete calendars.
-
-## 2. Key Identifiers and Invariants
-
-```
-Schedule Group ID  = stable hash(kaimai_hash + waste_type)
-Calendar Stream ID = random stable id (cs_xxx)
-dates_hash         = hash(sorted dates)
-```
-
-**Invariants**
-
-- schedule_group_id is stable for `(kaimai_hash, waste_type)` across date changes.
-- calendar_stream_id groups identical `(dates_hash, waste_type)` patterns.
-- N schedule_groups → 1 calendar_stream; link is explicit in `group_calendar_links`.
-- When a schedule_group diverges, it re-links to another stream or creates a new one.
-
-## 3. Database Schema (Logical Model)
-
-### Core Tables
-
-```
-data_fetches
-┌───────────────┬─────────────────────────────────────────┐
-│ id            │ integer PK                              │
-│ fetch_date    │ timestamp (default now)                 │
-│ source_url    │ text                                    │
-│ status        │ text                                    │
-│ validation_errors │ text (json)                         │
-│ created_at    │ timestamp                               │
-└───────────────┴─────────────────────────────────────────┘
+```text
+                nemenkom.lt
+        ┌────────────┴────────────┐
+        │                         │
+        ▼                         ▼
+  XLSX source                PDF sources
+  (bendros)             (plastikas / stiklas)
+        │                         │
+        ▼                         ▼
+┌────────────────┐      ┌─────────────────────┐
+│ services/      │      │ services/           │
+│ scraper        │      │ scraper_pdf         │
+│                │      │                     │
+│ - fetch XLSX   │      │ - fetch PDF         │
+│ - parse rows   │      │ - marker extract    │
+│ - write DB     │      │ - AI split/mapping  │
+└───────┬────────┘      │ - continuity reuse  │
+        │               │ - write DB          │
+        └───────┬───────┴──────────┬──────────┘
+                │                  │
+                ▼                  ▼
+              ┌──────────────────────┐
+              │ SQLite               │
+              │ services/database/   │
+              │ waste_schedule.db    │
+              └───────┬──────────────┘
+                      │
+          ┌───────────┴────────────┐
+          │                        │
+          ▼                        ▼
+┌──────────────────┐      ┌──────────────────┐
+│ services/api     │      │ services/        │
+│ + services/web   │      │ calendar         │
+│                  │      │                  │
+│ - read schedules │      │ - create/update  │
+│ - UI             │      │   Google cal     │
+│ - subscribe URLs │      │ - sync events    │
+└──────────────────┘      └──────────────────┘
 ```
 
-```
-locations
-┌───────────────┬─────────────────────────────────────────┐
-│ id            │ integer PK                              │
-│ seniunija     │ text                                    │
-│ village       │ text                                    │
-│ street        │ text                                    │
-│ house_numbers │ text (nullable)                         │
-│ kaimai_hash   │ text                                    │
-│ created_at    │ timestamp                               │
-│ updated_at    │ timestamp                               │
-│ UNIQUE(seniunija, village, street, house_numbers)       │
-└───────────────┴─────────────────────────────────────────┘
+- `services/scraper`: general-waste XLSX ingestion
+- `services/scraper_pdf`: plastic/glass PDF ingestion, AI splitting, continuity reuse
+- `services/api` + `services/web`: read API, website, subscription links
+- `services/calendar`: Google Calendar creation and event sync
+
+The active application DB is `services/database/waste_schedule.db`.
+
+## Logical Data Flow
+
+```text
+locations / pdf_parsed_rows
+            │
+            ▼
+      schedule_groups
+            │
+            ▼
+    group_calendar_links
+            │
+            ▼
+      calendar_streams
+            │
+            ▼
+   calendar_stream_events
 ```
 
-```
-schedule_groups
-┌───────────────┬─────────────────────────────────────────┐
-│ id            │ text PK (sg_*)                           │
-│ waste_type    │ text                                    │
-│ kaimai_hash   │ text                                    │
-│ dates         │ text (json array of ISO dates)          │
-│ dates_hash    │ text                                    │
-│ first_date    │ date                                    │
-│ last_date     │ date                                    │
-│ date_count    │ int                                     │
-│ calendar_id   │ text                                    │
-│ calendar_synced_at │ timestamp                          │
-│ created_at    │ timestamp                               │
-│ updated_at    │ timestamp                               │
-│ UNIQUE(kaimai_hash, waste_type)                         │
-└───────────────┴─────────────────────────────────────────┘
-```
-
-### Calendar Streams
-
-```
-calendar_streams
-┌───────────────┬─────────────────────────────────────────┐
-│ id            │ text PK (cs_*)                           │
-│ waste_type    │ text                                    │
-│ dates_hash    │ text                                    │
-│ dates         │ text (json array of ISO dates)          │
-│ first_date    │ date                                    │
-│ last_date     │ date                                    │
-│ date_count    │ int                                     │
-│ calendar_id   │ text                                    │
-│ calendar_synced_at │ timestamp                          │
-│ pending_clean_started_at │ timestamp (nullable)         │
-│ pending_clean_until │ timestamp (nullable)              │
-│ pending_clean_notice_sent_at │ timestamp (nullable)     │
-│ created_at    │ timestamp                               │
-│ updated_at    │ timestamp                               │
-└───────────────┴─────────────────────────────────────────┘
-```
-
-```
-group_calendar_links
-┌───────────────┬─────────────────────────────────────────┐
-│ schedule_group_id │ text PK (FK → schedule_groups)      │
-│ calendar_stream_id │ text FK → calendar_streams         │
-│ created_at     │ timestamp                              │
-│ updated_at     │ timestamp                              │
-└───────────────┴─────────────────────────────────────────┘
-```
-
-### Calendar Events
-
-```
-calendar_stream_events
-┌───────────────┬─────────────────────────────────────────┐
-│ calendar_stream_id │ text FK → calendar_streams         │
-│ date          │ date                                    │
-│ event_id      │ text (Google event id)                  │
-│ status        │ text (pending|created|error)            │
-│ error_message │ text (nullable)                         │
-│ created_at    │ timestamp                               │
-│ updated_at    │ timestamp                               │
-│ PK(calendar_stream_id, date)                            │
-└───────────────┴─────────────────────────────────────────┘
-```
-
-Stream-based sync uses `calendar_streams` and `calendar_stream_events`.
-
-## 4. Entity Relationships (ER-style view)
-
-```
-locations (kaimai_hash)
-        │
-        │ 1..N
-        ▼
-schedule_groups (id, kaimai_hash, waste_type, dates_hash)
-        │ 1..1
-        ▼
-group_calendar_links (schedule_group_id → calendar_stream_id)
-        │ N..1
-        ▼
-calendar_streams (id, dates_hash, calendar_id, sync state)
-        │ 1..N
-        ▼
-calendar_stream_events (calendar_stream_id, date, event_id)
-```
-
-## 5. Scraper → Database Flow
-
-```
-XLSX → parse rows → (seniunija, village, street, house_numbers, dates, kaimai_str)
-                 ↓
-generate kaimai_hash (stable for same kaimai_str)
-                 ↓
-find_or_create_schedule_group(kaimai_hash + waste_type)
-                 ↓
-find_or_create_calendar_stream(dates_hash + waste_type)
-                 ↓
-upsert_group_calendar_link(schedule_group_id → calendar_stream_id)
-                 ↓
-write locations table (deduped by UNIQUE)
-                 ↓
-reconcile_calendar_streams()
-```
-
-Calendar consistency path (read + sync):
-
-```
-locations(kaimai_hash)
+```text
+User selects address in UI
         │
         ▼
-schedule_groups(id, dates_hash, waste_type)
+API resolves matching schedule_groups
         │
         ▼
-group_calendar_links(schedule_group_id → calendar_stream_id)
+API resolves linked calendar_stream
         │
         ▼
-calendar_streams(id, dates_hash, calendar_id)
+UI shows dates + subscription link
         │
         ▼
-calendar_stream_events(calendar_stream_id, date, event_id, status)
+Calendar worker syncs that stream to Google Calendar
 ```
 
-Key functions:
+## Core Model
 
-- `services/scraper/core/db_writer.py`
-  - `find_or_create_schedule_group`
-  - `find_or_create_calendar_stream`
-  - `upsert_group_calendar_link`
-  - `reconcile_calendar_streams`
+### `locations`
 
-## 6. Calendar Stream Reconciliation
+Canonical address rows used mostly by the XLSX flow and UI selection.
 
-Reconciliation happens after all rows are written.
+Key fields:
 
-### Case A: Single dates_hash
+- `seniunija`
+- `village`
+- `street`
+- `house_numbers`
+- `kaimai_hash`
 
-All linked groups share the same `dates_hash`:
+### `pdf_parsed_rows`
 
-- update `calendar_streams.dates` and `dates_hash`
-- set `calendar_synced_at` to NULL if dates changed
-- clear pending-clean flags
+Structured PDF output after extraction, AI splitting, and mapping.
 
-### Case B: Divergent dates_hash
+This is the important bridge for quarter-to-quarter continuity because it stores parsed selections:
 
-Linked groups diverge:
+- `mapped_seniunija`
+- `mapped_village`
+- `mapped_street`
+- `house_numbers`
+- `kaimai_hash`
+- `dates_json`
 
-- create new stream(s) per dates_hash
-- relink groups
-- mark the old stream pending clean
+### `schedule_groups`
 
-### Case C: Orphaned stream
+Logical waste schedule groups keyed by:
 
-No linked groups remain:
-
-- mark pending clean immediately
-
-## 7. Calendar Creation and Sync
-
-### Creation (per stream)
-
-`create_calendar_for_calendar_stream(calendar_stream_id)`:
-
-- resolve a representative `seniunija` via linked locations
-- create a Google Calendar and store `calendar_id`
-- enforce public read ACL
-
-### Sync (per stream)
-
-`sync_calendar_for_calendar_stream(calendar_stream_id)`:
-
-- load desired dates from `calendar_streams`
-- load existing events from `calendar_stream_events`
-- compute deltas: add/delete/retry
-- update Google Calendar and persist event state
-- set `calendar_synced_at`
-
-### Cleanup Workflow (deprecation)
-
-When a stream is superseded:
-
-- set `pending_clean_started_at` and `pending_clean_until` (+4 days)
-- post 3 notice events in the old calendar
-- delete calendar if still orphaned after `pending_clean_until`
-
-## 8. API Read Path
-
-### /api/v1/schedule
-
-Lookup by location:
-
-```
-locations → kaimai_hash
-schedule_groups (by kaimai_hash + waste_type)
-group_calendar_links → calendar_streams
+```text
+schedule_group_id = hash(waste_type + kaimai_hash)
 ```
 
-Response includes:
+Each group owns:
 
-- location metadata
-- schedule_group_id
-- dates (from schedule_groups)
-- calendar_id + subscription_link (from calendar_streams)
-- calendar_status derived from calendar_streams.calendar_id + calendar_synced_at
+- one waste type
+- one stable `kaimai_hash`
+- one active date set
 
-### /api/v1/schedule-group/<id>
+### `calendar_streams`
 
-Lookup by schedule group:
+Shared Google-calendar streams keyed by identical date pattern within one waste type.
 
+Multiple `schedule_groups` may point to one `calendar_stream`.
+
+### `group_calendar_links`
+
+Explicit link table from `schedule_group` to `calendar_stream`.
+
+### `calendar_stream_events`
+
+Persisted Google event state for each date in a stream.
+
+## Main Invariants
+
+- `schedule_group_id` stays stable as long as continuity decides the new data is still the same real selection.
+- `calendar_stream_id` stays stable when the same calendar-bearing stream can be preserved through a date refresh.
+- `calendar_id` belongs to `calendar_streams`, not directly to addresses.
+- `calendar_synced_at IS NULL` means the worker must create or refresh that calendar.
+
+## XLSX Flow
+
+```text
+XLSX row
+  -> parsed address + dates
+  -> kaimai_hash from source grouping
+  -> schedule_group upsert
+  -> calendar_stream reconcile
+  -> locations write/update
 ```
-schedule_groups → locations (by kaimai_hash)
-group_calendar_links → calendar_streams (calendar_id)
+
+This is used for `bendros`.
+
+## PDF Flow
+
+```text
+PDF
+  -> marker-pdf extraction
+  -> row cleanup
+  -> AI JSON split for complex cells
+  -> mapped selections
+  -> continuity reuse against historical parsed rows
+  -> schedule_group upsert
+  -> calendar_stream reconcile
 ```
 
-## 9. Why Both schedule_groups and calendar_streams?
+This is used for `plastikas` and `stiklas`.
 
-This is the core UX vs scalability compromise:
+## Continuity Model
 
-- **schedule_groups** keep IDs stable per address + waste type.
-- **calendar_streams** keep calendar counts low by sharing identical date patterns.
+The old problem was raw-text continuity:
 
-If dates for a schedule group change, the group is re-linked to a new stream:
+```text
+same real place, different provider wording -> new kaimai_hash -> new calendar
+```
 
-- If the new pattern is shared → join existing stream
-- If not shared → create new stream
+Current `1.1 RC` behavior:
 
-Old streams are not deleted immediately; they enter pending clean, post user notices, then delete once they are orphaned.
+- build canonical selection keys from parsed PDF rows
+- match historical rows by normalized `seniūnija`, `village`, `street`, `house_numbers`
+- allow admin-less fallback only for historical rows that were actually saved without `seniūnija`
+- if matching is ambiguous, create a new group instead of guessing
+- if one old hash would be reused by multiple incompatible new date sets, resolve the conflict conservatively
 
-## 10. Services (Detailed)
+Implementation lives in `services/scraper_pdf/continuity.py`.
 
-### services/scraper
+## Stream Reconciliation
 
-- `core/fetcher.py` downloads XLSX.
-- `core/parser.py` parses rows (AI-assisted when needed).
-- `core/validator.py` validates structure and parsed rows.
-- `core/db_writer.py` writes data, updates streams, and reconciles.
+`services/scraper/core/db_writer.py` keeps stream-level stability after writes.
 
-### services/api
+Important cases:
 
-- `api/app.py` exposes read-only endpoints.
-- `api/db.py` joins locations → schedule_groups → calendar_streams.
+### Same group, new dates
 
-### services/calendar
+- update the existing `schedule_group`
+- preserve the existing `calendar_stream`
+- clear `calendar_synced_at`
 
-- `calendar/__init__.py` creates calendars, syncs events, and cleans up.
-- `calendar/worker.py` polls for unsynced streams and pending cleanup.
+### One old stream splits into multiple date patterns
 
-### services/scraper_pdf
+- preserve the old calendar-bearing stream on the best successor
+- move the other groups onto new streams
+- avoid abandoning the existing Google calendar when one clear continuation exists
 
-- PDF scraper for plastikas/stiklas schedules.
-- Runs on a scheduler (`scraper_pdf` compose service) and materializes parsed rows into
-  `schedule_groups` + `calendar_streams` so the API/UI can serve them like bendros.
+### Stream becomes orphaned
 
-## 11. Operational Concerns
+- mark pending clean
+- do not auto-delete calendars immediately
 
-- **Idempotency**: calendar sync is designed to be safe to retry; deltas are computed.
-- **Rate limiting**: throttling handled in calendar client utilities (calendar APIs only).
-- **Concurrency**: calendar worker is single-threaded polling.
-- **Observability**: logs in worker and scraper; DB retains fetch history in `data_fetches`.
+## Calendar Metadata Refresh
 
-## 12. Future Improvement: Explicit Schedule Applicability (scope_level)
+`services/calendar/__init__.py` now rebuilds descriptions from DB scope:
 
-Problem statement:
+- waste type
+- seniūnija / village / street coverage
+- current date range
+- change note
 
-- Today we sometimes encode “applies to whole village” implicitly as `street == ''` (in `locations`)
-  and sometimes as `street IS NULL` (e.g. PDF-derived `pdf_parsed_rows` before normalization).
-- This makes matching rules fragile and forces query logic to rely on `COALESCE(...)` patterns.
+This refresh happens:
 
-Current mitigation (v1.0):
+- when an existing calendar is reused
+- after event sync
 
-- We normalize PDF “no street” to `''` on write and keep SQL queries NULL-safe.
-- This is intentionally minimal to reduce migration risk during release stabilization.
+So existing subscribed calendars get updated descriptions automatically, not only newly created ones.
 
-Proposed Phase 2 model (industry practice):
+## Current Safety Model
 
-- Introduce an explicit applicability level for schedule rules (rather than inferring from strings):
-  - `scope_level = 'village' | 'street' | 'bucket'`
-- Store applicability using nullable IDs (or nullable text keys as an intermediate step):
-  - `scope_level='village'` → no street, no bucket
-  - `scope_level='street'` → street present, no bucket
-  - `scope_level='bucket'` → street + bucket present
-- Enforce invariants with DB constraints (CHECK) so invalid/ambiguous states cannot be stored.
+Safe to preserve continuity:
 
-Why this helps:
+- harmless raw renames like `k.` -> `mstl.`
+- provider formatting drift in the same real place
+- quarter rollover where only dates move forward
 
-- Removes the `NULL` vs `''` ambiguity permanently.
-- Makes API matching logic simpler and more reliable (filter by `scope_level` instead of guessing).
-- Makes it easier to support additional “containment” semantics later (e.g., house-number ranges).
+Safe to create a new group instead:
+
+- genuinely new villages / streets / house-number buckets
+- ambiguous historical overlap
+- future provider regrouping where one old schedule splits into multiple different date sets
+
+## Related Docs
+
+- [../documentation/v1-1-continuity.md](../documentation/v1-1-continuity.md)
+- [../documentation/TESTING.md](../documentation/TESTING.md)
+- [../RELEASE.md](../RELEASE.md)
