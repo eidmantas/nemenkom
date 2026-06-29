@@ -69,6 +69,7 @@ def get_public_stats() -> dict:
         "calendar_subscribers": 0,
         "locations": 0,
         "news_subscribers": 0,
+        "top_villages": [],
     }
 
     if _table_exists(cursor, "calendar_streams"):
@@ -88,6 +89,37 @@ def get_public_stats() -> dict:
     if _table_exists(cursor, "news_subscribers"):
         row = cursor.execute("SELECT COUNT(*) FROM news_subscribers").fetchone()
         stats["news_subscribers"] = int(row[0] or 0)
+
+    if all(
+        _table_exists(cursor, table_name)
+        for table_name in (
+            "calendar_streams",
+            "group_calendar_links",
+            "schedule_groups",
+            "locations",
+        )
+    ):
+        rows = cursor.execute(
+            """
+            SELECT l.seniunija, l.village, COUNT(DISTINCT cs.calendar_id) AS subscribers
+            FROM calendar_streams cs
+            JOIN group_calendar_links gcl ON gcl.calendar_stream_id = cs.id
+            JOIN schedule_groups sg ON sg.id = gcl.schedule_group_id
+            JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
+            WHERE cs.calendar_id IS NOT NULL AND cs.calendar_id != ''
+            GROUP BY l.seniunija, l.village
+            ORDER BY subscribers DESC, l.village COLLATE NOCASE
+            LIMIT 3
+            """
+        ).fetchall()
+        stats["top_villages"] = [
+            {
+                "seniunija": row[0],
+                "village": row[1],
+                "calendar_subscribers": int(row[2] or 0),
+            }
+            for row in rows
+        ]
 
     conn.close()
     return stats

@@ -419,6 +419,33 @@ def test_public_stats_includes_calendar_and_news_counts(temp_db):
             ('cs_3', 'stiklas', 'h3', '[]', NULL)
         """
     )
+    conn.execute(
+        """
+        INSERT INTO schedule_groups (id, waste_type, kaimai_hash, dates)
+        VALUES
+            ('sg_1', 'bendros', 'kh_1', '[]'),
+            ('sg_2', 'plastikas', 'kh_2', '[]'),
+            ('sg_3', 'stiklas', 'kh_3', '[]')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash)
+        VALUES
+            ('Test', 'PopularVillage', 'A g.', NULL, 'kh_1'),
+            ('Test', 'PopularVillage', 'B g.', NULL, 'kh_2'),
+            ('Test', 'QuietVillage', '', NULL, 'kh_3')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO group_calendar_links (schedule_group_id, calendar_stream_id)
+        VALUES
+            ('sg_1', 'cs_1'),
+            ('sg_2', 'cs_2'),
+            ('sg_3', 'cs_3')
+        """
+    )
     conn.execute("INSERT INTO news_subscribers (email) VALUES ('reader@example.com')")
     conn.commit()
 
@@ -431,6 +458,9 @@ def test_public_stats_includes_calendar_and_news_counts(temp_db):
     data = response.get_json()
     assert data["calendar_subscribers"] == 2
     assert data["news_subscribers"] == 1
+    assert data["top_villages"] == [
+        {"seniunija": "Test", "village": "PopularVillage", "calendar_subscribers": 2}
+    ]
 
 
 def test_api_villages_endpoint(test_db_with_village_and_streets):

@@ -13,144 +13,119 @@
 <body>
     <div class="top-header">
         <div class="top-header-content">
-            <a href="https://github.com/eidmantas/nemenkom" target="_blank" rel="noopener noreferrer" class="top-header-link">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 6px;">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                </svg>
-                Kodas (GitHub)
-            </a>
-            <a href="https://ko-fi.com/eidmantas" target="_blank" rel="noopener noreferrer" class="top-header-link">
-                ☕ Arbatpinigiai
-            </a>
-            <a href="/api-docs" class="top-header-link">
-                📖 API Documentation
-            </a>
+            <a href="/" class="top-header-brand">nemenkom.eidmantas.lt</a>
+            <nav class="top-header-nav" aria-label="Nuorodos">
+                <a href="https://github.com/eidmantas/nemenkom" target="_blank" rel="noopener noreferrer" class="top-header-link">
+                    Kodas
+                </a>
+                <a href="https://ko-fi.com/eidmantas" target="_blank" rel="noopener noreferrer" class="top-header-link">
+                    Ko-fi
+                </a>
+                <a href="/api-docs" class="top-header-link">
+                    API
+                </a>
+            </nav>
         </div>
     </div>
     <div class="container">
-        <header>
-            <h1>Nemenkom.lt atliekų surinkimo grafikas</h1>
-            <div class="hero">
+        <header class="app-hero">
+            <section class="hero-main" aria-label="Adreso paieška">
+                <p class="hero-kicker">Neoficialus Nemenkom.lt kalendorius</p>
+                <h1>Nemenkom.lt atliekų grafikas</h1>
                 <p class="subtitle hero-lead">
-                    Neoficialus bandymas padaryti patogų kalendorių iš Nemenčinės komunalininko („nemenkom.lt“) grafiko.
+                    Pasirinkite adresą ir gaukite bendrų, plastiko bei stiklo atliekų datas vienoje vietoje.
                 </p>
 
-                <div class="hero-actions">
-                    <div class="hero-row">
-                        <span class="hero-label">Galite naudoti Web Kalendorių arba Google kalendorius:</span>
-                        <span class="hero-chips">
-                            <span class="hero-chip hero-chip-bendros">Bendros</span>
-                            <span class="hero-chip hero-chip-plastikas">Plastikas</span>
-                            <span class="hero-chip hero-chip-stiklas">Stiklas</span>
-                        </span>
+                <div class="hero-chips" aria-label="Atliekų tipai">
+                    <span class="hero-chip hero-chip-bendros">Bendros</span>
+                    <span class="hero-chip hero-chip-plastikas">Plastikas</span>
+                    <span class="hero-chip hero-chip-stiklas">Stiklas</span>
+                </div>
+
+                <div class="selection-section">
+                    <div class="cascading-selects">
+                        <div class="select-group" id="villageSelectGroup">
+                            <label for="villageInput">Kaimas / miestas</label>
+                            <div class="searchable-dropdown">
+                                <input type="text" id="villageInput" placeholder="Ieškoti kaimo..." autocomplete="off"
+                                       oninput="filterVillages()" onfocus="showVillageDropdown()" onblur="hideVillageDropdown()"
+                                       onkeydown="handleVillageKeydown(event)">
+                                <datalist id="villageList"></datalist>
+                                <div id="villageDropdown" class="dropdown-list"></div>
+                            </div>
+                        </div>
+
+                        <div class="select-group" id="streetSelectGroup" style="display: none;">
+                            <label for="streetInput">Gatvė</label>
+                            <div class="searchable-dropdown">
+                                <input type="text" id="streetInput" placeholder="Ieškoti gatvės..." autocomplete="off"
+                                       oninput="filterStreets()" onfocus="showStreetDropdown()" onblur="hideStreetDropdown()"
+                                       onkeydown="handleStreetKeydown(event)">
+                                <datalist id="streetList"></datalist>
+                                <div id="streetDropdown" class="dropdown-list"></div>
+                            </div>
+                        </div>
+
+                        <div class="select-group" id="houseNumberSelectGroup" style="display: none;">
+                            <label for="houseNumberInput">Namo numeris</label>
+                            <div class="searchable-dropdown">
+                                <input type="text" id="houseNumberInput" placeholder="Ieškoti namo numerio..." autocomplete="off"
+                                       oninput="filterHouseNumbers()" onfocus="showHouseNumberDropdown()" onblur="hideHouseNumberDropdown()"
+                                       onkeydown="handleHouseNumberKeydown(event)">
+                                <datalist id="houseNumberList"></datalist>
+                                <div id="houseNumberDropdown" class="dropdown-list"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </section>
+
+            <aside class="hero-side" aria-label="Statistika ir naujienos">
+                <div class="stats-grid">
+                    <div class="insight-stat">
+                        <span class="insight-stat-label">Kalendorių prenumeratos</span>
+                        <strong id="calendarSubscribersStat">...</strong>
+                    </div>
+                    <div class="insight-stat">
+                        <span class="insight-stat-label">Adreso įrašai</span>
+                        <strong id="locationsStat">...</strong>
+                    </div>
+                </div>
+
+                <div class="popular-card">
+                    <div class="popular-card-header">
+                        <span>Populiariausi kaimai</span>
+                        <small>Top 3</small>
+                    </div>
+                    <ol class="popular-list" id="topVillagesList">
+                        <li>Kraunama...</li>
+                    </ol>
+                </div>
+
+                <form class="newsletter-card" id="newsletterForm">
+                    <label for="newsletterEmail">Naujienos</label>
+                    <div class="newsletter-row">
+                        <input
+                            id="newsletterEmail"
+                            name="email"
+                            type="email"
+                            inputmode="email"
+                            autocomplete="email"
+                            placeholder="el. paštas"
+                            required
+                        >
+                        <button type="submit">Prenumeruoti</button>
+                    </div>
+                    <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
+                </form>
 
                 <div class="hero-alert hero-alert-info" role="status" aria-live="polite">
                     <strong>Naujiena:</strong>
                     nemenkom.lt vėl pakeitė XLSX failą: kaimus sujungė į gatvių lauką, o „Kaimai“
-                    stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad grafikai veiktų,
-                    bet Google kalendorius gali reikėti pridėti iš naujo.
+                    stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad veiktų.
                 </div>
-
-                <div class="hero-alert hero-alert-warning" role="status" aria-live="polite">
-                    <strong>Svarbu dėl Google kalendorių:</strong>
-                    Dėl techninės klaidos kai kurie Google kalendoriai nebesusisyncino su adresais.
-                    Prašome pasitikrinti savo adresą iš naujo ir rankiniu būdu įsidėti atnaujintą kalendorių,
-                    jei senasis nebesinaujina.
-                    Jeigu turite informacijos, kaip gauti visų seniūnijų, kaimų, miestelių, gatvių ir namų numerių duomenis,
-                    prašau duokite žinoti.
-                </div>
-
-                <div class="hero-support">
-                    <div class="hero-support-copy">
-                        <strong>Jei įrankis naudingas, galite palikti arbatpinigių.</strong>
-                        <span>
-                            Taip pat galite susisiekti tiesiogiai, jei norite pasiūlyti patobulinimą ar pranešti apie problemą.
-                        </span>
-                    </div>
-                    <div class="hero-support-actions">
-                        <div class="hero-support-action-row">
-                            <a href="https://ko-fi.com/eidmantas" target="_blank" rel="noopener noreferrer" class="hero-support-link hero-support-link-primary">
-                                ☕ Palikti arbatpinigių per Ko-fi
-                            </a>
-                        </div>
-                        <div class="hero-support-action-row">
-                            <span class="hero-support-contact-label">Kontaktas:</span>
-                            <a
-                                href="#kontaktai"
-                                class="hero-support-link hero-support-link-secondary js-obfuscated-email"
-                                data-user="eidmantas.ivanauskas"
-                                data-domain="gmail.com"
-                                aria-label="Kontaktinis el. paštas"
-                            >
-                                Įkeliamas kontaktas...
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </aside>
         </header>
-
-        <section class="home-insights" aria-label="Statistika ir naujienos">
-            <div class="insight-stat">
-                <span class="insight-stat-label">Kalendorių prenumeratos</span>
-                <strong id="calendarSubscribersStat">...</strong>
-            </div>
-            <form class="newsletter-card" id="newsletterForm">
-                <label for="newsletterEmail">Naujienos</label>
-                <div class="newsletter-row">
-                    <input
-                        id="newsletterEmail"
-                        name="email"
-                        type="email"
-                        inputmode="email"
-                        autocomplete="email"
-                        placeholder="el. paštas"
-                        required
-                    >
-                    <button type="submit">Prenumeruoti</button>
-                </div>
-                <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
-            </form>
-        </section>
-
-        <div class="selection-section">
-            <div class="cascading-selects">
-                <div class="select-group" id="villageSelectGroup">
-                    <label for="villageInput">Kaimas/Miestas:</label>
-                    <div class="searchable-dropdown">
-                        <input type="text" id="villageInput" placeholder="Ieškoti kaimo..." autocomplete="off" 
-                               oninput="filterVillages()" onfocus="showVillageDropdown()" onblur="hideVillageDropdown()"
-                               onkeydown="handleVillageKeydown(event)">
-                        <datalist id="villageList"></datalist>
-                        <div id="villageDropdown" class="dropdown-list"></div>
-                    </div>
-                </div>
-                
-                <div class="select-group" id="streetSelectGroup" style="display: none;">
-                    <label for="streetInput">Gatvė:</label>
-                    <div class="searchable-dropdown">
-                        <input type="text" id="streetInput" placeholder="Ieškoti gatvės..." autocomplete="off"
-                               oninput="filterStreets()" onfocus="showStreetDropdown()" onblur="hideStreetDropdown()"
-                               onkeydown="handleStreetKeydown(event)">
-                        <datalist id="streetList"></datalist>
-                        <div id="streetDropdown" class="dropdown-list"></div>
-                    </div>
-        </div>
-
-                <div class="select-group" id="houseNumberSelectGroup" style="display: none;">
-                    <label for="houseNumberInput">Namo numeris:</label>
-                    <div class="searchable-dropdown">
-                        <input type="text" id="houseNumberInput" placeholder="Ieškoti namo numerio..." autocomplete="off"
-                               oninput="filterHouseNumbers()" onfocus="showHouseNumberDropdown()" onblur="hideHouseNumberDropdown()"
-                               onkeydown="handleHouseNumberKeydown(event)">
-                        <datalist id="houseNumberList"></datalist>
-                        <div id="houseNumberDropdown" class="dropdown-list"></div>
-                    </div>
-                </div>
-                </div>
-            </div>
 
         <div class="main-content">
             <div class="calendar-panel">
@@ -207,14 +182,45 @@
 
         async function loadPublicStats() {
             const statEl = document.getElementById('calendarSubscribersStat');
-            if (!statEl) return;
+            const locationsEl = document.getElementById('locationsStat');
+            const topVillagesEl = document.getElementById('topVillagesList');
+            if (!statEl && !locationsEl && !topVillagesEl) return;
             try {
                 const response = await fetch('/api/v1/public-stats');
                 const data = await response.json();
-                statEl.textContent = Number(data.calendar_subscribers || 0).toLocaleString('lt-LT');
+                if (statEl) {
+                    statEl.textContent = Number(data.calendar_subscribers || 0).toLocaleString('lt-LT');
+                }
+                if (locationsEl) {
+                    locationsEl.textContent = Number(data.locations || 0).toLocaleString('lt-LT');
+                }
+                if (topVillagesEl) {
+                    const topVillages = Array.isArray(data.top_villages) ? data.top_villages : [];
+                    topVillagesEl.innerHTML = '';
+                    if (topVillages.length === 0) {
+                        const emptyItem = document.createElement('li');
+                        emptyItem.textContent = 'Dar nėra duomenų';
+                        topVillagesEl.appendChild(emptyItem);
+                    } else {
+                        topVillages.forEach((item) => {
+                            const li = document.createElement('li');
+                            const name = document.createElement('span');
+                            name.className = 'popular-village-name';
+                            name.textContent = item.seniunija
+                                ? `${item.village}, ${item.seniunija}`
+                                : item.village;
+                            const count = document.createElement('strong');
+                            count.textContent = Number(item.calendar_subscribers || 0).toLocaleString('lt-LT');
+                            li.appendChild(name);
+                            li.appendChild(count);
+                            topVillagesEl.appendChild(li);
+                        });
+                    }
+                }
             } catch (error) {
                 console.error('Error loading public stats:', error);
-                statEl.textContent = '...';
+                if (statEl) statEl.textContent = '...';
+                if (locationsEl) locationsEl.textContent = '...';
             }
         }
 
