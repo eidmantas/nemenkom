@@ -341,6 +341,75 @@ body {
     color: #b42318;
 }
 
+.news-section {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.76);
+    border-radius: 8px;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.66)),
+        linear-gradient(135deg, rgba(8, 145, 178, 0.08), rgba(217, 119, 6, 0.07));
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(20px);
+}
+
+.news-section-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+    gap: 16px;
+    align-items: start;
+}
+
+.news-kicker {
+    color: var(--cyan);
+    font-size: 0.78em;
+    font-weight: 850;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.news-section h2 {
+    color: var(--ink);
+    font-size: 1.1rem;
+    line-height: 1.25;
+    margin-top: 2px;
+}
+
+.news-subscribe {
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.news-list {
+    list-style: none;
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.news-list li {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid rgba(123, 148, 178, 0.18);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.62);
+}
+
+.news-list time {
+    color: var(--muted);
+    font-size: 0.84em;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.news-list p {
+    color: #334155;
+    font-size: 0.94em;
+    line-height: 1.5;
+}
+
 .selection-section {
     margin-top: 16px;
     background: var(--panel-strong);
@@ -443,6 +512,34 @@ body {
     gap: 6px;
     flex-wrap: nowrap;
     flex-shrink: 0;
+}
+
+#houseNumberDropdown {
+    left: auto;
+    right: 0;
+    width: min(680px, calc(100vw - 36px));
+    max-height: 420px;
+}
+
+#houseNumberDropdown .dropdown-item-with-chips {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+}
+
+#houseNumberDropdown .dropdown-item-text {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+}
+
+#houseNumberDropdown .dropdown-item-chips {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 260px;
 }
 
 .waste-chip {
@@ -816,11 +913,6 @@ button.calendar-subscribe-button {
     .hero-side {
         grid-template-columns: 1fr 1fr;
     }
-
-    .hero-alert,
-    .newsletter-card {
-        grid-column: span 2;
-    }
 }
 
 @media (max-width: 768px) {
@@ -862,13 +954,34 @@ button.calendar-subscribe-button {
         grid-template-columns: 1fr;
     }
 
-    .hero-alert,
-    .newsletter-card {
-        grid-column: auto;
-    }
-
     .stats-grid {
         grid-template-columns: 1fr;
+    }
+
+    .news-section-head {
+        grid-template-columns: 1fr;
+    }
+
+    .news-list li {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    #houseNumberDropdown {
+        left: 0;
+        right: auto;
+        width: 100%;
+        max-height: 360px;
+    }
+
+    #houseNumberDropdown .dropdown-item-with-chips {
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
+    #houseNumberDropdown .dropdown-item-chips {
+        justify-content: flex-start;
+        max-width: none;
     }
 
     .newsletter-row {

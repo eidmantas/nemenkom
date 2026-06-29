@@ -80,7 +80,7 @@
                 </div>
             </section>
 
-            <aside class="hero-side" aria-label="Statistika ir naujienos">
+            <aside class="hero-side" aria-label="Statistika">
                 <div class="stats-grid">
                     <div class="insight-stat">
                         <span class="insight-stat-label">Kalendorių prenumeratos</span>
@@ -102,28 +102,6 @@
                     </ol>
                 </div>
 
-                <form class="newsletter-card" id="newsletterForm">
-                    <label for="newsletterEmail">Naujienos</label>
-                    <div class="newsletter-row">
-                        <input
-                            id="newsletterEmail"
-                            name="email"
-                            type="email"
-                            inputmode="email"
-                            autocomplete="email"
-                            placeholder="el. paštas"
-                            required
-                        >
-                        <button type="submit">Prenumeruoti</button>
-                    </div>
-                    <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
-                </form>
-
-                <div class="hero-alert hero-alert-info" role="status" aria-live="polite">
-                    <strong>Naujiena:</strong>
-                    nemenkom.lt vėl pakeitė XLSX failą: kaimus sujungė į gatvių lauką, o „Kaimai“
-                    stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad veiktų.
-                </div>
             </aside>
         </header>
 
@@ -139,6 +117,40 @@
                 </div>
             </div>
         </div>
+
+        <section class="news-section" aria-labelledby="newsHeading">
+            <div class="news-section-head">
+                <div>
+                    <p class="news-kicker">Naujienos</p>
+                    <h2 id="newsHeading">Pakeitimai ir pranešimai</h2>
+                </div>
+                <form class="newsletter-card news-subscribe" id="newsletterForm">
+                    <label for="newsletterEmail">Gauti pranešimus el. paštu</label>
+                    <div class="newsletter-row">
+                        <input
+                            id="newsletterEmail"
+                            name="email"
+                            type="email"
+                            inputmode="email"
+                            autocomplete="email"
+                            placeholder="el. paštas"
+                            required
+                        >
+                        <button type="submit">Prenumeruoti</button>
+                    </div>
+                    <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
+                </form>
+            </div>
+            <ol class="news-list">
+                <li>
+                    <time datetime="2026-06-29T18:20:00+03:00">2026-06-29 18:20</time>
+                    <p>
+                        nemenkom.lt vėl pakeitė XLSX failą: kaimus sujungė į gatvių lauką, o „Kaimai“
+                        stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad paieška veiktų.
+                    </p>
+                </li>
+            </ol>
+        </section>
     </div>
 
     <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
