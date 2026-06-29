@@ -71,14 +71,18 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
 # - A small sentinel file is written under `services/database/` so the force-run won't
 #   repeat on restarts.
 
-# PDF sources (plastikas/stiklas). Used by services/scraper_pdf when running with `--source`.
+# Waste schedule sources.
+XLSX_BENDROS_URL = os.getenv(
+    "XLSX_BENDROS_URL",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20bir%C5%BEelis-gruodis%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx",
+)
 PDF_PLASTIKAS_URL = os.getenv(
     "PDF_PLASTIKAS_URL",
-    "https://www.nemenkom.lt/uploads/failai/atliekos/Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20grafikas/%E2%80%9E2026%20m-%20balandis%2C%20gegu%C5%BE%C4%97%2C%20bir%C5%BEelis%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui).pdf",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20grafikas/%E2%80%9E2026%20m-%20liepos%2C%20rugpj%C5%AB%C4%8Dio%2C%20rugs%C4%97jo%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.pdf",
 )
 PDF_STIKLAS_URL = os.getenv(
     "PDF_STIKLAS_URL",
-    "https://www.nemenkom.lt/uploads/failai/atliekos/Stiklo%20pakuot%C4%97s/2026%20m-%20balandis%2C%20gegu%C5%BE%C4%97%2C%20bir%C5%BEelis%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas%20(vie%C5%A1inimui)%20(1).pdf",
+    "https://www.nemenkom.lt/uploads/failai/atliekos/Stiklo%20pakuot%C4%97s/2026%20m-%20liepos%2C%20rugpj%C5%AB%C4%8Dio%2C%20rugs%C4%97jo%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.pdf",
 )
 
 

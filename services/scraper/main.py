@@ -27,6 +27,14 @@ from services.scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
 from services.scraper.core.validator import validate_file_and_data
 
 
+def get_default_xlsx_url() -> str:
+    try:
+        import config
+    except ImportError:
+        return DEFAULT_URL
+    return getattr(config, "XLSX_BENDROS_URL", DEFAULT_URL)
+
+
 def run_scraper(
     skip_ai: bool = False,
     file_path: Path | None = None,
@@ -52,7 +60,7 @@ def run_scraper(
 
     # Use default URL if not provided
     if url is None:
-        url = DEFAULT_URL
+        url = get_default_xlsx_url()
 
     print("=" * 60)
     print("Waste Schedule Scraper")
@@ -177,7 +185,7 @@ def main():
         "--file",
         type=str,
         default=None,
-        help="Path to local xlsx file (if not provided, will fetch from URL)",
+        help="Path to local xlsx file (if not provided, will fetch from configured URL)",
     )
     parser.add_argument(
         "--force",

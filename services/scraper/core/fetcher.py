@@ -7,8 +7,8 @@ from pathlib import Path
 
 import requests
 
-# Default URL (will be made dynamic in V1.1)
-DEFAULT_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
+# Fallback URL. Runtime code prefers config.XLSX_BENDROS_URL when available.
+DEFAULT_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20bir%C5%BEelis-gruodis%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
 
 
 def fetch_xlsx(
