@@ -8,7 +8,7 @@
     <meta property="og:title" content="Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)" />
     <meta property="og:description" content="Neoficialus įrankis, padedantis patogiai rasti Nemenkom.lt atliekų išvežimo datas ir prenumeruoti Google kalendorius." />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux3') }}">
 </head>
 <body>
     <div class="top-header">
@@ -42,13 +42,36 @@
                     <span class="hero-chip hero-chip-stiklas">Stiklas</span>
                 </div>
 
+                <div class="hero-insights" aria-label="Statistika">
+                    <div class="stats-grid">
+                        <div class="insight-stat">
+                            <span class="insight-stat-label">Kalendorių prenumeratos</span>
+                            <strong id="calendarSubscribersStat">...</strong>
+                        </div>
+                        <div class="insight-stat">
+                            <span class="insight-stat-label">Adreso įrašai</span>
+                            <strong id="locationsStat">...</strong>
+                        </div>
+                    </div>
+
+                    <div class="popular-card">
+                        <div class="popular-card-header">
+                            <span>Populiariausi kaimai</span>
+                            <small>Top 3</small>
+                        </div>
+                        <ol class="popular-list" id="topVillagesList">
+                            <li>Kraunama...</li>
+                        </ol>
+                    </div>
+                </div>
+
                 <div class="selection-section">
                     <div class="cascading-selects">
                         <div class="select-group" id="villageSelectGroup">
                             <label for="villageInput">Kaimas / miestas</label>
                             <div class="searchable-dropdown">
                                 <input type="text" id="villageInput" placeholder="Ieškoti kaimo..." autocomplete="off"
-                                       oninput="filterVillages()" onfocus="showVillageDropdown()" onblur="hideVillageDropdown()"
+                                       oninput="handleVillageInput()" onfocus="showVillageDropdown()" onblur="hideVillageDropdown()"
                                        onkeydown="handleVillageKeydown(event)">
                                 <datalist id="villageList"></datalist>
                                 <div id="villageDropdown" class="dropdown-list"></div>
@@ -59,7 +82,7 @@
                             <label for="streetInput">Gatvė</label>
                             <div class="searchable-dropdown">
                                 <input type="text" id="streetInput" placeholder="Ieškoti gatvės..." autocomplete="off"
-                                       oninput="filterStreets()" onfocus="showStreetDropdown()" onblur="hideStreetDropdown()"
+                                       oninput="handleStreetInput()" onfocus="showStreetDropdown()" onblur="hideStreetDropdown()"
                                        onkeydown="handleStreetKeydown(event)">
                                 <datalist id="streetList"></datalist>
                                 <div id="streetDropdown" class="dropdown-list"></div>
@@ -79,30 +102,6 @@
                     </div>
                 </div>
             </section>
-
-            <aside class="hero-side" aria-label="Statistika">
-                <div class="stats-grid">
-                    <div class="insight-stat">
-                        <span class="insight-stat-label">Kalendorių prenumeratos</span>
-                        <strong id="calendarSubscribersStat">...</strong>
-                    </div>
-                    <div class="insight-stat">
-                        <span class="insight-stat-label">Adreso įrašai</span>
-                        <strong id="locationsStat">...</strong>
-                    </div>
-                </div>
-
-                <div class="popular-card">
-                    <div class="popular-card-header">
-                        <span>Populiariausi kaimai</span>
-                        <small>Top 3</small>
-                    </div>
-                    <ol class="popular-list" id="topVillagesList">
-                        <li>Kraunama...</li>
-                    </ol>
-                </div>
-
-            </aside>
         </header>
 
         <div class="main-content">
@@ -119,41 +118,39 @@
         </div>
 
         <section class="news-section" aria-labelledby="newsHeading">
-            <div class="news-section-head">
-                <div>
-                    <p class="news-kicker">Naujienos</p>
-                    <h2 id="newsHeading">Pakeitimai ir pranešimai</h2>
-                </div>
-                <form class="newsletter-card news-subscribe" id="newsletterForm">
-                    <label for="newsletterEmail">Gauti pranešimus el. paštu</label>
-                    <div class="newsletter-row">
-                        <input
-                            id="newsletterEmail"
-                            name="email"
-                            type="email"
-                            inputmode="email"
-                            autocomplete="email"
-                            placeholder="el. paštas"
-                            required
-                        >
-                        <button type="submit">Prenumeruoti</button>
-                    </div>
-                    <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
-                </form>
+            <div class="news-copy">
+                <p class="news-kicker">Naujienos</p>
+                <h2 id="newsHeading">Pakeitimai ir pranešimai</h2>
+                <ol class="news-list">
+                    <li>
+                        <time datetime="2026-06-29T18:20:00+03:00">2026-06-29 18:20</time>
+                        <p>
+                            nemenkom.lt vėl pakeitė XLSX failą: kaimus sujungė į gatvių lauką, o „Kaimai“
+                            stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad paieška veiktų.
+                        </p>
+                    </li>
+                </ol>
             </div>
-            <ol class="news-list">
-                <li>
-                    <time datetime="2026-06-29T18:20:00+03:00">2026-06-29 18:20</time>
-                    <p>
-                        nemenkom.lt vėl pakeitė XLSX failą: kaimus sujungė į gatvių lauką, o „Kaimai“
-                        stulpelį kai kur paliko tuščią. Padarėme greitą pataisymą, kad paieška veiktų.
-                    </p>
-                </li>
-            </ol>
+            <form class="newsletter-card news-subscribe" id="newsletterForm">
+                <label for="newsletterEmail">Gauti pranešimus el. paštu</label>
+                <div class="newsletter-row">
+                    <input
+                        id="newsletterEmail"
+                        name="email"
+                        type="email"
+                        inputmode="email"
+                        autocomplete="email"
+                        placeholder="el. paštas"
+                        required
+                    >
+                    <button type="submit">Prenumeruoti</button>
+                </div>
+                <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
+            </form>
         </section>
     </div>
 
-    <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux3') }}"></script>
     <script>
         // State
         let currentVillage = '';
@@ -320,6 +317,41 @@
             });
         }
 
+        function clearStreetAndHouseSelection() {
+            currentStreet = '';
+            currentHouseNumber = '';
+            villageHasStreets = false;
+            streetHasHouseNumbers = false;
+            allStreets = [];
+            allHouseNumbers = [];
+            document.getElementById('streetInput').value = '';
+            document.getElementById('houseNumberInput').value = '';
+            document.getElementById('streetSelectGroup').style.display = 'none';
+            document.getElementById('houseNumberSelectGroup').style.display = 'none';
+            document.getElementById('streetDropdown').style.display = 'none';
+            document.getElementById('houseNumberDropdown').style.display = 'none';
+            clearCalendar();
+        }
+
+        function clearHouseSelection() {
+            currentHouseNumber = '';
+            streetHasHouseNumbers = false;
+            allHouseNumbers = [];
+            document.getElementById('houseNumberInput').value = '';
+            document.getElementById('houseNumberSelectGroup').style.display = 'none';
+            document.getElementById('houseNumberDropdown').style.display = 'none';
+            clearCalendar();
+        }
+
+        function handleVillageInput() {
+            if (currentVillage) {
+                currentVillage = '';
+                clearStreetAndHouseSelection();
+                updateURL();
+            }
+            filterVillages();
+        }
+
         function filterVillages() {
             const input = document.getElementById('villageInput');
             const query = input.value;
@@ -421,19 +453,7 @@
             const skipURLUpdate = !!opts.skipURLUpdate;
             // Reset state
             currentVillage = villageObj; // Store the object {seniunija, village}
-            currentStreet = '';
-            currentHouseNumber = '';
-            villageHasStreets = false;
-            streetHasHouseNumbers = false;
-            
-            // Clear street and house number inputs
-            document.getElementById('streetInput').value = '';
-            document.getElementById('houseNumberInput').value = '';
-            
-            // Hide street and house number selects
-            document.getElementById('streetSelectGroup').style.display = 'none';
-            document.getElementById('houseNumberSelectGroup').style.display = 'none';
-            clearCalendar();
+            clearStreetAndHouseSelection();
             
             // Update URL
             if (!skipURLUpdate) updateURL();
@@ -493,6 +513,15 @@
                 option.value = entry.street || 'Visiems (visas kaimas)';
                 datalist.appendChild(option);
             });
+        }
+
+        function handleStreetInput() {
+            if (currentStreet || currentHouseNumber || streetHasHouseNumbers) {
+                currentStreet = '';
+                clearHouseSelection();
+                updateURL();
+            }
+            filterStreets();
         }
 
         function filterStreets() {
@@ -582,15 +611,7 @@
             const skipURLUpdate = !!opts.skipURLUpdate;
             // Reset house number
             currentStreet = street;
-            currentHouseNumber = '';
-            streetHasHouseNumbers = false;
-            
-            // Clear house number input
-            document.getElementById('houseNumberInput').value = '';
-            
-            // Hide house number select
-            document.getElementById('houseNumberSelectGroup').style.display = 'none';
-            clearCalendar();
+            clearHouseSelection();
             
             // Update URL
             if (!skipURLUpdate) updateURL();
