@@ -3,6 +3,7 @@ Validator module - Validates xlsx structure and parsed data
 """
 
 from pathlib import Path
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
@@ -33,7 +34,7 @@ def validate_xlsx_structure(file_path: Path) -> tuple[bool, list[str]]:
         errors.append(f"Required columns not found: {missing_columns}")
     location_column = get_location_column(df)
     if not location_column:
-        errors.append("Required location column not found: expected non-empty Kaimai or Gatvė")
+        errors.append("Required location column not found: expected non-empty Kaimai/Gatvė")
 
     # Check for month columns
     month_columns = [col for col in df.columns if col in MONTH_MAPPING]
@@ -137,7 +138,10 @@ def validate_parsed_data(parsed_data: list[dict]) -> tuple[bool, list[str]]:
 
 
 def validate_file_and_data(
-    file_path: Path, year: int = 2026, skip_ai: bool = False
+    file_path: Path,
+    year: int = 2026,
+    skip_ai: bool = False,
+    known_villages_by_seniunija: Mapping[str, Sequence[str]] | None = None,
 ) -> tuple[bool, list[str], list[dict]]:
     """
     Complete validation: structure + parsed data
@@ -147,6 +151,7 @@ def validate_file_and_data(
         file_path: Path to xlsx file
         year: Year for parsing
         skip_ai: If True, skip AI parsing (use traditional parser only). Default: False (AI enabled)
+        known_villages_by_seniunija: Optional existing village names keyed by seniūnija.
 
     Returns:
         Tuple of (is_valid, list_of_errors, parsed_data)
@@ -162,7 +167,12 @@ def validate_file_and_data(
 
     # Parse and validate data
     try:
-        parsed_data = parse_xlsx(file_path, year, skip_ai=skip_ai)
+        parsed_data = parse_xlsx(
+            file_path,
+            year,
+            skip_ai=skip_ai,
+            known_villages_by_seniunija=known_villages_by_seniunija,
+        )
         data_valid, data_errors = validate_parsed_data(parsed_data)
         all_errors.extend(data_errors)
 
@@ -184,7 +194,12 @@ def validate_file_and_data(
             try:
                 # Retry parsing with AI enabled (force AI, even if it was used before)
                 # The AI parser will use error_context internally for individual entries
-                parsed_data_retry = parse_xlsx(file_path, year, skip_ai=False)
+                parsed_data_retry = parse_xlsx(
+                    file_path,
+                    year,
+                    skip_ai=False,
+                    known_villages_by_seniunija=known_villages_by_seniunija,
+                )
                 data_valid_retry, data_errors_retry = validate_parsed_data(parsed_data_retry)
 
                 # Use retried data if it's better (fewer or no critical errors)
@@ -233,10 +248,13 @@ def validate_file_and_data(
 
 
 if __name__ == "__main__":
-    # Test validator
-    from services.scraper.core.fetcher import fetch_xlsx
+    import argparse
 
-    file_path, _headers, _byte_len = fetch_xlsx()
+    parser = argparse.ArgumentParser(description="Validate an XLSX waste schedule source")
+    parser.add_argument("file", type=Path, help="Path to a local XLSX file")
+    args = parser.parse_args()
+
+    file_path = args.file
     is_valid, errors, data = validate_file_and_data(file_path)
     print(f"Valid: {is_valid}")
     if errors:

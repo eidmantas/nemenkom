@@ -4,6 +4,7 @@ Main script to run the scraper - can be used for daily cron jobs
 
 import argparse
 import logging
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -23,16 +24,55 @@ from services.common.fetch_cache import (
 from services.common.logging_utils import setup_logging
 from services.common.migrations import init_database
 from services.scraper.core.db_writer import write_parsed_data
-from services.scraper.core.fetcher import DEFAULT_URL, fetch_xlsx
+from services.scraper.core.fetcher import fetch_xlsx
 from services.scraper.core.validator import validate_file_and_data
 
 
-def get_default_xlsx_url() -> str:
+def get_configured_xlsx_url() -> str:
     try:
         import config
-    except ImportError:
-        return DEFAULT_URL
-    return getattr(config, "XLSX_BENDROS_URL", DEFAULT_URL)
+    except ImportError as exc:
+        raise RuntimeError("Missing config.py with XLSX_BENDROS_URL") from exc
+
+    url = str(getattr(config, "XLSX_BENDROS_URL", "") or "").strip()
+    if not url:
+        raise RuntimeError("Missing required config.XLSX_BENDROS_URL")
+    return url
+
+
+def _normalize_lookup_key(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def get_existing_villages_by_seniunija() -> dict[str, list[str]]:
+    """
+    Load current DB village names so AI parsing can pick an existing village
+    when the new XLSX row has merged village/street text.
+    """
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT seniunija, village
+            FROM locations
+            WHERE village IS NOT NULL AND TRIM(village) != ''
+            GROUP BY seniunija, village
+            ORDER BY seniunija, village
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    villages_by_key: dict[str, set[str]] = {}
+    for seniunija, village in rows:
+        seniunija_text = str(seniunija or "").strip()
+        village_text = str(village or "").strip()
+        if not seniunija_text or not village_text:
+            continue
+        for key in {seniunija_text, _normalize_lookup_key(seniunija_text)}:
+            villages_by_key.setdefault(key, set()).add(village_text)
+
+    return {key: sorted(villages) for key, villages in villages_by_key.items()}
 
 
 def run_scraper(
@@ -60,7 +100,7 @@ def run_scraper(
 
     # Use default URL if not provided
     if url is None:
-        url = get_default_xlsx_url()
+        url = get_configured_xlsx_url()
 
     print("=" * 60)
     print("Waste Schedule Scraper")
@@ -69,6 +109,14 @@ def run_scraper(
     print(" MODE: Auto-create Google Calendars after scraping")
     print("=" * 60)
     logger.info("Scraper started (skip_ai=%s, year=%s)", skip_ai, year)
+    known_villages_by_seniunija = get_existing_villages_by_seniunija()
+    if known_villages_by_seniunija:
+        distinct_villages = {
+            village
+            for villages in known_villages_by_seniunija.values()
+            for village in villages
+        }
+        print(f" Loaded {len(distinct_villages)} existing villages for AI matching")
 
     try:
         headers: dict[str, str] | None = None
@@ -99,7 +147,12 @@ def run_scraper(
 
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
-        is_valid, errors, parsed_data = validate_file_and_data(file_path, year, skip_ai=skip_ai)
+        is_valid, errors, parsed_data = validate_file_and_data(
+            file_path,
+            year,
+            skip_ai=skip_ai,
+            known_villages_by_seniunija=known_villages_by_seniunija,
+        )
 
         if errors:
             print("\n  Validation warnings/errors:")

@@ -33,8 +33,7 @@ def ensure_news_subscribers_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS news_subscribers (
-            email TEXT PRIMARY KEY,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            email TEXT PRIMARY KEY
         )
         """
     )

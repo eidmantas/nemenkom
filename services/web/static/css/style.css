@@ -196,6 +196,12 @@ header h1 {
     color: #6b4f00;
 }
 
+.hero-alert-info {
+    background: #eef6ff;
+    border: 1px solid #b6d7ff;
+    color: #1f3b57;
+}
+
 .hero-support-copy {
     display: flex;
     flex-direction: column;

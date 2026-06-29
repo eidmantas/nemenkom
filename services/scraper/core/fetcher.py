@@ -7,12 +7,9 @@ from pathlib import Path
 
 import requests
 
-# Fallback URL. Runtime code prefers config.XLSX_BENDROS_URL when available.
-DEFAULT_URL = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20bir%C5%BEelis-gruodis%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
-
 
 def fetch_xlsx(
-    url: str = DEFAULT_URL, save_path: Path | None = None
+    url: str, save_path: Path | None = None
 ) -> tuple[Path, dict[str, str], int]:
     """
     Download xlsx file from URL
@@ -27,6 +24,9 @@ def fetch_xlsx(
     Raises:
         requests.RequestException: If download fails
     """
+    if not url or not str(url).strip():
+        raise ValueError("XLSX source URL is required")
+
     print(f"Fetching xlsx from {url}")
 
     response = requests.get(url, allow_redirects=True, timeout=30)
@@ -48,6 +48,11 @@ def fetch_xlsx(
 
 
 if __name__ == "__main__":
-    # Test fetch
-    file_path = fetch_xlsx()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Fetch an XLSX waste schedule source")
+    parser.add_argument("url", help="XLSX source URL")
+    args = parser.parse_args()
+
+    file_path, _headers, _byte_len = fetch_xlsx(args.url)
     print(f"File saved to: {file_path}")

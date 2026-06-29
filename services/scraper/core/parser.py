@@ -5,6 +5,7 @@ Handles hierarchical structure: Seniūnija -> Kaimai (with optional streets and 
 
 import datetime
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -212,7 +213,27 @@ def extract_dates_from_cell(
     return sorted(set(dates))  # Remove duplicates and sort
 
 
-def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list[dict]:
+def _normalize_lookup_key(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _known_villages_for_seniunija(
+    known_villages_by_seniunija: Mapping[str, Sequence[str]] | None,
+    seniunija: str,
+) -> Sequence[str] | None:
+    if not known_villages_by_seniunija:
+        return None
+    return known_villages_by_seniunija.get(seniunija) or known_villages_by_seniunija.get(
+        _normalize_lookup_key(seniunija)
+    )
+
+
+def parse_xlsx(
+    file_path: Path,
+    year: int = 2026,
+    skip_ai: bool = False,
+    known_villages_by_seniunija: Mapping[str, Sequence[str]] | None = None,
+) -> list[dict]:
     """
     Parse xlsx file and extract all location schedules
 
@@ -225,6 +246,8 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
         file_path: Path to xlsx file
         year: Year for the schedule
         skip_ai: If True, skip AI parsing (use traditional parser only). Default: False (AI enabled)
+        known_villages_by_seniunija: Optional existing village names keyed by seniūnija.
+            Complex rows pass this list to the AI parser so it can choose an existing village.
 
     Returns:
         List of dictionaries with structure:
@@ -277,6 +300,13 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
     parse_start_time = time.time()
 
     logger.info(f"Starting to parse {len(df)} rows...")
+    if known_villages_by_seniunija:
+        known_village_count = sum(len(villages) for villages in known_villages_by_seniunija.values())
+        logger.info(
+            "Loaded %s known village names across %s seniūnijos for AI matching",
+            known_village_count,
+            len(known_villages_by_seniunija),
+        )
 
     # Process each row
     for row_number, (_, row) in enumerate(df.iterrows(), start=1):
@@ -294,16 +324,16 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
         if not current_seniunija:
             continue
 
-        # Parse location text (village and streets). Older files use Kaimai; the
-        # June-December 2026 file keeps Kaimai blank and puts the same text in Gatvė.
-        kaimai_value = row.get(location_column, "")
-        if cast(bool, pd.isna(kaimai_value)):
-            continue
-
-        # Convert to string once and check if empty
-        kaimai_str = str(kaimai_value).strip()
+        # Parse location text. Older files use `Kaimai`; newer files sometimes
+        # split village and street payload between `Kaimai` and `Gatvė`, or put
+        # the whole location under `Gatvė` while leaving `Kaimai` empty.
+        kaimai_str = build_location_text(row)
         if not kaimai_str:
             continue
+        known_villages = _known_villages_for_seniunija(
+            known_villages_by_seniunija,
+            current_seniunija,
+        )
 
         # Filter by skip_ai flag (inverted logic)
         if skip_ai:
@@ -319,7 +349,7 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
             try:
                 from services.scraper.ai.parser import parse_with_ai
 
-                parsed_items = parse_with_ai(kaimai_str)
+                parsed_items = parse_with_ai(kaimai_str, known_villages=known_villages)
                 ai_parse_count += 1
                 ai_time = time.time() - ai_start
                 if ai_time > 1.0:
@@ -327,12 +357,9 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
                 else:
                     logger.debug(f"AI parse completed in {ai_time:.2f}s")
             except Exception as e:
-                # Fallback to traditional parser if AI fails
-                logger.warning(f"AI parser failed for '{kaimai_str[:50]}...': {e}, falling back")
-                print(f"  AI parser failed for '{kaimai_str[:50]}...': {e}")
-                print("   Falling back to traditional parser")
-                parsed_items = parse_village_and_streets(kaimai_str)
-                traditional_parse_count += 1
+                raise RuntimeError(
+                    f"AI parser failed for row {row_number} ('{kaimai_str[:80]}...'): {e}"
+                ) from e
         else:
             # Use traditional parser for simple cases
             logger.debug(f"Row {row_number}: Using traditional parser for: {kaimai_str[:80]}")
@@ -363,18 +390,18 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
                         from services.scraper.ai.parser import parse_with_ai
 
                         error_context = f"Traditional parser incorrectly included streets in village name: '{village[:100]}'"
-                        parsed_items = parse_with_ai(kaimai_str, error_context=error_context)
+                        parsed_items = parse_with_ai(
+                            kaimai_str,
+                            error_context=error_context,
+                            known_villages=known_villages,
+                        )
                         ai_parse_count += 1
                         traditional_parse_count -= 1  # Adjust counts
                         logger.debug(f"AI retry successful for: {kaimai_str[:80]}")
                     except Exception as e:
-                        logger.warning(
-                            f"AI retry failed after multiple attempts for '{kaimai_str[:50]}...': {e}, skipping this entry"
-                        )
-                        print(
-                            f"  AI retry failed after multiple attempts for '{kaimai_str[:50]}...', skipping this malformed entry"
-                        )
-                        parsed_items = []  # Skip this entry - don't write bad data
+                        raise RuntimeError(
+                            f"AI retry failed for row {row_number} ('{kaimai_str[:80]}...'): {e}"
+                        ) from e
 
         if not parsed_items:
             continue
@@ -440,25 +467,50 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
     return results
 
 
+def _clean_location_part(value: object) -> str:
+    if value is None or cast(bool, pd.isna(value)):
+        return ""
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def build_location_text(row: pd.Series) -> str:
+    kaimai = _clean_location_part(row.get("Kaimai", ""))
+    gatve = _clean_location_part(row.get("Gatvė", ""))
+
+    if kaimai and gatve:
+        if gatve == kaimai:
+            return kaimai
+        if gatve.startswith(f"{kaimai} ") or gatve.startswith(f"{kaimai}("):
+            return gatve
+        if gatve.startswith("("):
+            return f"{kaimai} {gatve}"
+        return f"{kaimai} ({gatve})"
+
+    return kaimai or gatve
+
+
 def get_location_column(df: pd.DataFrame) -> str | None:
     """
-    Return the source column containing village/street location text.
+    Return whether the sheet has a usable source column for village/street text.
 
-    Older XLSX files use `Kaimai`. The 2026 June-December XLSX includes `Kaimai`
-    but leaves it empty, with the location text under `Gatvė`.
+    Older XLSX files use `Kaimai`. The 2026 June-December XLSX may split
+    village/street text between `Kaimai` and `Gatvė`, or leave `Kaimai` blank.
     """
-    if "Kaimai" in df.columns and df["Kaimai"].notna().sum() > 0:
-        return "Kaimai"
-    if "Gatvė" in df.columns and df["Gatvė"].notna().sum() > 0:
-        return "Gatvė"
+    if "Kaimai" not in df.columns and "Gatvė" not in df.columns:
+        return None
+    if any(build_location_text(row) for _, row in df.iterrows()):
+        return "Kaimai/Gatvė"
     return None
 
 
 if __name__ == "__main__":
-    # Test parser
-    from services.scraper.core.fetcher import fetch_xlsx
+    import argparse
 
-    file_path, _headers, _byte_len = fetch_xlsx()
+    parser = argparse.ArgumentParser(description="Parse a local XLSX waste schedule source")
+    parser.add_argument("file", type=Path, help="Path to a local XLSX file")
+    args = parser.parse_args()
+
+    file_path = args.file
     results = parse_xlsx(file_path)
     print("\nSample results (first 5):")
     for result in results[:5]:

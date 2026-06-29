@@ -705,16 +705,4 @@ def write_parsed_data(
 
 
 if __name__ == "__main__":
-    # Test db writer
-    from services.scraper.core.fetcher import fetch_xlsx
-    from services.scraper.core.validator import validate_file_and_data
-
-    file_path, _headers, _byte_len = fetch_xlsx()
-    source_url = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20bir%C5%BEelis-gruodis%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
-    is_valid, errors, data = validate_file_and_data(file_path)
-
-    if is_valid:
-        success = write_parsed_data(data, source_url)
-        print(f"Write successful: {success}")
-    else:
-        print(f"Validation failed: {errors}")
+    raise SystemExit("Use services.scraper.main to fetch, validate, and write source data.")

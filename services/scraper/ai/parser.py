@@ -3,9 +3,12 @@ AI Parser
 """
 
 import asyncio
+import hashlib
 import logging
+import re
 import sys
 from pathlib import Path
+from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
@@ -35,6 +38,77 @@ class ParsedLocation(BaseModel):
 
 
 _agent_by_model: dict[tuple[str, str], Agent[None, ParsedLocation]] = {}
+
+
+def _normalize_village_name(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _normalize_known_villages(known_villages: Sequence[str] | None) -> list[str]:
+    if not known_villages:
+        return []
+
+    by_key: dict[str, str] = {}
+    for village in known_villages:
+        cleaned = re.sub(r"\s+", " ", str(village)).strip()
+        if not cleaned:
+            continue
+        key = _normalize_village_name(cleaned)
+        by_key.setdefault(key, cleaned)
+
+    return [by_key[key] for key in sorted(by_key)]
+
+
+def _create_known_villages_note(known_villages: Sequence[str] | None) -> str:
+    villages = _normalize_known_villages(known_villages)
+    if not villages:
+        return ""
+
+    village_lines = "\n".join(f"- {village}" for village in villages)
+    return f"""
+
+Known villages/cities for this seniūnija:
+{village_lines}
+
+Village matching rules:
+- If the location belongs to one of the known villages/cities above, return that exact spelling.
+- The known list is guidance, not a hard limit. If the text clearly names a village/city not in the list, return the new clean village/city name.
+- Never put street names, house numbers, or parenthesized street payload in the village field.
+"""
+
+
+def _create_cache_input(kaimai_str: str, known_villages: Sequence[str] | None) -> str:
+    villages = _normalize_known_villages(known_villages)
+    if not villages:
+        return kaimai_str
+
+    digest = hashlib.sha256("\n".join(villages).encode()).hexdigest()[:16]
+    return f"{kaimai_str}\n\n# known_villages:{digest}"
+
+
+def _canonicalize_known_village(
+    parsed_items: list[tuple[str, str | None]], known_villages: Sequence[str] | None
+) -> list[tuple[str, str | None]]:
+    if not parsed_items or not known_villages:
+        return parsed_items
+
+    known_by_key = {
+        _normalize_village_name(village): village
+        for village in _normalize_known_villages(known_villages)
+    }
+    parsed_village = parsed_items[0][0]
+    canonical_village = known_by_key.get(_normalize_village_name(parsed_village))
+    if not canonical_village:
+        logger.warning(
+            "AI returned village not in known list: %s",
+            parsed_village,
+        )
+        return parsed_items
+
+    if canonical_village == parsed_village:
+        return parsed_items
+
+    return [(canonical_village, parsed_items[0][1])] + parsed_items[1:]
 
 
 def _get_provider_config(provider_name: str) -> dict:
@@ -107,7 +181,11 @@ def is_rate_limit_error(exc: Exception) -> bool:
 _is_rate_limit_error = is_rate_limit_error
 
 
-def create_parsing_prompt(kaimai_str: str, error_context: str | None = None) -> str:
+def create_parsing_prompt(
+    kaimai_str: str,
+    error_context: str | None = None,
+    known_villages: Sequence[str] | None = None,
+) -> str:
     """
     Create prompt for AI to parse Kaimai string into structured format
 
@@ -119,7 +197,9 @@ def create_parsing_prompt(kaimai_str: str, error_context: str | None = None) -> 
     if error_context:
         error_note = f"\n\n RETRY ATTEMPT - Previous parsing failed:\n{error_context}\n\nPlease pay special attention to correctly separating the village name from street names. The village name should NOT contain parentheses, street names, or house numbers.\n"
 
-    return f"""Parse this Lithuanian location string into structured JSON format.{error_note}
+    known_villages_note = _create_known_villages_note(known_villages)
+
+    return f"""Parse this Lithuanian location string into structured JSON format.{error_note}{known_villages_note}
 
 TASK: Extract the village/city name, street names, and house numbers from this Lithuanian location string. House numbers may appear in various formats: explicit lists ("26, 28"), ranges with "nuo...iki" ("nuo 18 iki 18U"), special cases ("nuo 107", "iki 5"), or directly after street names.
 
@@ -380,7 +460,9 @@ def convert_to_parser_format(parsed_json: dict) -> list[tuple[str, str | None]]:
 
 
 def parse_with_ai(
-    kaimai_str: str, error_context: str | None = None
+    kaimai_str: str,
+    error_context: str | None = None,
+    known_villages: Sequence[str] | None = None,
 ) -> list[tuple[str, str | None]]:
     """
     Parse complex Kaimai string using PydanticAI + OpenAI-compatible providers with retry logic
@@ -391,6 +473,8 @@ def parse_with_ai(
     Args:
         kaimai_str: Location string from Kaimai column
         error_context: Optional context about previous parsing failures (for retries)
+        known_villages: Existing village/city names for this seniūnija. The AI should
+            choose one when the row clearly refers to it, or return a new clean village.
 
     Returns:
         List of tuples: [(village_name, None), (street1, house_nums1), ...]
@@ -404,10 +488,13 @@ def parse_with_ai(
 
     kaimai_str = kaimai_str.strip()
 
+    normalized_known_villages = _normalize_known_villages(known_villages)
+    cache_input = _create_cache_input(kaimai_str, normalized_known_villages)
+
     # Check cache first - ALWAYS use cache if available (for idempotency)
     # Even for retries, if we have a cached result, use it to ensure consistency
     cache = get_cache()
-    cached_result = cache.get(kaimai_str)
+    cached_result = cache.get(cache_input)
     if cached_result is not None:
         # If we have error_context but also have a cached result, log a warning
         # but still use the cache for idempotency
@@ -415,7 +502,7 @@ def parse_with_ai(
             logger.warning(
                 f"Using cached result for '{kaimai_str[:50]}...' despite error_context (ensuring idempotency)"
             )
-        return cached_result
+        return _canonicalize_known_village(cached_result, normalized_known_villages)
 
     last_error = None
     last_error_context = error_context
@@ -440,7 +527,14 @@ def parse_with_ai(
                 "AI parse attempt %s using %s:%s", attempt_index + 1, provider_name, model_id
             )
             agent = get_ai_agent(provider_name, model_id)
-            response = run_agent_prompt(agent, create_parsing_prompt(kaimai_str, retry_context))
+            response = run_agent_prompt(
+                agent,
+                create_parsing_prompt(
+                    kaimai_str,
+                    retry_context,
+                    known_villages=normalized_known_villages,
+                ),
+            )
 
             output = (
                 getattr(response, "output", None)
@@ -464,6 +558,7 @@ def parse_with_ai(
 
             # Convert to parser format
             result = convert_to_parser_format(parsed_json)
+            result = _canonicalize_known_village(result, normalized_known_villages)
 
             # Get token usage before caching
             usage = getattr(response, "usage", None)
@@ -472,7 +567,7 @@ def parse_with_ai(
             # Cache the result with token usage (only for successful non-retry attempts)
             if not error_context:
                 cache = get_cache()
-                cache.set(kaimai_str, result, tokens_used=tokens_used)
+                cache.set(cache_input, result, tokens_used=tokens_used)
 
             return result
 
