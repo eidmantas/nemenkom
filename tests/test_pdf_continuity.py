@@ -896,6 +896,18 @@ def test_infer_pdf_waste_label_decodes_q3_encoded_filename():
     assert pdf_parser.infer_pdf_waste_label(path) == "Pakuotė"
 
 
+def test_infer_pdf_waste_label_prefers_glass_for_stiklo_pakuotes_filename():
+    path = Path(
+        "2026%20m-%20liepos%2C%20rugpj%C5%AB%C4%8Dio%2C%20"
+        "rugs%C4%97jo%20m%C4%97n-%20Stiklo%20pakuo%C4%8Di%C5%B3%20"
+        "atliek%C5%B3%20surinkimo%20grafikas.pdf"
+    )
+
+    assert pdf_parser.infer_pdf_waste_label(path) == "Stiklas"
+    assert pdf_parser.normalize_waste_label("Stiklo pakuočių atliekos") == "Stiklas"
+    assert pdf_parser.normalize_waste_type("Stiklo pakuočių atliekos") == "stiklas"
+
+
 def test_parse_pdf_repeats_embedded_day_across_visible_q2_months(monkeypatch):
     table = pd.DataFrame(
         [
