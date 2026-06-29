@@ -194,11 +194,19 @@ def get_location_schedule(
     elif seniunija and village and street is not None:
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ?
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = ?
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ?
+            ORDER BY
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
+            LIMIT 1
         """,
-            (seniunija, village, street),
+            (waste_type, seniunija, village, street),
         )
     else:
         conn.close()
@@ -591,9 +599,16 @@ def get_location_by_selection(
     if house_numbers:
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ? AND house_numbers = ?
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = 'bendros'
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ? AND l.house_numbers = ?
+            ORDER BY
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
             LIMIT 1
         """,
             (seniunija, village, street, house_numbers),
@@ -602,10 +617,17 @@ def get_location_by_selection(
         # If no house_numbers specified, get first match (or one with NULL house_numbers)
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ?
-            ORDER BY CASE WHEN house_numbers IS NULL THEN 0 ELSE 1 END
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = 'bendros'
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ?
+            ORDER BY
+              CASE WHEN l.house_numbers IS NULL THEN 0 ELSE 1 END,
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
             LIMIT 1
         """,
             (seniunija, village, street),

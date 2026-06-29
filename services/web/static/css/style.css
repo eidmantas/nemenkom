@@ -92,6 +92,8 @@ body {
 }
 
 .app-hero {
+    position: relative;
+    z-index: 20;
     margin-bottom: 16px;
     padding: 18px;
     background:
@@ -105,6 +107,7 @@ body {
     gap: 14px;
     align-items: stretch;
     backdrop-filter: blur(20px);
+    overflow: visible;
 }
 
 .hero-main,
@@ -179,10 +182,10 @@ body {
 
 .hero-insights {
     display: grid;
-    grid-template-columns: minmax(128px, 156px) minmax(128px, 156px) minmax(0, 1fr);
+    grid-template-columns: max-content max-content minmax(300px, 1fr);
     gap: 8px;
     align-items: stretch;
-    margin-top: 12px;
+    margin-top: 10px;
 }
 
 .insight-stat,
@@ -206,11 +209,12 @@ body {
 }
 
 .insight-stat {
-    padding: 9px 10px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-height: 58px;
+    padding: 7px 10px;
+    display: grid;
+    grid-template-columns: minmax(90px, max-content) auto;
+    gap: 8px;
+    align-items: baseline;
+    min-height: 42px;
 }
 
 .insight-stat-label {
@@ -223,9 +227,8 @@ body {
 
 .insight-stat strong {
     color: var(--ink);
-    font-size: 1.34rem;
+    font-size: 1.16rem;
     line-height: 1.1;
-    margin-top: 3px;
 }
 
 .popular-card {
@@ -233,11 +236,11 @@ body {
 }
 
 .hero-insights .popular-card {
-    min-height: 58px;
-    padding: 9px 10px;
+    min-height: 42px;
+    padding: 7px 10px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 10px;
+    gap: 8px;
     align-items: center;
 }
 
@@ -271,7 +274,7 @@ body {
 
 .hero-insights .popular-list {
     display: flex;
-    gap: 6px;
+    gap: 5px;
     min-width: 0;
     margin-top: 0;
     overflow: hidden;
@@ -291,10 +294,11 @@ body {
 }
 
 .hero-insights .popular-list li {
-    min-height: 32px;
-    padding: 5px 8px;
+    min-height: 28px;
+    padding: 4px 7px;
     flex: 1 1 0;
     min-width: 0;
+    font-size: 0.82em;
 }
 
 .popular-village-name {
@@ -459,12 +463,18 @@ body {
 }
 
 .selection-section {
+    position: relative;
+    z-index: 80;
     margin-top: 12px;
     background: var(--panel-strong);
     padding: 14px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.84);
     box-shadow: 0 12px 28px rgba(29, 48, 75, 0.10);
+}
+
+.selection-section:focus-within {
+    z-index: 6000;
 }
 
 .cascading-selects {
@@ -530,7 +540,7 @@ body {
     border-radius: 0 0 6px 6px;
     max-height: 420px;
     overflow-y: auto;
-    z-index: 1200;
+    z-index: 9000;
     display: none;
     box-shadow: 0 20px 36px rgba(15, 23, 42, 0.14);
     margin-top: 1px;
@@ -657,6 +667,8 @@ body {
 
 .main-content {
     display: block;
+    position: relative;
+    z-index: 1;
 }
 
 .locations-panel, .calendar-panel {
@@ -961,6 +973,10 @@ button.calendar-subscribe-button {
 @media (max-width: 980px) {
     .hero-insights {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .insight-stat {
+        grid-template-columns: 1fr auto;
     }
 
     .hero-insights .popular-card {

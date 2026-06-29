@@ -8,7 +8,7 @@
     <meta property="og:title" content="Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)" />
     <meta property="og:description" content="Neoficialus įrankis, padedantis patogiai rasti Nemenkom.lt atliekų išvežimo datas ir prenumeruoti Google kalendorius." />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux4') }}">
 </head>
 <body>
     <div class="top-header">
@@ -150,7 +150,7 @@
         </section>
     </div>
 
-    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux3') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux4') }}"></script>
     <script>
         // State
         let currentVillage = '';
@@ -819,8 +819,20 @@
                 document.getElementById('villageInput').value = `${villageObj.seniunija} / ${villageObj.village}`;
                 await handleVillageSelection(villageObj, { skipURLUpdate: true });
                 
-                // Set street if provided
-                if (street !== null && allStreets.some(s => s.street === street)) {
+                // Set street if provided. Be tolerant of URLs created before source rows changed:
+                // if the API can answer a street but the current street list no longer carries
+                // the exact row, keep the URL selection instead of silently dropping it.
+                if (street !== null) {
+                    if (!allStreets.some(s => s.street === street)) {
+                        allStreets.push({
+                            street,
+                            available_waste_types: [],
+                            bendros_requires_house_numbers: false,
+                        });
+                        villageHasStreets = true;
+                        populateStreetDatalist();
+                    }
+                    document.getElementById('streetSelectGroup').style.display = '';
                     document.getElementById('streetInput').value = street || 'Visiems (visas kaimas)';
                     await handleStreetSelection(street, { skipURLUpdate: true });
                     
