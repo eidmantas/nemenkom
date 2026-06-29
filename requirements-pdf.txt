@@ -1,0 +1,9 @@
+# PDF scraper-only dependencies.
+#
+# Keep marker-pdf isolated from the shared runtime because it pulls a large native
+# extraction/ML stack and currently pins older OpenAI/Anthropic SDK ranges.
+marker-pdf==1.10.2
+surya-ocr==0.17.1
+pdftext==0.6.3
+pypdfium2==4.30.0
+torch==2.12.1

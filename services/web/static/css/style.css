@@ -267,6 +267,108 @@ header h1 {
     background: #eef3f7;
 }
 
+.home-insights {
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) 1fr;
+    gap: 14px;
+    align-items: stretch;
+}
+
+.insight-stat,
+.newsletter-card {
+    background: white;
+    border: 1px solid #e1e7ee;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+
+.insight-stat {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: left;
+}
+
+.insight-stat-label {
+    color: #66788a;
+    font-size: 0.88em;
+    font-weight: 600;
+}
+
+.insight-stat strong {
+    color: #1f3b57;
+    font-size: 2em;
+    line-height: 1.1;
+    margin-top: 4px;
+}
+
+.newsletter-card {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+}
+
+.newsletter-card label {
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+.newsletter-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+}
+
+.newsletter-row input {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 16px;
+    border: 2px solid #dbe3ea;
+    border-radius: 6px;
+}
+
+.newsletter-row input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.newsletter-row button {
+    padding: 11px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #2c3e50;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.newsletter-row button:hover {
+    background: #1f2d3a;
+}
+
+.newsletter-row button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+.newsletter-message {
+    min-height: 18px;
+    color: #66788a;
+    font-size: 0.9em;
+}
+
+.newsletter-message.is-success {
+    color: #1f7a3f;
+}
+
+.newsletter-message.is-error {
+    color: #b42318;
+}
+
 .selection-section {
     margin-bottom: 30px;
     background: white;
@@ -752,5 +854,13 @@ button.calendar-subscribe-button {
 
     .hero-support-link {
         width: 100%;
+    }
+
+    .home-insights {
+        grid-template-columns: 1fr;
+    }
+
+    .newsletter-row {
+        grid-template-columns: 1fr;
     }
 }

@@ -383,6 +383,56 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
         api_db_module.get_db_connection = original_get_conn
 
 
+def test_newsletter_subscribe_stores_email_idempotently(temp_db):
+    conn, _db_path = temp_db
+
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.post("/newsletter/subscribe", json={"email": " Test@Example.COM "})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["ok"] is True
+        assert data["email"] == "test@example.com"
+        assert data["created"] is True
+
+        response = client.post("/newsletter/subscribe", json={"email": "test@example.com"})
+        assert response.status_code == 200
+        assert response.get_json()["created"] is False
+
+        response = client.post("/newsletter/subscribe", json={"email": "not-an-email"})
+        assert response.status_code == 400
+
+    rows = conn.execute("SELECT email FROM news_subscribers").fetchall()
+    assert rows == [("test@example.com",)]
+
+
+def test_public_stats_includes_calendar_and_news_counts(temp_db):
+    conn, _db_path = temp_db
+
+    conn.execute(
+        """
+        INSERT INTO calendar_streams (id, waste_type, dates_hash, dates, calendar_id)
+        VALUES
+            ('cs_1', 'bendros', 'h1', '[]', 'calendar_a@group.calendar.google.com'),
+            ('cs_2', 'plastikas', 'h2', '[]', 'calendar_b@group.calendar.google.com'),
+            ('cs_3', 'stiklas', 'h3', '[]', NULL)
+        """
+    )
+    conn.execute("INSERT INTO news_subscribers (email) VALUES ('reader@example.com')")
+    conn.commit()
+
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.get("/api/v1/public-stats")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["calendar_subscribers"] == 2
+    assert data["news_subscribers"] == 1
+
+
 def test_api_villages_endpoint(test_db_with_village_and_streets):
     """Test /api/v1/villages endpoint returns correct format"""
     db_path = test_db_with_village_and_streets

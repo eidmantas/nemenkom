@@ -85,6 +85,29 @@
             </div>
         </header>
 
+        <section class="home-insights" aria-label="Statistika ir naujienos">
+            <div class="insight-stat">
+                <span class="insight-stat-label">Kalendorių prenumeratos</span>
+                <strong id="calendarSubscribersStat">...</strong>
+            </div>
+            <form class="newsletter-card" id="newsletterForm">
+                <label for="newsletterEmail">Naujienos</label>
+                <div class="newsletter-row">
+                    <input
+                        id="newsletterEmail"
+                        name="email"
+                        type="email"
+                        inputmode="email"
+                        autocomplete="email"
+                        placeholder="el. paštas"
+                        required
+                    >
+                    <button type="submit">Prenumeruoti</button>
+                </div>
+                <p class="newsletter-message" id="newsletterMessage" role="status" aria-live="polite"></p>
+            </form>
+        </section>
+
         <div class="selection-section">
             <div class="cascading-selects">
                 <div class="select-group" id="villageSelectGroup">
@@ -155,6 +178,8 @@
         window.addEventListener('DOMContentLoaded', function() {
             (async () => {
                 hydrateContactLinks();
+                setupNewsletterForm();
+                loadPublicStats();
                 // Load villages first so URL restore can be deterministic (no polling/sleeps).
                 await loadVillages();
                 await restoreFromURL();
@@ -170,6 +195,55 @@
                 const email = `${user}@${domain}`;
                 link.href = `mailto:${email}`;
                 link.textContent = email;
+                });
+        }
+
+        async function loadPublicStats() {
+            const statEl = document.getElementById('calendarSubscribersStat');
+            if (!statEl) return;
+            try {
+                const response = await fetch('/api/v1/public-stats');
+                const data = await response.json();
+                statEl.textContent = Number(data.calendar_subscribers || 0).toLocaleString('lt-LT');
+            } catch (error) {
+                console.error('Error loading public stats:', error);
+                statEl.textContent = '...';
+            }
+        }
+
+        function setupNewsletterForm() {
+            const form = document.getElementById('newsletterForm');
+            const emailInput = document.getElementById('newsletterEmail');
+            const message = document.getElementById('newsletterMessage');
+            if (!form || !emailInput || !message) return;
+
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = form.querySelector('button');
+                const email = emailInput.value.trim();
+                message.textContent = '';
+                message.className = 'newsletter-message';
+                button.disabled = true;
+
+                try {
+                    const response = await fetch('/newsletter/subscribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Nepavyko išsaugoti');
+                    }
+                    message.textContent = data.created ? 'Prenumerata išsaugota.' : 'Jau prenumeruojate.';
+                    message.classList.add('is-success');
+                    form.reset();
+                } catch (error) {
+                    message.textContent = error.message || 'Nepavyko išsaugoti.';
+                    message.classList.add('is-error');
+                } finally {
+                    button.disabled = false;
+                }
             });
         }
 

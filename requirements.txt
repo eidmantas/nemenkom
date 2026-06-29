@@ -3,9 +3,8 @@
 # Dev/test tooling stays in `requirements-dev.txt`.
 #
 # Notes:
-# - We want the latest OpenAI SDK (`openai>=2`). Some third-party tools (e.g. `marker-pdf`)
-#   still pin `openai<2`; those must be installed in a separate step (see `Dockerfile.scraper-pdf`)
-#   and then we force-upgrade `openai` afterwards.
+# - We want the latest OpenAI SDK (`openai>=2`). The PDF extractor stack lives
+#   in `requirements-pdf.txt` and is installed only in `Dockerfile.scraper-pdf`.
 requests>=2.32.5
 pandas>=3.0.0
 openpyxl>=3.1.5

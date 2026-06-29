@@ -3,12 +3,13 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY requirements.txt requirements-pdf.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# `marker-pdf` still pins `openai<2` and `anthropic<0.47`. We install it, then explicitly
-# force-upgrade the SDKs we actually want for the rest of the system.
-RUN pip install --no-cache-dir marker-pdf==1.10.2 \
+# `marker-pdf` still pins `openai<2` and `anthropic<0.47`. We install the
+# pinned PDF stack separately, then explicitly force-upgrade the SDKs used by
+# our AI provider code.
+RUN pip install --no-cache-dir -r requirements-pdf.txt \
   && pip install --no-cache-dir --no-deps openai==2.16.0 anthropic==0.77.1
 
 # Needed code
@@ -20,4 +21,3 @@ COPY services/common services/common
 ENV PYTHONPATH=/app
 
 CMD ["python", "services/scraper_pdf/scheduler.py"]
-

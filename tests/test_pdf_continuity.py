@@ -865,6 +865,37 @@ def test_parse_pdf_uses_filename_months_when_headers_are_blank(monkeypatch):
     ]
 
 
+def test_split_fused_pdf_header_strips_q3_month_tokens():
+    table = pd.DataFrame(
+        [
+            [
+                "Seniūnijos pavadinimas (gyvenvietės pavadinimas) "
+                "Atliekos Liepa Rugpjūtis Rugsėjis "
+                "Nemenčinės sen. Gamernės k. Pakuotė 1 d."
+            ],
+        ]
+    )
+
+    split = pdf_parser.split_fused_header_rows(table)
+
+    assert len(split) == 2
+    data_cell = split.iloc[1, 0]
+    assert data_cell == "Nemenčinės sen. Gamernės k. Pakuotė 1 d."
+    assert "Liepa" not in data_cell
+    assert "Rugpjūtis" not in data_cell
+    assert "Rugsėjis" not in data_cell
+
+
+def test_infer_pdf_waste_label_decodes_q3_encoded_filename():
+    path = Path(
+        "%E2%80%9E2026%20m-%20liepos%2C%20rugpj%C5%AB%C4%8Dio%2C%20"
+        "rugs%C4%97jo%20m%C4%97n-%20Pakuo%C4%8Di%C5%B3%20atliek%C5%B3%20"
+        "surinkimo%20grafikas.pdf"
+    )
+
+    assert pdf_parser.infer_pdf_waste_label(path) == "Pakuotė"
+
+
 def test_parse_pdf_repeats_embedded_day_across_visible_q2_months(monkeypatch):
     table = pd.DataFrame(
         [

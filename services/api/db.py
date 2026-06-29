@@ -4,6 +4,7 @@ Updated for new schema: hash-based schedule_groups, dates in JSON, no pickup_dat
 """
 
 import json
+import re
 import sqlite3
 
 from services.common.db import get_db_connection
@@ -11,6 +12,86 @@ from services.common.db_helpers import (
     get_calendar_status,
     get_schedule_group_info,
 )
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+    row = cursor.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        LIMIT 1
+        """,
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def ensure_news_subscribers_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS news_subscribers (
+            email TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
+def subscribe_news_email(email: str) -> dict:
+    normalized = (email or "").strip().lower()
+    if not normalized or len(normalized) > 254 or not EMAIL_RE.match(normalized):
+        raise ValueError("Invalid email address")
+
+    conn = get_db_connection()
+    ensure_news_subscribers_table(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO news_subscribers (email)
+        VALUES (?)
+        """,
+        (normalized,),
+    )
+    created = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return {"email": normalized, "created": created}
+
+
+def get_public_stats() -> dict:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    stats = {
+        "calendar_subscribers": 0,
+        "locations": 0,
+        "news_subscribers": 0,
+    }
+
+    if _table_exists(cursor, "calendar_streams"):
+        row = cursor.execute(
+            """
+            SELECT COUNT(DISTINCT calendar_id)
+            FROM calendar_streams
+            WHERE calendar_id IS NOT NULL AND calendar_id != ''
+            """
+        ).fetchone()
+        stats["calendar_subscribers"] = int(row[0] or 0)
+
+    if _table_exists(cursor, "locations"):
+        row = cursor.execute("SELECT COUNT(*) FROM locations").fetchone()
+        stats["locations"] = int(row[0] or 0)
+
+    if _table_exists(cursor, "news_subscribers"):
+        row = cursor.execute("SELECT COUNT(*) FROM news_subscribers").fetchone()
+        stats["news_subscribers"] = int(row[0] or 0)
+
+    conn.close()
+    return stats
 
 
 def get_all_locations() -> list[dict]:

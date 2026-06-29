@@ -24,11 +24,13 @@ from services.api.db import (
     get_location_schedule,
     get_multi_waste_schedule_for_selection,
     get_pdf_streetwide_waste_types_for_selection,
+    get_public_stats,
     get_schedule_group_schedule,
     get_streets_for_village,
     get_unique_villages,
     search_locations,
     street_has_house_numbers,
+    subscribe_news_email,
     village_has_streets,
 )
 from services.common.calendar_client import (
@@ -93,6 +95,24 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/newsletter/subscribe", methods=["POST"])
+def newsletter_subscribe():
+    payload = request.get_json(silent=True) or request.form or {}
+    email = payload.get("email", "")
+    try:
+        result = subscribe_news_email(email)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except FileNotFoundError:
+        logger.exception("Newsletter subscribe failed: database is not initialized")
+        return jsonify({"ok": False, "error": "Database is not initialized"}), 503
+    except Exception:
+        logger.exception("Newsletter subscribe failed")
+        return jsonify({"ok": False, "error": "Could not save subscription"}), 500
+
+    return jsonify({"ok": True, "email": result["email"], "created": result["created"]})
+
+
 @app.route("/api-docs")
 def api_docs():
     """Redirect to Swagger UI"""
@@ -147,6 +167,11 @@ def api_locations():
         locations = get_all_locations()
 
     return jsonify({"locations": locations, "count": len(locations)})
+
+
+@app.route("/api/v1/public-stats", methods=["GET"])
+def api_public_stats():
+    return jsonify(get_public_stats())
 
 
 @app.route("/api/v1/schedule", methods=["GET"])
