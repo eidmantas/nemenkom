@@ -680,6 +680,20 @@ body {
     backdrop-filter: blur(18px);
 }
 
+.calendar-panel.is-empty {
+    background: transparent;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.calendar-panel.is-empty h2,
+.calendar-panel.is-empty .calendar-legend,
+.calendar-panel.is-empty .calendar-container {
+    display: none;
+}
+
 .locations-panel h2, .calendar-panel h2 {
     color: var(--ink);
     margin-bottom: 12px;
@@ -721,6 +735,19 @@ body {
     border-radius: 6px;
 }
 
+.calendar-panel.is-empty .selected-location {
+    margin-bottom: 0;
+    padding: 14px 16px;
+    background: rgba(241, 245, 249, 0.86);
+    border-color: rgba(148, 163, 184, 0.24);
+    box-shadow: 0 8px 22px rgba(29, 48, 75, 0.07);
+}
+
+.calendar-panel.is-empty .selected-location p {
+    color: #475569;
+    font-weight: 700;
+}
+
 .selected-location h3 {
     color: var(--ink);
     margin-bottom: 5px;
@@ -729,10 +756,6 @@ body {
 .date-count {
     color: #7f8c8d;
     font-size: 0.9em;
-}
-
-.calendar-container {
-    min-height: 400px;
 }
 
 .calendar-legend {

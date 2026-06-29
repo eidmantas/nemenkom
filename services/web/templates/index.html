@@ -8,7 +8,7 @@
     <meta property="og:title" content="Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)" />
     <meta property="og:description" content="Neoficialus įrankis, padedantis patogiai rasti Nemenkom.lt atliekų išvežimo datas ir prenumeruoti Google kalendorius." />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux4') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux5') }}">
 </head>
 <body>
     <div class="top-header">
@@ -105,7 +105,7 @@
         </header>
 
         <div class="main-content">
-            <div class="calendar-panel">
+            <div class="calendar-panel is-empty" id="calendarPanel">
                 <h2>Kalendorius</h2>
                 <div id="selectedLocation" class="selected-location">
                     <p>Pasirinkite kaimą, gatvę ir namo numerį</p>
@@ -150,7 +150,7 @@
         </section>
     </div>
 
-    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux4') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux5') }}"></script>
     <script>
         // State
         let currentVillage = '';
@@ -885,6 +885,7 @@
         }
 
         function displaySelectedLocationMulti(payload, houseNumber) {
+            setCalendarEmptyState(false);
             const container = document.getElementById('selectedLocation');
             const selection = payload.selection || {};
             const schedules = payload.schedules || {};
@@ -948,9 +949,16 @@
         }
 
         function clearCalendar() {
+            setCalendarEmptyState(true);
             document.getElementById('calendarContainer').innerHTML = '';
             document.getElementById('selectedLocation').innerHTML = '<p>Pasirinkite kaimą, gatvę ir namo numerį</p>';
             document.getElementById('calendarLegend').innerHTML = '';
+        }
+
+        function setCalendarEmptyState(isEmpty) {
+            const panel = document.getElementById('calendarPanel');
+            if (!panel) return;
+            panel.classList.toggle('is-empty', !!isEmpty);
         }
 
     </script>
