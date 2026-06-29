@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from services.scraper.core.parser import MONTH_MAPPING, parse_xlsx
+from services.scraper.core.parser import MONTH_MAPPING, get_location_column, parse_xlsx
 
 
 def validate_xlsx_structure(file_path: Path) -> tuple[bool, list[str]]:
@@ -27,10 +27,13 @@ def validate_xlsx_structure(file_path: Path) -> tuple[bool, list[str]]:
         return (False, [f"Failed to read xlsx: {e!s}"])
 
     # Check for required columns
-    required_columns = ["Seniūnija", "Kaimai"]
+    required_columns = ["Seniūnija"]
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         errors.append(f"Required columns not found: {missing_columns}")
+    location_column = get_location_column(df)
+    if not location_column:
+        errors.append("Required location column not found: expected non-empty Kaimai or Gatvė")
 
     # Check for month columns
     month_columns = [col for col in df.columns if col in MONTH_MAPPING]
@@ -44,12 +47,6 @@ def validate_xlsx_structure(file_path: Path) -> tuple[bool, list[str]]:
     # Check that dataframe is not empty
     if len(df) == 0:
         errors.append("Dataframe is empty")
-
-    # Check that 'Kaimai' column has some non-null values
-    if "Kaimai" in df.columns:
-        non_null_count = df["Kaimai"].notna().sum()
-        if non_null_count == 0:
-            errors.append("'Kaimai' column has no non-null values")
 
     return (len(errors) == 0, errors)
 

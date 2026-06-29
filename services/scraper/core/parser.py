@@ -10,20 +10,32 @@ from typing import cast
 
 import pandas as pd
 
-# Lithuanian month names (genitive case as they appear in column headers)
+# Lithuanian month names as they appear in source column headers.
 MONTH_MAPPING = {
     "Sausio": 1,
+    "Sausis": 1,
     "Vasario": 2,
+    "Vasaris": 2,
     "Kovo": 3,
+    "Kovas": 3,
     "Balandžio": 4,
+    "Balandis": 4,
     "Gegužės": 5,
+    "Gegužė": 5,
     "Birželio": 6,
+    "Birželis": 6,
     "Liepos": 7,
+    "Liepa": 7,
     "Rugpjūčio": 8,
+    "Rugpjūtis": 8,
     "Rugsėjo": 9,
+    "Rugsėjis": 9,
     "Spalio": 10,
+    "Spalis": 10,
     "Lapkričio": 11,
+    "Lapkritis": 11,
     "Gruodžio": 12,
+    "Gruodis": 12,
 }
 
 
@@ -232,10 +244,13 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
     df = pd.read_excel(file_path, skiprows=1)
 
     # Check required columns
-    required_columns = ["Seniūnija", "Kaimai"]
+    required_columns = ["Seniūnija"]
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"Required columns not found: {missing_columns}")
+    location_column = get_location_column(df)
+    if not location_column:
+        raise ValueError("Required location column not found: expected Kaimai or Gatvė")
 
     # Find month columns
     month_columns = [col for col in df.columns if col in MONTH_MAPPING]
@@ -279,8 +294,9 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
         if not current_seniunija:
             continue
 
-        # Parse Kaimai (village and streets)
-        kaimai_value = row.get("Kaimai", "")
+        # Parse location text (village and streets). Older files use Kaimai; the
+        # June-December 2026 file keeps Kaimai blank and puts the same text in Gatvė.
+        kaimai_value = row.get(location_column, "")
         if cast(bool, pd.isna(kaimai_value)):
             continue
 
@@ -422,6 +438,20 @@ def parse_xlsx(file_path: Path, year: int = 2026, skip_ai: bool = False) -> list
     else:
         print(f"Parsed {len(results)} location entries in {total_time:.1f}s")
     return results
+
+
+def get_location_column(df: pd.DataFrame) -> str | None:
+    """
+    Return the source column containing village/street location text.
+
+    Older XLSX files use `Kaimai`. The 2026 June-December XLSX includes `Kaimai`
+    but leaves it empty, with the location text under `Gatvė`.
+    """
+    if "Kaimai" in df.columns and df["Kaimai"].notna().sum() > 0:
+        return "Kaimai"
+    if "Gatvė" in df.columns and df["Gatvė"].notna().sum() > 0:
+        return "Gatvė"
+    return None
 
 
 if __name__ == "__main__":
