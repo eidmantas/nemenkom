@@ -60,6 +60,7 @@ def _read_secret_file_optional(filename: str) -> str | None:
 
 DEBUG = os.getenv("DEBUG", "1") == "1"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG" if DEBUG else "INFO")
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://nemenkom.eidmantas.lt")
 
 # Optional (docker-compose) scheduler knobs:
 # - FORCE_PARSE_ON_START=1

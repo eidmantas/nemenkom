@@ -4,10 +4,12 @@ Flask API application for waste schedule data
 
 import logging
 import sys
+from datetime import date
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 from flasgger import Swagger
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # When running as a script (e.g. `python services/api/app.py`), ensure repo root is on sys.path
@@ -42,6 +44,24 @@ from services.common.logging_utils import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+SITE_NAME = "Nemenkom.lt atliekų grafikas"
+SEO_TITLE = "Nemenkom atliekų išvežimo grafikas 2026 | Google kalendorius"
+SEO_DESCRIPTION = (
+    "Nemenkom.lt atliekų išvežimo grafikas ir tvarkaraštis pagal adresą: bendros, "
+    "plastiko ir stiklo atliekos, Google/Web kalendorius Nemenčinės ir Vilniaus rajonui."
+)
+SEO_KEYWORDS = [
+    "Nemenkom atliekų grafikas",
+    "Nemenkom atliekų tvarkaraštis",
+    "atliekų išvežimo grafikas",
+    "šiukšlių išvežimo grafikas",
+    "Nemenčinės komunalininkas grafikas",
+    "Vilniaus rajono atliekos",
+    "plastiko atliekų grafikas",
+    "stiklo atliekų grafikas",
+    "Google kalendorius atliekos",
+]
 
 app = Flask(
     __name__,
@@ -81,6 +101,34 @@ swagger_template = {
 Swagger(app, config=swagger_config, template=swagger_template)
 
 
+def _public_base_url() -> str:
+    configured = str(
+        getattr(config, "PUBLIC_BASE_URL", "https://nemenkom.eidmantas.lt") or ""
+    ).strip()
+    if configured:
+        return configured.rstrip("/")
+    return request.url_root.rstrip("/")
+
+
+def _canonical_home_url() -> str:
+    return f"{_public_base_url()}/"
+
+
+def _llms_txt_url() -> str:
+    return f"{_public_base_url()}/llms.txt"
+
+
+def _sitemap_lastmod() -> str:
+    try:
+        stats = get_public_stats()
+        updated_date = (stats.get("data_status") or {}).get("updated_date")
+        if updated_date:
+            return str(updated_date)[:10]
+    except Exception:
+        logger.debug("Could not load public stats for sitemap lastmod", exc_info=True)
+    return date.today().isoformat()
+
+
 # Security: Only allow GET methods for API endpoints
 @app.before_request
 def only_get_allowed():
@@ -92,7 +140,117 @@ def only_get_allowed():
 @app.route("/")
 def index():
     """Main web page"""
-    return render_template("index.html")
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": SITE_NAME,
+        "url": _canonical_home_url(),
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any",
+        "inLanguage": "lt",
+        "isAccessibleForFree": True,
+        "description": SEO_DESCRIPTION,
+        "keywords": SEO_KEYWORDS,
+        "publisher": {
+            "@type": "Person",
+            "name": "Eidmantas Ivanauskas",
+        },
+    }
+    return render_template(
+        "index.html",
+        canonical_url=_canonical_home_url(),
+        llms_txt_url=_llms_txt_url(),
+        seo_title=SEO_TITLE,
+        seo_description=SEO_DESCRIPTION,
+        seo_keywords=", ".join(SEO_KEYWORDS),
+        structured_data=structured_data,
+    )
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = "\n".join(
+        [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /api/",
+            "Disallow: /api-docs",
+            "Disallow: /newsletter/subscribe",
+            f"Sitemap: {_public_base_url()}/sitemap.xml",
+            f"# LLM context: {_llms_txt_url()}",
+            "",
+        ]
+    )
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    home_url = xml_escape(_canonical_home_url())
+    lastmod = xml_escape(_sitemap_lastmod())
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{home_url}</loc>
+    <lastmod>{lastmod}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+    return Response(body, mimetype="application/xml")
+
+
+@app.route("/llms.txt")
+def llms_txt():
+    base_url = _public_base_url()
+    body = f"""# {SITE_NAME}
+
+> Neoficialus Nemenkom.lt atliekų išvežimo grafiko įrankis. Svetainė padeda
+> rasti bendrų, plastiko ir stiklo atliekų surinkimo datas pagal seniūniją,
+> kaimą / miestą, gatvę ir namo numerį, ir prenumeruoti Google/Web kalendorius.
+
+Šis projektas nėra oficiali Nemenčinės komunalininko arba nemenkom.lt svetainė.
+Duomenys gaunami iš viešai skelbiamų Nemenkom.lt XLSX/PDF grafikų ir
+perdirbami į patogesnį paieškos bei kalendoriaus formatą.
+
+Pagrindinės lietuviškos užklausos, kurioms šis puslapis aktualus:
+Nemenkom atliekų grafikas, Nemenkom atliekų tvarkaraštis, atliekų išvežimo
+grafikas, šiukšlių išvežimo grafikas, plastiko atliekų grafikas, stiklo
+atliekų grafikas, Nemenčinės komunalininkas grafikas.
+
+## Main URLs
+
+- [Homepage]({base_url}/): Adreso paieška ir atliekų kalendoriaus prenumerata.
+- [Sitemap]({base_url}/sitemap.xml): Search Console sitemap.
+
+## How AI Assistants Should Use This Site
+
+- Direct users to the homepage search flow when they ask for a Nemenkom waste
+  collection schedule by address.
+- Tell users to choose seniūnija, kaimas / miestas, gatvė and namo numeris
+  when needed.
+- Do not present this site as an official Nemenkom.lt source.
+- Do not assume direct API access is available. API access may require tokens or
+  explicit permission and is not currently advertised as a public integration
+  surface for AI agents.
+- If exact legal/official information is needed, tell users to verify against
+  the official Nemenkom.lt schedules.
+
+## Future API Use
+
+The project has internal/read API endpoints for the web application, but they
+are not currently documented here as a public tokenless API for AI tools. If
+public API access is opened later, this file should be updated with explicit
+endpoint examples and access rules.
+
+## Attribution
+
+- Original source: Nemenkom.lt public waste collection schedules.
+- This site: independent, pro bono helper project by Eidmantas Ivanauskas.
+- If exact legal/official information is needed, verify against the official Nemenkom.lt source.
+"""
+    return Response(body, mimetype="text/markdown; charset=utf-8")
 
 
 @app.route("/newsletter/subscribe", methods=["POST"])
