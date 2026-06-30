@@ -427,7 +427,7 @@ def api_schedule():
     seniunija = request.args.get("seniunija", "")
     village = request.args.get("village", "")
     street = request.args.get("street", None)  # None if not provided, '' if empty string provided
-    house_numbers = request.args.get("house_numbers", None)  # None if not provided
+    house_numbers = request.args.get("house_numbers", request.args.get("house", None))
 
     if location_id:
         schedule = get_location_schedule(location_id=location_id)
@@ -513,7 +513,7 @@ def api_schedule_multi():
     seniunija = request.args.get("seniunija", "")
     village = request.args.get("village", "")
     street = request.args.get("street", None)
-    house_numbers = request.args.get("house_numbers", None)
+    house_numbers = request.args.get("house_numbers", request.args.get("house", None))
 
     if not (seniunija and village):
         return jsonify({"error": "Must provide seniunija and village"}), 400
