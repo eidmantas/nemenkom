@@ -6,6 +6,7 @@ Updated for new schema: hash-based schedule_groups, dates in JSON, no pickup_dat
 import json
 import re
 import sqlite3
+from datetime import date
 
 from services.common.db import get_db_connection
 from services.common.db_helpers import (
@@ -14,6 +15,11 @@ from services.common.db_helpers import (
 )
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+WASTE_TYPE_LABELS = {
+    "bendros": "Bendros",
+    "plastikas": "Plastikas",
+    "stiklas": "Stiklas",
+}
 
 
 def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
@@ -61,15 +67,142 @@ def subscribe_news_email(email: str) -> dict:
     return {"email": normalized, "created": created}
 
 
+def _coverage_quarter(today: date | None = None) -> tuple[int, int, list[int]]:
+    today = today or date.today()
+    year = today.year
+    quarter = ((today.month - 1) // 3) + 1
+
+    # Late in a source quarter, the useful trust signal is the next published
+    # quarter. This keeps June 30 focused on Q3 instead of almost-finished Q2.
+    if today.month in (3, 6, 9, 12) and today.day >= 20:
+        if quarter == 4:
+            year += 1
+            quarter = 1
+        else:
+            quarter += 1
+
+    start_month = (quarter - 1) * 3 + 1
+    return year, quarter, [start_month, start_month + 1, start_month + 2]
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _date_only(value: str | None) -> str | None:
+    parsed = _parse_date(value)
+    return parsed.isoformat() if parsed else value
+
+
+def _latest_data_update(cursor: sqlite3.Cursor) -> str | None:
+    timestamps: list[str] = []
+
+    if _table_exists(cursor, "source_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM source_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "pdf_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM pdf_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "data_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM data_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "schedule_groups"):
+        row = cursor.execute("SELECT MAX(updated_at) FROM schedule_groups").fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    return max(timestamps) if timestamps else None
+
+
+def _quarter_coverage(cursor: sqlite3.Cursor) -> tuple[str, list[dict]]:
+    year, quarter, months = _coverage_quarter()
+    month_lookup = {month: False for month in months}
+    covered_by_type = {waste_type: dict(month_lookup) for waste_type in WASTE_TYPE_LABELS}
+
+    if _table_exists(cursor, "schedule_groups"):
+        rows = cursor.execute(
+            """
+            SELECT waste_type, dates
+            FROM schedule_groups
+            WHERE waste_type IN ('bendros', 'plastikas', 'stiklas')
+              AND dates IS NOT NULL
+              AND dates != ''
+            """
+        ).fetchall()
+        for waste_type, dates_json in rows:
+            try:
+                raw_dates = json.loads(dates_json) if dates_json else []
+            except (TypeError, ValueError):
+                continue
+            for raw_date in raw_dates:
+                parsed = _parse_date(raw_date)
+                if parsed and parsed.year == year and parsed.month in month_lookup:
+                    covered_by_type.setdefault(waste_type, dict(month_lookup))[parsed.month] = True
+
+    coverage = []
+    for waste_type, label in WASTE_TYPE_LABELS.items():
+        month_items = [
+            {
+                "month": month,
+                "covered": bool(covered_by_type.get(waste_type, {}).get(month)),
+            }
+            for month in months
+        ]
+        covered_count = sum(1 for item in month_items if item["covered"])
+        coverage.append(
+            {
+                "waste_type": waste_type,
+                "label": label,
+                "covered_months": covered_count,
+                "total_months": len(month_items),
+                "complete": covered_count == len(month_items),
+                "months": month_items,
+            }
+        )
+
+    return f"{year} Q{quarter}", coverage
+
+
 def get_public_stats() -> dict:
     conn = get_db_connection()
     cursor = conn.cursor()
 
     stats = {
         "calendar_subscribers": 0,
+        "generated_calendars": 0,
         "locations": 0,
         "news_subscribers": 0,
         "top_villages": [],
+        "data_status": {},
     }
 
     if _table_exists(cursor, "calendar_streams"):
@@ -81,6 +214,7 @@ def get_public_stats() -> dict:
             """
         ).fetchone()
         stats["calendar_subscribers"] = int(row[0] or 0)
+        stats["generated_calendars"] = stats["calendar_subscribers"]
 
     if _table_exists(cursor, "locations"):
         row = cursor.execute("SELECT COUNT(*) FROM locations").fetchone()
@@ -90,36 +224,16 @@ def get_public_stats() -> dict:
         row = cursor.execute("SELECT COUNT(*) FROM news_subscribers").fetchone()
         stats["news_subscribers"] = int(row[0] or 0)
 
-    if all(
-        _table_exists(cursor, table_name)
-        for table_name in (
-            "calendar_streams",
-            "group_calendar_links",
-            "schedule_groups",
-            "locations",
-        )
-    ):
-        rows = cursor.execute(
-            """
-            SELECT l.seniunija, l.village, COUNT(DISTINCT cs.calendar_id) AS subscribers
-            FROM calendar_streams cs
-            JOIN group_calendar_links gcl ON gcl.calendar_stream_id = cs.id
-            JOIN schedule_groups sg ON sg.id = gcl.schedule_group_id
-            JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
-            WHERE cs.calendar_id IS NOT NULL AND cs.calendar_id != ''
-            GROUP BY l.seniunija, l.village
-            ORDER BY subscribers DESC, l.village COLLATE NOCASE
-            LIMIT 3
-            """
-        ).fetchall()
-        stats["top_villages"] = [
-            {
-                "seniunija": row[0],
-                "village": row[1],
-                "calendar_subscribers": int(row[2] or 0),
-            }
-            for row in rows
-        ]
+    coverage_label, coverage = _quarter_coverage(cursor)
+    updated_at = _latest_data_update(cursor)
+    stats["data_status"] = {
+        "generated_calendars": stats["generated_calendars"],
+        "address_records": stats["locations"],
+        "coverage_label": coverage_label,
+        "coverage": coverage,
+        "updated_at": updated_at,
+        "updated_date": _date_only(updated_at),
+    }
 
     conn.close()
     return stats

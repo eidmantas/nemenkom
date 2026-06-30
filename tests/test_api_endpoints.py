@@ -2,6 +2,7 @@
 Integration tests for API endpoints
 """
 
+import json
 import os
 import sqlite3
 import sys
@@ -419,14 +420,34 @@ def test_public_stats_includes_calendar_and_news_counts(temp_db):
             ('cs_3', 'stiklas', 'h3', '[]', NULL)
         """
     )
-    conn.execute(
+    conn.executemany(
         """
-        INSERT INTO schedule_groups (id, waste_type, kaimai_hash, dates)
-        VALUES
-            ('sg_1', 'bendros', 'kh_1', '[]'),
-            ('sg_2', 'plastikas', 'kh_2', '[]'),
-            ('sg_3', 'stiklas', 'kh_3', '[]')
-        """
+        INSERT INTO schedule_groups (id, waste_type, kaimai_hash, dates, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "sg_1",
+                "bendros",
+                "kh_1",
+                json.dumps(["2026-07-01", "2026-08-01", "2026-09-01"]),
+                "2026-06-29 10:00:00",
+            ),
+            (
+                "sg_2",
+                "plastikas",
+                "kh_2",
+                json.dumps(["2026-07-02", "2026-08-02"]),
+                "2026-06-29 10:00:00",
+            ),
+            (
+                "sg_3",
+                "stiklas",
+                "kh_3",
+                json.dumps(["2026-07-03", "2026-08-03", "2026-09-03"]),
+                "2026-06-29 10:00:00",
+            ),
+        ],
     )
     conn.execute(
         """
@@ -447,19 +468,74 @@ def test_public_stats_includes_calendar_and_news_counts(temp_db):
         """
     )
     conn.execute("INSERT INTO news_subscribers (email) VALUES ('reader@example.com')")
+    conn.execute(
+        """
+        INSERT INTO data_fetches (source_url, status, created_at)
+        VALUES ('https://example.test/source.xlsx', 'success', '2026-06-30 12:00:00')
+        """
+    )
     conn.commit()
+
+    import services.api.db as api_db_module
+
+    original_coverage_quarter = api_db_module._coverage_quarter
+    api_db_module._coverage_quarter = lambda today=None: (2026, 3, [7, 8, 9])
 
     from services.api.app import app
 
-    with app.test_client() as client:
-        response = client.get("/api/v1/public-stats")
+    try:
+        with app.test_client() as client:
+            response = client.get("/api/v1/public-stats")
+    finally:
+        api_db_module._coverage_quarter = original_coverage_quarter
 
     assert response.status_code == 200
     data = response.get_json()
     assert data["calendar_subscribers"] == 2
+    assert data["generated_calendars"] == 2
     assert data["news_subscribers"] == 1
-    assert data["top_villages"] == [
-        {"seniunija": "Test", "village": "PopularVillage", "calendar_subscribers": 2}
+    assert data["top_villages"] == []
+    assert data["data_status"]["generated_calendars"] == 2
+    assert data["data_status"]["address_records"] == 3
+    assert data["data_status"]["coverage_label"] == "2026 Q3"
+    assert data["data_status"]["updated_date"] == "2026-06-30"
+    assert data["data_status"]["coverage"] == [
+        {
+            "waste_type": "bendros",
+            "label": "Bendros",
+            "covered_months": 3,
+            "total_months": 3,
+            "complete": True,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": True},
+            ],
+        },
+        {
+            "waste_type": "plastikas",
+            "label": "Plastikas",
+            "covered_months": 2,
+            "total_months": 3,
+            "complete": False,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": False},
+            ],
+        },
+        {
+            "waste_type": "stiklas",
+            "label": "Stiklas",
+            "covered_months": 3,
+            "total_months": 3,
+            "complete": True,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": True},
+            ],
+        },
     ]
 
 

@@ -8,7 +8,7 @@
     <meta property="og:title" content="Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)" />
     <meta property="og:description" content="Neoficialus įrankis, padedantis patogiai rasti Nemenkom.lt atliekų išvežimo datas ir prenumeruoti Google kalendorius." />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260629-ux5') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260630-status1') }}">
 </head>
 <body>
     <div class="top-header">
@@ -42,11 +42,11 @@
                     <span class="hero-chip hero-chip-stiklas">Stiklas</span>
                 </div>
 
-                <div class="hero-insights" aria-label="Statistika">
+                <div class="hero-insights" aria-label="Duomenų būsena">
                     <div class="stats-grid">
                         <div class="insight-stat">
-                            <span class="insight-stat-label">Kalendorių prenumeratos</span>
-                            <strong id="calendarSubscribersStat">...</strong>
+                            <span class="insight-stat-label">Kalendoriai sugeneruoti</span>
+                            <strong id="generatedCalendarsStat">...</strong>
                         </div>
                         <div class="insight-stat">
                             <span class="insight-stat-label">Adreso įrašai</span>
@@ -54,14 +54,17 @@
                         </div>
                     </div>
 
-                    <div class="popular-card">
-                        <div class="popular-card-header">
-                            <span>Populiariausi kaimai</span>
-                            <small>Top 3</small>
+                    <div class="status-card">
+                        <div class="status-card-header">
+                            <span>Duomenų būsena</span>
+                            <small id="coverageLabelStat">...</small>
                         </div>
-                        <ol class="popular-list" id="topVillagesList">
-                            <li>Kraunama...</li>
-                        </ol>
+                        <div class="status-card-body">
+                            <span class="updated-pill">Atnaujinta <strong id="updatedDateStat">...</strong></span>
+                            <div class="coverage-list" id="coverageList">
+                                <span class="coverage-pill">Kraunama...</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -150,7 +153,7 @@
         </section>
     </div>
 
-    <script src="{{ url_for('static', filename='js/calendar.js', v='20260629-ux5') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js', v='20260630-status1') }}"></script>
     <script>
         // State
         let currentVillage = '';
@@ -190,46 +193,52 @@
         }
 
         async function loadPublicStats() {
-            const statEl = document.getElementById('calendarSubscribersStat');
+            const generatedEl = document.getElementById('generatedCalendarsStat');
             const locationsEl = document.getElementById('locationsStat');
-            const topVillagesEl = document.getElementById('topVillagesList');
-            if (!statEl && !locationsEl && !topVillagesEl) return;
+            const coverageLabelEl = document.getElementById('coverageLabelStat');
+            const updatedDateEl = document.getElementById('updatedDateStat');
+            const coverageEl = document.getElementById('coverageList');
+            if (!generatedEl && !locationsEl && !coverageEl) return;
             try {
                 const response = await fetch('/api/v1/public-stats');
                 const data = await response.json();
-                if (statEl) {
-                    statEl.textContent = Number(data.calendar_subscribers || 0).toLocaleString('lt-LT');
+                const status = data.data_status || {};
+                if (generatedEl) {
+                    const generated = status.generated_calendars ?? data.generated_calendars ?? data.calendar_subscribers ?? 0;
+                    generatedEl.textContent = Number(generated || 0).toLocaleString('lt-LT');
                 }
                 if (locationsEl) {
-                    locationsEl.textContent = Number(data.locations || 0).toLocaleString('lt-LT');
+                    const locations = status.address_records ?? data.locations ?? 0;
+                    locationsEl.textContent = Number(locations || 0).toLocaleString('lt-LT');
                 }
-                if (topVillagesEl) {
-                    const topVillages = Array.isArray(data.top_villages) ? data.top_villages : [];
-                    topVillagesEl.innerHTML = '';
-                    if (topVillages.length === 0) {
-                        const emptyItem = document.createElement('li');
-                        emptyItem.textContent = 'Dar nėra duomenų';
-                        topVillagesEl.appendChild(emptyItem);
-                    } else {
-                        topVillages.forEach((item) => {
-                            const li = document.createElement('li');
-                            const name = document.createElement('span');
-                            name.className = 'popular-village-name';
-                            name.textContent = item.seniunija
-                                ? `${item.village}, ${item.seniunija}`
-                                : item.village;
-                            const count = document.createElement('strong');
-                            count.textContent = Number(item.calendar_subscribers || 0).toLocaleString('lt-LT');
-                            li.appendChild(name);
-                            li.appendChild(count);
-                            topVillagesEl.appendChild(li);
-                        });
+                if (coverageLabelEl) {
+                    coverageLabelEl.textContent = status.coverage_label || 'Aprėptis';
+                }
+                if (updatedDateEl) {
+                    updatedDateEl.textContent = status.updated_date || 'nežinoma';
+                }
+                if (coverageEl) {
+                    const coverage = Array.isArray(status.coverage) ? status.coverage : [];
+                    coverageEl.innerHTML = '';
+                    if (coverage.length === 0) {
+                        const empty = document.createElement('span');
+                        empty.className = 'coverage-pill';
+                        empty.textContent = 'Aprėptis nežinoma';
+                        coverageEl.appendChild(empty);
+                        return;
                     }
+                    coverage.forEach((item) => {
+                        const pill = document.createElement('span');
+                        pill.className = `coverage-pill ${item.complete ? 'is-complete' : 'is-partial'}`;
+                        pill.textContent = `${item.label}: ${Number(item.covered_months || 0)}/${Number(item.total_months || 0)}`;
+                        coverageEl.appendChild(pill);
+                    });
                 }
             } catch (error) {
                 console.error('Error loading public stats:', error);
-                if (statEl) statEl.textContent = '...';
+                if (generatedEl) generatedEl.textContent = '...';
                 if (locationsEl) locationsEl.textContent = '...';
+                if (updatedDateEl) updatedDateEl.textContent = '...';
             }
         }
 

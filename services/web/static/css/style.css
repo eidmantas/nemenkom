@@ -189,7 +189,7 @@ body {
 }
 
 .insight-stat,
-.popular-card,
+.status-card,
 .newsletter-card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -231,85 +231,88 @@ body {
     line-height: 1.1;
 }
 
-.popular-card {
+.status-card {
     padding: 12px;
 }
 
-.hero-insights .popular-card {
+.hero-insights .status-card {
     min-height: 42px;
     padding: 7px 10px;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 8px;
+    display: flex;
+    gap: 10px;
     align-items: center;
+    min-width: 0;
 }
 
-.hero-insights .popular-card-header {
+.hero-insights .status-card-header {
+    flex: 0 0 auto;
     white-space: nowrap;
 }
 
-.popular-card-header {
+.status-card-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     color: var(--ink);
     font-size: 0.9em;
     font-weight: 850;
 }
 
-.popular-card-header small {
+.status-card-header small {
     color: var(--cyan);
     font-size: 0.78em;
     font-weight: 900;
     text-transform: uppercase;
 }
 
-.popular-list {
-    list-style: none;
-    margin-top: 9px;
-    display: grid;
-    gap: 7px;
-}
-
-.hero-insights .popular-list {
+.status-card-body {
     display: flex;
-    gap: 5px;
-    min-width: 0;
-    margin-top: 0;
-    overflow: hidden;
-}
-
-.popular-list li {
-    min-height: 34px;
-    padding: 7px 9px;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.68);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
     align-items: center;
-    color: #334155;
-    font-size: 0.88em;
-}
-
-.hero-insights .popular-list li {
-    min-height: 28px;
-    padding: 4px 7px;
-    flex: 1 1 0;
+    gap: 8px;
     min-width: 0;
-    font-size: 0.82em;
+    flex-wrap: wrap;
 }
 
-.popular-village-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
+.updated-pill,
+.coverage-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 8px;
+    border-radius: 7px;
+    border: 1px solid rgba(123, 148, 178, 0.22);
+    background: rgba(255, 255, 255, 0.68);
+    color: #334155;
+    font-size: 0.82em;
+    font-weight: 750;
+    line-height: 1.25;
     white-space: nowrap;
 }
 
-.popular-list strong {
-    color: var(--blue);
-    font-size: 1em;
+.updated-pill strong {
+    margin-left: 4px;
+    color: var(--ink);
+}
+
+.coverage-list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow: hidden;
+}
+
+.coverage-pill.is-complete {
+    border-color: rgba(22, 163, 74, 0.24);
+    background: rgba(220, 252, 231, 0.76);
+    color: #047857;
+}
+
+.coverage-pill.is-partial {
+    border-color: rgba(217, 119, 6, 0.28);
+    background: rgba(254, 243, 199, 0.78);
+    color: #92400e;
 }
 
 .newsletter-card {
@@ -1002,7 +1005,7 @@ button.calendar-subscribe-button {
         grid-template-columns: 1fr auto;
     }
 
-    .hero-insights .popular-card {
+    .hero-insights .status-card {
         grid-column: 1 / -1;
     }
 }
@@ -1052,13 +1055,15 @@ button.calendar-subscribe-button {
         gap: 8px;
     }
 
-    .hero-insights .popular-card {
+    .hero-insights .status-card {
         grid-column: auto;
-        grid-template-columns: 1fr;
+        align-items: flex-start;
+        flex-direction: column;
     }
 
-    .hero-insights .popular-list {
+    .coverage-list {
         flex-wrap: wrap;
+        overflow: visible;
     }
 
     .news-section {
