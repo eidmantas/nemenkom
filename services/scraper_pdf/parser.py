@@ -630,9 +630,9 @@ def save_pdf_parsed_rows(results: list[dict], source_file: str, source_year: int
 
 def extract_marker_tables(file_path: Path) -> list[pd.DataFrame]:
     try:
-        from marker.config.parser import ConfigParser
-        from marker.converters.table import TableConverter
-        from marker.models import create_model_dict
+        from marker.config.parser import ConfigParser  # pyright: ignore[reportMissingImports]
+        from marker.converters.table import TableConverter  # pyright: ignore[reportMissingImports]
+        from marker.models import create_model_dict  # pyright: ignore[reportMissingImports]
     except Exception as exc:  # marker-pdf not installed
         logger.warning("marker-pdf not available: %s", exc)
         return []
