@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import services.scraper_pdf.parser as pdf_parser
 from services.api.db import get_multi_waste_schedule_for_selection
 from services.scraper.core.db_writer import (
     generate_kaimai_hash,
@@ -10,7 +11,6 @@ from services.scraper.core.db_writer import (
     get_calendar_stream_id_for_schedule_group,
     write_location_schedule,
 )
-import services.scraper_pdf.parser as pdf_parser
 from services.scraper_pdf.parser import (
     PdfParsedCell,
     PdfParsedGroup,

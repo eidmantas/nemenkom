@@ -145,7 +145,7 @@ def _latest_data_update(cursor: sqlite3.Cursor) -> str | None:
 
 def _quarter_coverage(cursor: sqlite3.Cursor) -> tuple[str, list[dict]]:
     year, quarter, months = _coverage_quarter()
-    month_lookup = {month: False for month in months}
+    month_lookup = dict.fromkeys(months, False)
     covered_by_type = {waste_type: dict(month_lookup) for waste_type in WASTE_TYPE_LABELS}
 
     if _table_exists(cursor, "schedule_groups"):

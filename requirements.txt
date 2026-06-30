@@ -15,5 +15,5 @@ google-api-python-client>=2.188.0
 yoyo-migrations>=9.0.0
 
 # AI / PDF parsing
-pydantic-ai==1.55.0
+pydantic-ai==1.56.0
 openai==2.16.0

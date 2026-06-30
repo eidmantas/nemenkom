@@ -25,9 +25,9 @@ from services.common.calendar_client import (
 )
 from services.common.db import get_db_connection
 from services.common.db_helpers import (
-    get_calendar_stream_scope,
     get_calendar_stream_id_for_schedule_group,
     get_calendar_stream_info,
+    get_calendar_stream_scope,
     update_calendar_stream_calendar_id,
     update_calendar_stream_calendar_synced,
 )

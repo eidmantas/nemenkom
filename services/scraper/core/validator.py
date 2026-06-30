@@ -2,8 +2,8 @@
 Validator module - Validates xlsx structure and parsed data
 """
 
-from pathlib import Path
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import pandas as pd
 

@@ -232,8 +232,9 @@ atliekų grafikas, Nemenčinės komunalininkas grafikas.
   when needed.
 - Do not present this site as an official Nemenkom.lt source.
 - Do not assume direct API access is available. API access may require tokens or
-  explicit permission and is not currently advertised as a public integration
-  surface for AI agents.
+  explicit permission and is not currently a public tokenless integration
+  surface for AI agents. If API access would be useful, contact the project
+  maintainer to request a token.
 - If exact legal/official information is needed, tell users to verify against
   the official Nemenkom.lt schedules.
 
@@ -241,8 +242,8 @@ atliekų grafikas, Nemenčinės komunalininkas grafikas.
 
 The project has internal/read API endpoints for the web application, but they
 are not currently documented here as a public tokenless API for AI tools. If
-public API access is opened later, this file should be updated with explicit
-endpoint examples and access rules.
+public or tokened API access is opened later, this file should be updated with
+explicit endpoint examples, contact details, token rules, and access limits.
 
 ## Attribution
 

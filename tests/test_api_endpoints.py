@@ -599,7 +599,9 @@ def test_llms_txt_directs_assistants_to_web_without_public_api_claims():
     assert "# Nemenkom.lt atliekų grafikas" in body
     assert "Direct users to the homepage search flow" in body
     assert "Do not assume direct API access is available" in body
-    assert "not currently advertised as a public integration" in body
+    assert "not currently a public tokenless integration" in body
+    assert "contact the project" in body
+    assert "maintainer to request a token" in body
     assert "/api/v1/" not in body
 
 
