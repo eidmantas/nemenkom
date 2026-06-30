@@ -41,8 +41,7 @@ def _run_one(source: str, *, force: bool = False) -> bool:
     url_attr = "PDF_PLASTIKAS_URL" if source == "plastikas" else "PDF_STIKLAS_URL"
     url = getattr(config, url_attr, None) or os.getenv(url_attr)
     if not url:
-        logger.info("Skipping %s: %s not configured", source, url_attr)
-        return True
+        raise RuntimeError(f"Missing required config.{url_attr}")
 
     try:
         # Run via module main to preserve skip logic.

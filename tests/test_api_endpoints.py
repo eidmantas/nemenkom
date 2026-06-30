@@ -2,6 +2,7 @@
 Integration tests for API endpoints
 """
 
+import json
 import os
 import sqlite3
 import sys
@@ -381,6 +382,161 @@ def test_get_unique_villages_format(test_db_with_village_and_streets):
         assert all(v["seniunija"] == "Test" for v in test_villages)
     finally:
         api_db_module.get_db_connection = original_get_conn
+
+
+def test_newsletter_subscribe_stores_email_idempotently(temp_db):
+    conn, _db_path = temp_db
+
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.post("/newsletter/subscribe", json={"email": " Test@Example.COM "})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["ok"] is True
+        assert data["email"] == "test@example.com"
+        assert data["created"] is True
+
+        response = client.post("/newsletter/subscribe", json={"email": "test@example.com"})
+        assert response.status_code == 200
+        assert response.get_json()["created"] is False
+
+        response = client.post("/newsletter/subscribe", json={"email": "not-an-email"})
+        assert response.status_code == 400
+
+    rows = conn.execute("SELECT email FROM news_subscribers").fetchall()
+    assert rows == [("test@example.com",)]
+
+
+def test_public_stats_includes_calendar_and_news_counts(temp_db):
+    conn, _db_path = temp_db
+
+    conn.execute(
+        """
+        INSERT INTO calendar_streams (id, waste_type, dates_hash, dates, calendar_id)
+        VALUES
+            ('cs_1', 'bendros', 'h1', '[]', 'calendar_a@group.calendar.google.com'),
+            ('cs_2', 'plastikas', 'h2', '[]', 'calendar_b@group.calendar.google.com'),
+            ('cs_3', 'stiklas', 'h3', '[]', NULL)
+        """
+    )
+    conn.executemany(
+        """
+        INSERT INTO schedule_groups (id, waste_type, kaimai_hash, dates, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "sg_1",
+                "bendros",
+                "kh_1",
+                json.dumps(["2026-07-01", "2026-08-01", "2026-09-01"]),
+                "2026-06-29 10:00:00",
+            ),
+            (
+                "sg_2",
+                "plastikas",
+                "kh_2",
+                json.dumps(["2026-07-02", "2026-08-02"]),
+                "2026-06-29 10:00:00",
+            ),
+            (
+                "sg_3",
+                "stiklas",
+                "kh_3",
+                json.dumps(["2026-07-03", "2026-08-03", "2026-09-03"]),
+                "2026-06-29 10:00:00",
+            ),
+        ],
+    )
+    conn.execute(
+        """
+        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash)
+        VALUES
+            ('Test', 'PopularVillage', 'A g.', NULL, 'kh_1'),
+            ('Test', 'PopularVillage', 'B g.', NULL, 'kh_2'),
+            ('Test', 'QuietVillage', '', NULL, 'kh_3')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO group_calendar_links (schedule_group_id, calendar_stream_id)
+        VALUES
+            ('sg_1', 'cs_1'),
+            ('sg_2', 'cs_2'),
+            ('sg_3', 'cs_3')
+        """
+    )
+    conn.execute("INSERT INTO news_subscribers (email) VALUES ('reader@example.com')")
+    conn.execute(
+        """
+        INSERT INTO data_fetches (source_url, status, created_at)
+        VALUES ('https://example.test/source.xlsx', 'success', '2026-06-30 12:00:00')
+        """
+    )
+    conn.commit()
+
+    import services.api.db as api_db_module
+
+    original_coverage_quarter = api_db_module._coverage_quarter
+    api_db_module._coverage_quarter = lambda today=None: (2026, 3, [7, 8, 9])
+
+    from services.api.app import app
+
+    try:
+        with app.test_client() as client:
+            response = client.get("/api/v1/public-stats")
+    finally:
+        api_db_module._coverage_quarter = original_coverage_quarter
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["calendar_subscribers"] == 2
+    assert data["generated_calendars"] == 2
+    assert data["news_subscribers"] == 1
+    assert data["top_villages"] == []
+    assert data["data_status"]["generated_calendars"] == 2
+    assert data["data_status"]["address_records"] == 3
+    assert data["data_status"]["coverage_label"] == "2026 Q3"
+    assert data["data_status"]["updated_date"] == "2026-06-30"
+    assert data["data_status"]["coverage"] == [
+        {
+            "waste_type": "bendros",
+            "label": "Bendros",
+            "covered_months": 3,
+            "total_months": 3,
+            "complete": True,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": True},
+            ],
+        },
+        {
+            "waste_type": "plastikas",
+            "label": "Plastikas",
+            "covered_months": 2,
+            "total_months": 3,
+            "complete": False,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": False},
+            ],
+        },
+        {
+            "waste_type": "stiklas",
+            "label": "Stiklas",
+            "covered_months": 3,
+            "total_months": 3,
+            "complete": True,
+            "months": [
+                {"month": 7, "covered": True},
+                {"month": 8, "covered": True},
+                {"month": 9, "covered": True},
+            ],
+        },
+    ]
 
 
 def test_api_villages_endpoint(test_db_with_village_and_streets):

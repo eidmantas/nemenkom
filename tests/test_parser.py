@@ -6,9 +6,11 @@ from datetime import date
 
 from services.scraper.ai.router import should_use_ai_parser
 from services.scraper.core.parser import (
+    build_location_text,
     extract_dates_from_cell,
     parse_street_with_house_numbers,
     parse_village_and_streets,
+    parse_xlsx,
 )
 
 
@@ -102,3 +104,121 @@ class TestExtractDatesFromCell:
 
         dates = extract_dates_from_cell(pd.NA, "Sausio", 2026)
         assert dates == []
+
+    def test_nominative_month_name_without_day_space(self):
+        """Test newer XLSX month headers and compact day format."""
+        dates = extract_dates_from_cell("9d., 23d.,", "Liepa", 2026)
+        assert set(dates) == {date(2026, 7, 9), date(2026, 7, 23)}
+
+
+class TestParseXlsx:
+    """Test full XLSX layout handling."""
+
+    def test_build_location_text_uses_gatve_when_kaimai_empty(self):
+        """If Kaimai is empty, Gatvė is the source for village + streets."""
+        import pandas as pd
+
+        row = pd.Series({"Kaimai": None, "Gatvė": "Didžioji Riešė (Alyvų g., Parko g.)"})
+
+        assert build_location_text(row) == "Didžioji Riešė (Alyvų g., Parko g.)"
+
+    def test_build_location_text_merges_kaimai_and_gatve(self):
+        """If Kaimai has village and Gatvė has street payload, compose one parser input."""
+        import pandas as pd
+
+        row = pd.Series({"Kaimai": "Didžioji Riešė", "Gatvė": "Alyvų g., Ateities g."})
+
+        assert build_location_text(row) == "Didžioji Riešė (Alyvų g., Ateities g.)"
+
+    def test_build_location_text_keeps_kaimai_when_gatve_empty(self):
+        """If they restore the old layout, Kaimai remains the source."""
+        import pandas as pd
+
+        row = pd.Series({"Kaimai": "Aleksandravas", "Gatvė": None})
+
+        assert build_location_text(row) == "Aleksandravas"
+
+    def test_build_location_text_does_not_duplicate_prefixed_gatve(self):
+        """If Gatvė already includes the village, use it as-is."""
+        import pandas as pd
+
+        row = pd.Series(
+            {
+                "Kaimai": "Didžioji Riešė",
+                "Gatvė": "Didžioji Riešė (Alyvų g., Ateities g.)",
+            }
+        )
+
+        assert build_location_text(row) == "Didžioji Riešė (Alyvų g., Ateities g.)"
+
+    def test_uses_gatve_when_kaimai_column_is_empty(self, tmp_path):
+        """Newer XLSX files put location text in Gatvė while Kaimai is blank."""
+        import pandas as pd
+
+        file_path = tmp_path / "schedule.xlsx"
+        df = pd.DataFrame(
+            [
+                {
+                    "Seniūnija": "Avižienių",
+                    "Kaimai": None,
+                    "Gatvė": "Aleksandravas",
+                    "Savaitės diena": "Ketvirtadienis",
+                    "Birželis": "11 d., 25 d.",
+                    "Liepa": "9d., 23d.,",
+                    "Rugpjūtis": "",
+                    "Rugsėjis": "",
+                    "Spalis": "",
+                    "Lapkritis": "",
+                    "Gruodis": "",
+                }
+            ]
+        )
+        with pd.ExcelWriter(file_path) as writer:
+            df.to_excel(writer, index=False, startrow=1)
+
+        results = parse_xlsx(file_path, year=2026, skip_ai=True)
+
+        assert len(results) == 1
+        assert results[0]["seniunija"] == "Avižienių"
+        assert results[0]["village"] == "Aleksandravas"
+        assert results[0]["street"] == ""
+        assert set(results[0]["dates"]) == {
+            date(2026, 6, 11),
+            date(2026, 6, 25),
+            date(2026, 7, 9),
+            date(2026, 7, 23),
+        }
+
+    def test_merges_kaimai_and_gatve_street_payload(self, tmp_path):
+        """New XLSX variants may split village into Kaimai and streets into Gatvė."""
+        import pandas as pd
+
+        file_path = tmp_path / "schedule.xlsx"
+        df = pd.DataFrame(
+            [
+                {
+                    "Seniūnija": "Riešės",
+                    "Kaimai": "Didžioji Riešė",
+                    "Gatvė": "Alyvų g., Ateities g.",
+                    "Savaitės diena": "Ketvirtadienis",
+                    "Birželis": "",
+                    "Liepa": "9d., 23d.,",
+                    "Rugpjūtis": "",
+                    "Rugsėjis": "",
+                    "Spalis": "",
+                    "Lapkritis": "",
+                    "Gruodis": "",
+                }
+            ]
+        )
+        with pd.ExcelWriter(file_path) as writer:
+            df.to_excel(writer, index=False, startrow=1)
+
+        results = parse_xlsx(file_path, year=2026, skip_ai=True)
+
+        assert len(results) == 2
+        assert {result["village"] for result in results} == {"Didžioji Riešė"}
+        assert {result["street"] for result in results} == {"Alyvų g.", "Ateities g."}
+        assert {result["kaimai_str"] for result in results} == {
+            "Didžioji Riešė (Alyvų g., Ateities g.)"
+        }

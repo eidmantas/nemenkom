@@ -1289,6 +1289,16 @@ def _has_location_marker(text: str) -> bool:
     return any(token in text for token in (" sen.", " m.", " k.", " vs."))
 
 
+def _strip_pdf_header_tokens(text: str) -> str:
+    month_tokens = sorted(
+        {*MONTH_MAPPING.keys(), *MONTH_ALIASES.keys()},
+        key=len,
+        reverse=True,
+    )
+    token_pattern = "|".join(re.escape(token) for token in ["Atliekos", *month_tokens])
+    return re.sub(rf"\b({token_pattern})\b", "", text, flags=re.IGNORECASE)
+
+
 def split_fused_header_rows(df: pd.DataFrame) -> pd.DataFrame:
     """
     marker-pdf can fuse the header row with the first data row (notably on plastic page 1).
@@ -1311,7 +1321,7 @@ def split_fused_header_rows(df: pd.DataFrame) -> pd.DataFrame:
             cleaned = row_text
             cleaned = re.sub(r"\b\d{4}\s*m\.\b", "", cleaned)
             cleaned = re.sub(r"Seniūnijos pavadinimas\s*\(gyvenvietės pavadinimas\)", "", cleaned)
-            cleaned = re.sub(r"\b(Atliekos|Sausio|Vasario|Kovo)\b", "", cleaned)
+            cleaned = _strip_pdf_header_tokens(cleaned)
             cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
             data_cells[0] = cleaned
 
@@ -1422,10 +1432,10 @@ def normalize_waste_type(waste_type: str) -> str:
     'Pakuotė' -> 'plastikas', 'Stiklas' -> 'stiklas'
     """
     waste_type = str(waste_type).strip().lower()
-    if "pakuotė" in waste_type or "pak" in waste_type:
-        return "plastikas"
-    elif "stiklas" in waste_type or "stikl" in waste_type:
+    if "stikl" in waste_type or "glass" in waste_type:
         return "stiklas"
+    if "pakuotė" in waste_type or "pakuo" in waste_type or "pak" in waste_type or "plast" in waste_type:
+        return "plastikas"
     return "bendros"  # default
 
 
@@ -1433,19 +1443,19 @@ def normalize_waste_label(waste_type: str) -> str:
     if not waste_type:
         return ""
     lower = str(waste_type).strip().lower()
-    if "pakuotė" in lower or "pak" in lower:
-        return "Pakuotė"
-    if "stiklas" in lower or "stikl" in lower:
+    if "stikl" in lower or "glass" in lower:
         return "Stiklas"
+    if "pakuotė" in lower or "pakuo" in lower or "pak" in lower or "plast" in lower:
+        return "Pakuotė"
     return str(waste_type).strip()
 
 
 def infer_pdf_waste_label(file_path: Path) -> str:
     """Infer waste label from file name (used as a backfill for missing cells)."""
-    name = file_path.name.lower()
-    if "glass" in name or "stiklas" in name:
+    name = unquote(file_path.name).lower()
+    if "glass" in name or "stikl" in name:
         return "Stiklas"
-    if "plastic" in name or "plast" in name or "pakuot" in name:
+    if "plastic" in name or "plast" in name or "pakuot" in name or "pakuo" in name:
         return "Pakuotė"
     return ""
 

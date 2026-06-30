@@ -10,14 +10,26 @@ function renderCalendar(dates) {
         return;
     }
     
+    const visibleMonthKeys = getVisibleVilniusMonthKeys();
+    const visibleMonthSet = new Set(visibleMonthKeys);
+    const visibleDates = dates.filter(dateObj => {
+        const dateStr = dateObj.date || dateObj;
+        return visibleMonthSet.has(getDateMonthKey(dateStr));
+    });
+
+    if (visibleDates.length === 0) {
+        container.innerHTML = '<p class="no-results">Nėra matomo laikotarpio surinkimo datų</p>';
+        return;
+    }
+
     // Group dates by month
-    const datesByMonth = groupDatesByMonth(dates);
+    const datesByMonth = groupDatesByMonth(visibleDates);
     
     // Render each month
     let html = '';
-    for (const [yearMonth, monthDates] of Object.entries(datesByMonth)) {
-        html += renderMonth(yearMonth, monthDates);
-    }
+    visibleMonthKeys.forEach(yearMonth => {
+        html += renderMonth(yearMonth, datesByMonth[yearMonth] || createEmptyMonthData(yearMonth));
+    });
     
     container.innerHTML = html;
 }
@@ -28,20 +40,17 @@ function groupDatesByMonth(dates) {
     dates.forEach(dateObj => {
         const dateStr = dateObj.date || dateObj;
         const wasteType = (dateObj && dateObj.waste_type) ? dateObj.waste_type : null;
-        const date = new Date(dateStr);
-        const year = date.getFullYear();
-        const month = date.getMonth();
-        const key = `${year}-${month}`;
+        const { year, monthIndex, day } = parseIsoDateParts(dateStr);
+        const key = getDateMonthKey(dateStr);
         
         if (!grouped[key]) {
             grouped[key] = {
                 year: year,
-                month: month,
+                month: monthIndex,
                 pickupTypesByDay: {}
             };
         }
 
-        const day = date.getDate();
         if (!grouped[key].pickupTypesByDay[day]) {
             grouped[key].pickupTypesByDay[day] = new Set();
         }
@@ -54,6 +63,63 @@ function groupDatesByMonth(dates) {
     });
     
     return grouped;
+}
+
+function getDateMonthKey(dateStr) {
+    return String(dateStr).slice(0, 7);
+}
+
+function createEmptyMonthData(yearMonth) {
+    const [year, month] = yearMonth.split('-').map(Number);
+    return {
+        year: year,
+        month: month - 1,
+        pickupTypesByDay: {}
+    };
+}
+
+function parseIsoDateParts(dateStr) {
+    const [year, month, day] = String(dateStr).slice(0, 10).split('-').map(Number);
+    return {
+        year: year,
+        monthIndex: month - 1,
+        day: day
+    };
+}
+
+function getCurrentVilniusDateParts() {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Vilnius',
+        year: 'numeric',
+        month: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date());
+    return {
+        year: Number(parts.find(part => part.type === 'year')?.value),
+        month: Number(parts.find(part => part.type === 'month')?.value),
+    };
+}
+
+function getVisibleVilniusMonthKeys() {
+    const current = getCurrentVilniusDateParts();
+    let startYear = current.year;
+    let startMonth = current.month - 1;
+    if (startMonth === 0) {
+        startYear -= 1;
+        startMonth = 12;
+    }
+
+    const months = [];
+    if (startYear < current.year) {
+        months.push(`${startYear}-${String(startMonth).padStart(2, '0')}`);
+        startMonth = 1;
+        startYear = current.year;
+    }
+
+    for (let month = startMonth; month <= 12; month++) {
+        months.push(`${current.year}-${String(month).padStart(2, '0')}`);
+    }
+    return months;
 }
 
 function renderMonth(yearMonth, monthData) {

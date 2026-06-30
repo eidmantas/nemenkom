@@ -169,6 +169,17 @@ class TestAIParserPrompt:
         assert "streets" in prompt
         assert "house_numbers" in prompt
 
+    def test_prompt_contains_known_village_context(self):
+        """Known villages are passed as bounded context for messy XLSX rows."""
+        prompt = create_parsing_prompt(
+            "Didžioji Riešė (Alyvų g., Parko g. 2, 4)",
+            known_villages=["Didžioji Riešė", "Mažoji Riešė"],
+        )
+
+        assert "Known villages/cities for this seniūnija" in prompt
+        assert "- Didžioji Riešė" in prompt
+        assert "return that exact spelling" in prompt
+
 
 class TestAIParserIntegrationSmoke:
     """Test parse_with_ai integration (simplified - focuses on core functionality)"""
@@ -196,6 +207,28 @@ class TestAIParserIntegrationSmoke:
         assert len(traditional_result) > 0
         assert isinstance(traditional_result[0], tuple)
         assert len(traditional_result[0]) == 2
+
+    def test_parse_with_ai_canonicalizes_cached_known_village(self):
+        """Cached AI output is normalized to existing village spelling when possible."""
+
+        class FakeCache:
+            def __init__(self):
+                self.lookup_key = None
+
+            def get(self, key):
+                self.lookup_key = key
+                return [("didžioji riešė", None), ("Alyvų g.", None)]
+
+        fake_cache = FakeCache()
+
+        with patch("services.scraper.ai.parser.get_cache", return_value=fake_cache):
+            result = parse_with_ai(
+                "Didžioji Riešė (Alyvų g.)",
+                known_villages=["Didžioji Riešė"],
+            )
+
+        assert result == [("Didžioji Riešė", None), ("Alyvų g.", None)]
+        assert "# known_villages:" in fake_cache.lookup_key
 
 
 class TestNormalizeHouseNumbers:

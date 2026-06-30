@@ -4,13 +4,239 @@ Updated for new schema: hash-based schedule_groups, dates in JSON, no pickup_dat
 """
 
 import json
+import re
 import sqlite3
+from datetime import date
 
 from services.common.db import get_db_connection
 from services.common.db_helpers import (
     get_calendar_status,
     get_schedule_group_info,
 )
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+WASTE_TYPE_LABELS = {
+    "bendros": "Bendros",
+    "plastikas": "Plastikas",
+    "stiklas": "Stiklas",
+}
+
+
+def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+    row = cursor.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        LIMIT 1
+        """,
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def ensure_news_subscribers_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS news_subscribers (
+            email TEXT PRIMARY KEY
+        )
+        """
+    )
+    conn.commit()
+
+
+def subscribe_news_email(email: str) -> dict:
+    normalized = (email or "").strip().lower()
+    if not normalized or len(normalized) > 254 or not EMAIL_RE.match(normalized):
+        raise ValueError("Invalid email address")
+
+    conn = get_db_connection()
+    ensure_news_subscribers_table(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO news_subscribers (email)
+        VALUES (?)
+        """,
+        (normalized,),
+    )
+    created = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return {"email": normalized, "created": created}
+
+
+def _coverage_quarter(today: date | None = None) -> tuple[int, int, list[int]]:
+    today = today or date.today()
+    year = today.year
+    quarter = ((today.month - 1) // 3) + 1
+
+    # Late in a source quarter, the useful trust signal is the next published
+    # quarter. This keeps June 30 focused on Q3 instead of almost-finished Q2.
+    if today.month in (3, 6, 9, 12) and today.day >= 20:
+        if quarter == 4:
+            year += 1
+            quarter = 1
+        else:
+            quarter += 1
+
+    start_month = (quarter - 1) * 3 + 1
+    return year, quarter, [start_month, start_month + 1, start_month + 2]
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _date_only(value: str | None) -> str | None:
+    parsed = _parse_date(value)
+    return parsed.isoformat() if parsed else value
+
+
+def _latest_data_update(cursor: sqlite3.Cursor) -> str | None:
+    timestamps: list[str] = []
+
+    if _table_exists(cursor, "source_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM source_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "pdf_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM pdf_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "data_fetches"):
+        row = cursor.execute(
+            """
+            SELECT MAX(created_at)
+            FROM data_fetches
+            WHERE status = 'success'
+            """
+        ).fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    if _table_exists(cursor, "schedule_groups"):
+        row = cursor.execute("SELECT MAX(updated_at) FROM schedule_groups").fetchone()
+        if row and row[0]:
+            timestamps.append(str(row[0]))
+
+    return max(timestamps) if timestamps else None
+
+
+def _quarter_coverage(cursor: sqlite3.Cursor) -> tuple[str, list[dict]]:
+    year, quarter, months = _coverage_quarter()
+    month_lookup = {month: False for month in months}
+    covered_by_type = {waste_type: dict(month_lookup) for waste_type in WASTE_TYPE_LABELS}
+
+    if _table_exists(cursor, "schedule_groups"):
+        rows = cursor.execute(
+            """
+            SELECT waste_type, dates
+            FROM schedule_groups
+            WHERE waste_type IN ('bendros', 'plastikas', 'stiklas')
+              AND dates IS NOT NULL
+              AND dates != ''
+            """
+        ).fetchall()
+        for waste_type, dates_json in rows:
+            try:
+                raw_dates = json.loads(dates_json) if dates_json else []
+            except (TypeError, ValueError):
+                continue
+            for raw_date in raw_dates:
+                parsed = _parse_date(raw_date)
+                if parsed and parsed.year == year and parsed.month in month_lookup:
+                    covered_by_type.setdefault(waste_type, dict(month_lookup))[parsed.month] = True
+
+    coverage = []
+    for waste_type, label in WASTE_TYPE_LABELS.items():
+        month_items = [
+            {
+                "month": month,
+                "covered": bool(covered_by_type.get(waste_type, {}).get(month)),
+            }
+            for month in months
+        ]
+        covered_count = sum(1 for item in month_items if item["covered"])
+        coverage.append(
+            {
+                "waste_type": waste_type,
+                "label": label,
+                "covered_months": covered_count,
+                "total_months": len(month_items),
+                "complete": covered_count == len(month_items),
+                "months": month_items,
+            }
+        )
+
+    return f"{year} Q{quarter}", coverage
+
+
+def get_public_stats() -> dict:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    stats = {
+        "calendar_subscribers": 0,
+        "generated_calendars": 0,
+        "locations": 0,
+        "news_subscribers": 0,
+        "top_villages": [],
+        "data_status": {},
+    }
+
+    if _table_exists(cursor, "calendar_streams"):
+        row = cursor.execute(
+            """
+            SELECT COUNT(DISTINCT calendar_id)
+            FROM calendar_streams
+            WHERE calendar_id IS NOT NULL AND calendar_id != ''
+            """
+        ).fetchone()
+        stats["calendar_subscribers"] = int(row[0] or 0)
+        stats["generated_calendars"] = stats["calendar_subscribers"]
+
+    if _table_exists(cursor, "locations"):
+        row = cursor.execute("SELECT COUNT(*) FROM locations").fetchone()
+        stats["locations"] = int(row[0] or 0)
+
+    if _table_exists(cursor, "news_subscribers"):
+        row = cursor.execute("SELECT COUNT(*) FROM news_subscribers").fetchone()
+        stats["news_subscribers"] = int(row[0] or 0)
+
+    coverage_label, coverage = _quarter_coverage(cursor)
+    updated_at = _latest_data_update(cursor)
+    stats["data_status"] = {
+        "generated_calendars": stats["generated_calendars"],
+        "address_records": stats["locations"],
+        "coverage_label": coverage_label,
+        "coverage": coverage,
+        "updated_at": updated_at,
+        "updated_date": _date_only(updated_at),
+    }
+
+    conn.close()
+    return stats
 
 
 def get_all_locations() -> list[dict]:
@@ -82,11 +308,19 @@ def get_location_schedule(
     elif seniunija and village and street is not None:
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ?
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = ?
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ?
+            ORDER BY
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
+            LIMIT 1
         """,
-            (seniunija, village, street),
+            (waste_type, seniunija, village, street),
         )
     else:
         conn.close()
@@ -479,9 +713,16 @@ def get_location_by_selection(
     if house_numbers:
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ? AND house_numbers = ?
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = 'bendros'
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ? AND l.house_numbers = ?
+            ORDER BY
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
             LIMIT 1
         """,
             (seniunija, village, street, house_numbers),
@@ -490,10 +731,17 @@ def get_location_by_selection(
         # If no house_numbers specified, get first match (or one with NULL house_numbers)
         cursor.execute(
             """
-            SELECT id, seniunija, village, street, house_numbers, kaimai_hash
-            FROM locations
-            WHERE seniunija = ? AND village = ? AND street = ?
-            ORDER BY CASE WHEN house_numbers IS NULL THEN 0 ELSE 1 END
+            SELECT l.id, l.seniunija, l.village, l.street, l.house_numbers, l.kaimai_hash
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = 'bendros'
+            WHERE l.seniunija = ? AND l.village = ? AND l.street = ?
+            ORDER BY
+              CASE WHEN l.house_numbers IS NULL THEN 0 ELSE 1 END,
+              CASE WHEN sg.last_date >= DATE('now') THEN 0 ELSE 1 END,
+              sg.last_date DESC,
+              l.id ASC
             LIMIT 1
         """,
             (seniunija, village, street),

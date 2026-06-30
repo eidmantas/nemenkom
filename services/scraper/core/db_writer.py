@@ -63,6 +63,55 @@ def generate_calendar_stream_id() -> str:
     return f"cs_{uuid.uuid4().hex[:12]}"
 
 
+def _same_house_numbers_clause(column_name: str = "house_numbers") -> str:
+    return f"({column_name} = ? OR ({column_name} IS NULL AND ? IS NULL))"
+
+
+def _find_existing_location_hash(
+    conn: sqlite3.Connection,
+    *,
+    seniunija: str,
+    village: str,
+    street: str,
+    house_numbers: str | None,
+    waste_type: str,
+) -> str | None:
+    """
+    Return the canonical hash for an already-known exact address selection.
+
+    The XLSX source sometimes rewrites the raw location text while the actual
+    address selection stays identical. Reusing the existing hash keeps the
+    existing schedule group and calendar stream alive for subscribers.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT l.kaimai_hash
+        FROM locations l
+        LEFT JOIN schedule_groups sg
+          ON sg.kaimai_hash = l.kaimai_hash
+         AND sg.waste_type = ?
+        LEFT JOIN group_calendar_links gcl
+          ON gcl.schedule_group_id = sg.id
+        LEFT JOIN calendar_streams cs
+          ON cs.id = gcl.calendar_stream_id
+        WHERE l.seniunija = ?
+          AND l.village = ?
+          AND l.street = ?
+          AND {_same_house_numbers_clause("l.house_numbers")}
+        ORDER BY
+          CASE WHEN cs.calendar_id IS NOT NULL AND cs.calendar_id != '' THEN 0 ELSE 1 END,
+          CASE WHEN sg.id IS NOT NULL THEN 0 ELSE 1 END,
+          l.updated_at ASC,
+          l.id ASC
+        LIMIT 1
+        """,
+        (waste_type, seniunija, village, street, house_numbers, house_numbers),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     row = conn.execute(
         """
@@ -533,8 +582,20 @@ def write_location_schedule(
     """
     cursor = conn.cursor()
 
-    # Generate kaimai_hash
-    kaimai_hash = generate_kaimai_hash(kaimai_str)
+    # Normalize house_numbers (None -> NULL in DB)
+    house_nums_str = house_numbers if house_numbers else None
+
+    # Prefer an existing exact address hash over the raw-source hash. This keeps
+    # calendars stable when nemenkom.lt rewrites Kaimai/Gatvė text around the
+    # same street or house bucket.
+    kaimai_hash = _find_existing_location_hash(
+        conn,
+        seniunija=seniunija,
+        village=village,
+        street=street,
+        house_numbers=house_nums_str,
+        waste_type=waste_type,
+    ) or generate_kaimai_hash(kaimai_str)
 
     # Find or create schedule group (updates kaimai_hash)
     schedule_group_id = find_or_create_schedule_group(conn, dates, waste_type, kaimai_hash)
@@ -543,49 +604,193 @@ def write_location_schedule(
         calendar_stream_id = find_or_create_calendar_stream(conn, dates, waste_type)
         upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
 
-    # Normalize house_numbers (None -> NULL in DB)
-    house_nums_str = house_numbers if house_numbers else None
-
-    # Insert or update location (no FK to schedule_group, just store kaimai_hash)
+    # Insert or update location (no FK to schedule_group, just store kaimai_hash).
+    # SQLite UNIQUE permits multiple NULL house_numbers values, so handle exact
+    # NULL-equal matching manually instead of relying on ON CONFLICT.
     # Convert datetime to ISO format string to avoid deprecation warning (Python 3.12+)
     now_str = datetime.now().isoformat()
     cursor.execute(
-        """
-        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(seniunija, village, street, house_numbers)
-        DO UPDATE SET kaimai_hash = ?, updated_at = ?
-    """,
+        f"""
+        UPDATE locations
+        SET kaimai_hash = ?, updated_at = ?
+        WHERE seniunija = ?
+          AND village = ?
+          AND street = ?
+          AND {_same_house_numbers_clause()}
+        """,
         (
+            kaimai_hash,
+            now_str,
             seniunija,
             village,
             street,
             house_nums_str,
-            kaimai_hash,
-            now_str,
-            kaimai_hash,
-            now_str,
+            house_nums_str,
         ),
     )
 
-    # Dates are now stored in schedule_groups, not in pickup_dates table
-    # No need to insert pickup_dates - just return location_id
-    location_id = cursor.lastrowid
-    if location_id == 0:
-        # Location already exists, get its ID
+    if cursor.rowcount == 0:
         cursor.execute(
-            "SELECT id FROM locations WHERE seniunija = ? AND village = ? AND street = ? AND (house_numbers = ? OR (house_numbers IS NULL AND ? IS NULL))",
+            """
+            INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (seniunija, village, street, house_nums_str, kaimai_hash, now_str),
+        )
+        location_id = cursor.lastrowid
+    else:
+        cursor.execute(
+            f"""
+            SELECT id
+            FROM locations
+            WHERE seniunija = ?
+              AND village = ?
+              AND street = ?
+              AND {_same_house_numbers_clause()}
+            ORDER BY id ASC
+            LIMIT 1
+            """,
             (seniunija, village, street, house_nums_str, house_nums_str),
         )
         row = cursor.fetchone()
         if row is None:
-            raise ValueError("Location insert/update failed to return an id")
+            raise ValueError("Location update failed to return an id")
         location_id = row[0]
 
     if location_id is None:
         raise ValueError("Location insert/update failed to return an id")
 
     return location_id
+
+
+def cleanup_orphan_schedule_group_links(
+    conn: sqlite3.Connection,
+    waste_type: str = "bendros",
+) -> int:
+    """
+    Unlink schedule groups that no current location references.
+
+    This lets reconcile_calendar_streams mark truly obsolete streams for
+    delayed cleanup instead of keeping abandoned groups alive forever.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        DELETE FROM group_calendar_links
+        WHERE schedule_group_id IN (
+            SELECT sg.id
+            FROM schedule_groups sg
+            LEFT JOIN locations l ON l.kaimai_hash = sg.kaimai_hash
+            WHERE sg.waste_type = ?
+              AND l.id IS NULL
+        )
+        """,
+        (waste_type,),
+    )
+    return cursor.rowcount
+
+
+def repair_duplicate_location_hashes(
+    conn: sqlite3.Connection,
+    waste_type: str = "bendros",
+) -> int:
+    """
+    Repair exact address selections that point to multiple hashes.
+
+    Broken historical imports could create:
+      same seniunija/village/street/house_numbers -> old hash with subscribed calendar
+      same seniunija/village/street/house_numbers -> new hash with fresh dates
+
+    For each duplicate selection, keep the subscribed hash when present, copy the
+    freshest dates onto it, and point all duplicate rows at that canonical hash.
+    """
+    cursor = conn.cursor()
+    duplicate_groups = cursor.execute(
+        """
+        SELECT seniunija, village, street, house_numbers
+        FROM locations
+        GROUP BY seniunija, village, street, house_numbers
+        HAVING COUNT(DISTINCT kaimai_hash) > 1
+        """
+    ).fetchall()
+
+    repaired = 0
+    for seniunija, village, street, house_numbers in duplicate_groups:
+        candidates = cursor.execute(
+            f"""
+            SELECT
+              l.kaimai_hash,
+              MIN(l.id) AS min_location_id,
+              sg.dates,
+              sg.last_date,
+              sg.date_count,
+              cs.calendar_id
+            FROM locations l
+            LEFT JOIN schedule_groups sg
+              ON sg.kaimai_hash = l.kaimai_hash
+             AND sg.waste_type = ?
+            LEFT JOIN group_calendar_links gcl
+              ON gcl.schedule_group_id = sg.id
+            LEFT JOIN calendar_streams cs
+              ON cs.id = gcl.calendar_stream_id
+            WHERE l.seniunija = ?
+              AND l.village = ?
+              AND l.street = ?
+              AND {_same_house_numbers_clause("l.house_numbers")}
+            GROUP BY l.kaimai_hash
+            """,
+            (waste_type, seniunija, village, street, house_numbers, house_numbers),
+        ).fetchall()
+        if len(candidates) < 2:
+            continue
+
+        def has_calendar(candidate: tuple) -> int:
+            return 1 if candidate[5] else 0
+
+        def last_date(candidate: tuple) -> str:
+            return str(candidate[3] or "")
+
+        def date_count(candidate: tuple) -> int:
+            return int(candidate[4] or 0)
+
+        canonical = sorted(
+            candidates,
+            key=lambda row: (-has_calendar(row), row[1]),
+        )[0]
+        best_dates_source = sorted(
+            candidates,
+            key=lambda row: (last_date(row), date_count(row), -row[1]),
+            reverse=True,
+        )[0]
+
+        canonical_hash = canonical[0]
+        best_dates_json = best_dates_source[2]
+        best_dates = json.loads(best_dates_json) if best_dates_json else []
+        if best_dates:
+            schedule_group_id = find_or_create_schedule_group(
+                conn,
+                best_dates,
+                waste_type,
+                canonical_hash,
+            )
+            if not get_calendar_stream_id_for_schedule_group(conn, schedule_group_id):
+                calendar_stream_id = find_or_create_calendar_stream(conn, best_dates, waste_type)
+                upsert_group_calendar_link(conn, schedule_group_id, calendar_stream_id)
+
+        cursor.execute(
+            f"""
+            UPDATE locations
+            SET kaimai_hash = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE seniunija = ?
+              AND village = ?
+              AND street = ?
+              AND {_same_house_numbers_clause()}
+            """,
+            (canonical_hash, seniunija, village, street, house_numbers, house_numbers),
+        )
+        repaired += 1
+
+    return repaired
 
 
 def log_fetch(
@@ -683,6 +888,8 @@ def write_parsed_data(
                 waste_type="bendros",  # Default for now
             )
 
+        cleanup_orphan_schedule_group_links(conn, waste_type="bendros")
+
         # Reconcile calendar streams after all groups are updated
         reconcile_calendar_streams(conn)
 
@@ -705,16 +912,4 @@ def write_parsed_data(
 
 
 if __name__ == "__main__":
-    # Test db writer
-    from services.scraper.core.fetcher import fetch_xlsx
-    from services.scraper.core.validator import validate_file_and_data
-
-    file_path, _headers, _byte_len = fetch_xlsx()
-    source_url = "https://www.nemenkom.lt/uploads/failai/atliekos/Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikai/2026%20m-%20sausio-bir%C5%BEelio%20m%C4%97n%20%20Buitini%C5%B3%20atliek%C5%B3%20surinkimo%20grafikas.xlsx"
-    is_valid, errors, data = validate_file_and_data(file_path)
-
-    if is_valid:
-        success = write_parsed_data(data, source_url)
-        print(f"Write successful: {success}")
-    else:
-        print(f"Validation failed: {errors}")
+    raise SystemExit("Use services.scraper.main to fetch, validate, and write source data.")

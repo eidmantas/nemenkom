@@ -295,6 +295,8 @@ def main():
             args.url = getattr(config, "PDF_PLASTIKAS_URL", None)
         elif args.source == "stiklas":
             args.url = getattr(config, "PDF_STIKLAS_URL", None)
+        if not args.url:
+            parser.error(f"Missing configured PDF URL for source: {args.source}")
 
     if not args.file and not args.url:
         parser.error("Must provide either a local PDF file path or --url")

@@ -6,11 +6,14 @@ from datetime import date
 
 from services.api.db import get_location_schedule
 from services.scraper.core.db_writer import (
+    cleanup_orphan_schedule_group_links,
     find_or_create_calendar_stream,
     find_or_create_schedule_group,
     generate_dates_hash,
+    repair_duplicate_location_hashes,
     reconcile_calendar_streams,
     upsert_group_calendar_link,
+    write_location_schedule,
 )
 
 
@@ -121,6 +124,126 @@ def test_calendar_stream_updates_in_place_for_new_xlsx_window(temp_db):
     assert stream_row[1] is not None and "2026-03-05" in stream_row[1]
     assert stream_row[2] == "ux_window_calendar@google.com"
     assert stream_row[3] is None, "Stream should be marked for re-sync"
+
+
+def test_same_address_null_house_numbers_reuses_existing_hash(temp_db):
+    """
+    SQLite allows duplicate NULL values in UNIQUE constraints. The writer should still
+    treat a repeated address with NULL house_numbers as one location and keep its hash stable.
+    """
+    conn, _ = temp_db
+
+    dates_old = [date(2026, 1, 14), date(2026, 6, 17)]
+    dates_new = [date(2026, 7, 1), date(2026, 12, 30)]
+
+    location_id = write_location_schedule(
+        conn,
+        "Avižienių",
+        "Avižieniai",
+        "Riešutų g.",
+        dates_old,
+        "Avižieniai (Riešutų g.)",
+        None,
+        "bendros",
+    )
+    conn.commit()
+    old_hash = conn.execute(
+        "SELECT kaimai_hash FROM locations WHERE id = ?",
+        (location_id,),
+    ).fetchone()[0]
+
+    write_location_schedule(
+        conn,
+        "Avižienių",
+        "Avižieniai",
+        "Riešutų g.",
+        dates_new,
+        "Avižieniai (Durpių g., Riešutų g.)",
+        None,
+        "bendros",
+    )
+    reconcile_calendar_streams(conn)
+    conn.commit()
+
+    rows = conn.execute(
+        """
+        SELECT id, kaimai_hash
+        FROM locations
+        WHERE seniunija = ? AND village = ? AND street = ? AND house_numbers IS NULL
+        """,
+        ("Avižienių", "Avižieniai", "Riešutų g."),
+    ).fetchall()
+    assert rows == [(location_id, old_hash)]
+
+    schedule = get_location_schedule(location_id=location_id, waste_type="bendros")
+    assert [d["date"] for d in schedule["dates"]] == ["2026-07-01", "2026-12-30"]
+
+
+def test_repair_duplicate_address_hashes_keeps_subscribed_hash_with_fresh_dates(temp_db):
+    """
+    Existing prod data may already have the same address pointing at an old subscribed
+    hash and a new fresh-date hash. Repair should merge them without losing the calendar.
+    """
+    conn, _ = temp_db
+
+    old_hash = "k1_old_riesutu"
+    new_hash = "k1_new_riesutu"
+    dates_old = [date(2026, 1, 14), date(2026, 6, 17)]
+    dates_new = [date(2026, 7, 1), date(2026, 12, 30)]
+
+    old_group = find_or_create_schedule_group(conn, dates_old, "bendros", old_hash)
+    old_stream = find_or_create_calendar_stream(conn, dates_old, "bendros")
+    upsert_group_calendar_link(conn, old_group, old_stream)
+    find_or_create_schedule_group(conn, dates_new, "bendros", new_hash)
+
+    conn.execute(
+        """
+        UPDATE calendar_streams
+        SET calendar_id = 'riesutu@google.com',
+            calendar_synced_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (old_stream,),
+    )
+    conn.executemany(
+        """
+        INSERT INTO locations (seniunija, village, street, house_numbers, kaimai_hash)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            ("Avižienių", "Avižieniai", "Riešutų g.", None, old_hash),
+            ("Avižienių", "Avižieniai", "Riešutų g.", None, new_hash),
+        ],
+    )
+    conn.commit()
+
+    assert repair_duplicate_location_hashes(conn, waste_type="bendros") == 1
+    cleanup_orphan_schedule_group_links(conn, waste_type="bendros")
+    reconcile_calendar_streams(conn)
+    conn.commit()
+
+    hashes = {
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT kaimai_hash
+            FROM locations
+            WHERE seniunija = ? AND village = ? AND street = ? AND house_numbers IS NULL
+            """,
+            ("Avižienių", "Avižieniai", "Riešutų g."),
+        ).fetchall()
+    }
+    assert hashes == {old_hash}
+
+    schedule = get_location_schedule(
+        seniunija="Avižienių",
+        village="Avižieniai",
+        street="Riešutų g.",
+        waste_type="bendros",
+    )
+    assert schedule["calendar_id"] == "riesutu@google.com"
+    assert [d["date"] for d in schedule["dates"]] == ["2026-07-01", "2026-12-30"]
+    assert schedule["calendar_status"]["status"] == "needs_update"
 
 
 def test_split_keeps_existing_calendar_on_dominant_successor(temp_db):
