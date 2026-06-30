@@ -549,7 +549,10 @@ def test_homepage_includes_seo_metadata():
     html = response.get_data(as_text=True)
     assert "<title>Nemenkom atliekų išvežimo grafikas 2026 | Google kalendorius</title>" in html
     assert '<link rel="canonical" href="https://nemenkom.eidmantas.lt/"' in html
-    assert '<link rel="alternate" type="text/markdown" href="https://nemenkom.eidmantas.lt/llms.txt"' in html
+    assert (
+        '<link rel="alternate" type="text/markdown" href="https://nemenkom.eidmantas.lt/llms.txt"'
+        in html
+    )
     assert "Nemenkom atliekų tvarkaraštis" in html
     assert "application/ld+json" in html
     assert "UtilitiesApplication" in html

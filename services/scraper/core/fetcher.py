@@ -8,9 +8,7 @@ from pathlib import Path
 import requests
 
 
-def fetch_xlsx(
-    url: str, save_path: Path | None = None
-) -> tuple[Path, dict[str, str], int]:
+def fetch_xlsx(url: str, save_path: Path | None = None) -> tuple[Path, dict[str, str], int]:
     """
     Download xlsx file from URL
 

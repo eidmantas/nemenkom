@@ -112,9 +112,7 @@ def run_scraper(
     known_villages_by_seniunija = get_existing_villages_by_seniunija()
     if known_villages_by_seniunija:
         distinct_villages = {
-            village
-            for villages in known_villages_by_seniunija.values()
-            for village in villages
+            village for villages in known_villages_by_seniunija.values() for village in villages
         }
         print(f" Loaded {len(distinct_villages)} existing villages for AI matching")
 

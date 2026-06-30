@@ -12,6 +12,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from googleapiclient.errors import HttpError
 
@@ -139,7 +140,9 @@ def _build_calendar_description(
 ) -> str:
     scope = get_calendar_stream_scope(calendar_stream_id)
     updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    waste_type_display = WASTE_TYPE_DISPLAY.get(stream_info["waste_type"], stream_info["waste_type"])
+    waste_type_display = WASTE_TYPE_DISPLAY.get(
+        stream_info["waste_type"], stream_info["waste_type"]
+    )
 
     lines = [
         "Nemenkom atliekų surinkimo kalendorius.",
@@ -180,10 +183,10 @@ def _build_event_description(calendar_stream_id: str, waste_type: str) -> str:
 
 def _refresh_calendar_metadata(
     *,
-    service,
+    service: Any,
     calendar_id: str,
     calendar_stream_id: str,
-    stream_info: dict,
+    stream_info: dict[str, Any],
     previous_dates: list[str] | None = None,
     events_added: int = 0,
     events_deleted: int = 0,
@@ -308,8 +311,12 @@ def delete_calendar_for_stream(calendar_stream_id: str) -> None:
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM calendar_stream_events WHERE calendar_stream_id = ?", (calendar_stream_id,))
-    cursor.execute("DELETE FROM group_calendar_links WHERE calendar_stream_id = ?", (calendar_stream_id,))
+    cursor.execute(
+        "DELETE FROM calendar_stream_events WHERE calendar_stream_id = ?", (calendar_stream_id,)
+    )
+    cursor.execute(
+        "DELETE FROM group_calendar_links WHERE calendar_stream_id = ?", (calendar_stream_id,)
+    )
     cursor.execute("DELETE FROM calendar_streams WHERE id = ?", (calendar_stream_id,))
     conn.commit()
     conn.close()
@@ -358,8 +365,10 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
             try:
                 calendar_info = get_existing_calendar_info(existing_calendar_id)
                 if calendar_info:
+                    service: Any | None = None
                     try:
                         service = get_google_calendar_service()
+                        assert service is not None
                         acl_rule = {"scope": {"type": "default"}, "role": "reader"}
                         try:
                             throttle_calendar()
@@ -387,19 +396,20 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
                             calendar_stream_id,
                         )
 
-                    try:
-                        _refresh_calendar_metadata(
-                            service=service,
-                            calendar_id=existing_calendar_id,
-                            calendar_stream_id=calendar_stream_id,
-                            stream_info=stream_info,
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "Could not refresh existing calendar description for %s: %s",
-                            existing_calendar_id,
-                            e,
-                        )
+                    if service is not None:
+                        try:
+                            _refresh_calendar_metadata(
+                                service=service,
+                                calendar_id=existing_calendar_id,
+                                calendar_stream_id=calendar_stream_id,
+                                stream_info=stream_info,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Could not refresh existing calendar description for %s: %s",
+                                existing_calendar_id,
+                                e,
+                            )
 
                     return {
                         "calendar_id": existing_calendar_id,
@@ -436,6 +446,7 @@ def create_calendar_for_calendar_stream(calendar_stream_id: str) -> dict | None:
 
         logger.debug("Getting Google Calendar service for %s", calendar_stream_id)
         service = get_google_calendar_service()
+        assert service is not None
 
         logger.debug(
             "Creating calendar '%s' for calendar_stream_id=%s",

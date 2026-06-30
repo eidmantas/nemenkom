@@ -1232,12 +1232,15 @@ def build_contextual_default_header(
     preferred_month_names: list[str] | None = None,
 ) -> list[str]:
     expected_count = max(column_count - 2, 0)
-    month_names = choose_expected_month_names(
-        expected_count=expected_count,
-        file_path=file_path,
-        last_month_names=last_month_names,
-        preferred_month_names=preferred_month_names,
-    ) or list(MONTH_MAPPING.keys())[:expected_count]
+    month_names = (
+        choose_expected_month_names(
+            expected_count=expected_count,
+            file_path=file_path,
+            last_month_names=last_month_names,
+            preferred_month_names=preferred_month_names,
+        )
+        or list(MONTH_MAPPING.keys())[:expected_count]
+    )
     return DEFAULT_HEADER[:2] + month_names
 
 
@@ -1434,7 +1437,12 @@ def normalize_waste_type(waste_type: str) -> str:
     waste_type = str(waste_type).strip().lower()
     if "stikl" in waste_type or "glass" in waste_type:
         return "stiklas"
-    if "pakuotė" in waste_type or "pakuo" in waste_type or "pak" in waste_type or "plast" in waste_type:
+    if (
+        "pakuotė" in waste_type
+        or "pakuo" in waste_type
+        or "pak" in waste_type
+        or "plast" in waste_type
+    ):
         return "plastikas"
     return "bendros"  # default
 
@@ -1591,8 +1599,8 @@ def parse_pdf(
                     month_columns[normalized] = col
 
             if not month_columns:
-                preferred_month_names = (
-                    table_month_hints[table_idx] or find_next_table_month_hint(table_month_hints, table_idx)
+                preferred_month_names = table_month_hints[table_idx] or find_next_table_month_hint(
+                    table_month_hints, table_idx
                 )
                 expected_month_names = choose_expected_month_names(
                     expected_count=max(len(section.columns) - 2, 0),
@@ -1614,7 +1622,10 @@ def parse_pdf(
             if month_columns:
                 active_month_names = []
                 for month_name, col_name in month_columns.items():
-                    if any(clean_cell(get_row_cell(scan_row, col_name)) for _, scan_row in section.iterrows()):
+                    if any(
+                        clean_cell(get_row_cell(scan_row, col_name))
+                        for _, scan_row in section.iterrows()
+                    ):
                         active_month_names.append(month_name)
                 last_month_names = active_month_names or list(month_columns.keys())
 

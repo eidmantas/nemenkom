@@ -301,7 +301,9 @@ def parse_xlsx(
 
     logger.info(f"Starting to parse {len(df)} rows...")
     if known_villages_by_seniunija:
-        known_village_count = sum(len(villages) for villages in known_villages_by_seniunija.values())
+        known_village_count = sum(
+            len(villages) for villages in known_villages_by_seniunija.values()
+        )
         logger.info(
             "Loaded %s known village names across %s seniūnijos for AI matching",
             known_village_count,
