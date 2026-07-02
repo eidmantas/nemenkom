@@ -2,10 +2,9 @@
 Fetcher module - Downloads xlsx file from nemenkom.lt
 """
 
-import tempfile
 from pathlib import Path
 
-import requests
+from services.common.fetch_cache import download_url_to_file
 
 
 def fetch_xlsx(url: str, save_path: Path | None = None) -> tuple[Path, dict[str, str], int]:
@@ -22,27 +21,17 @@ def fetch_xlsx(url: str, save_path: Path | None = None) -> tuple[Path, dict[str,
     Raises:
         requests.RequestException: If download fails
     """
-    if not url or not str(url).strip():
-        raise ValueError("XLSX source URL is required")
-
     print(f"Fetching xlsx from {url}")
 
-    response = requests.get(url, allow_redirects=True, timeout=30)
-    response.raise_for_status()
-
-    if save_path is None:
-        # Use temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        save_path = Path(temp_file.name)
-        temp_file.close()
-
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(save_path, "wb") as f:
-        f.write(response.content)
-
-    print(f"Downloaded {len(response.content)} bytes to {save_path}")
-    return save_path, dict(response.headers or {}), len(response.content)
+    downloaded = download_url_to_file(
+        url,
+        save_path=save_path,
+        suffix=".xlsx",
+        default_source_file="waste_schedule.xlsx",
+        timeout_seconds=30,
+    )
+    print(f"Downloaded {downloaded.byte_len} bytes to {downloaded.path}")
+    return downloaded.path, downloaded.headers, downloaded.byte_len
 
 
 if __name__ == "__main__":
