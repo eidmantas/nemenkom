@@ -138,7 +138,11 @@ def run_scraper(
 
             if not remote_source.should_parse:
                 print(f" Skip: XLSX {remote_source.skip_reason}")
-                if remote_source.cleanup_path and remote_source.path and remote_source.path.exists():
+                if (
+                    remote_source.cleanup_path
+                    and remote_source.path
+                    and remote_source.path.exists()
+                ):
                     remote_source.path.unlink()
                 return 0
 
