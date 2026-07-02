@@ -21,6 +21,9 @@ def fetch_xlsx(url: str, save_path: Path | None = None) -> tuple[Path, dict[str,
     Raises:
         requests.RequestException: If download fails
     """
+    if not url or not str(url).strip():
+        raise ValueError("XLSX source URL is required")
+
     print(f"Fetching xlsx from {url}")
 
     downloaded = download_url_to_file(
