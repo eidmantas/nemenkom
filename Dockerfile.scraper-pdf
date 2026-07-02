@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # pinned PDF stack separately, then explicitly force-upgrade the SDKs used by
 # our AI provider code.
 RUN pip install --no-cache-dir -r requirements-pdf.txt \
-  && pip install --no-cache-dir --no-deps openai==2.16.0 anthropic==0.77.1
+  && pip install --no-cache-dir --no-deps openai==2.44.0 anthropic==0.77.1
 
 # Needed code
 COPY services/scraper_pdf services/scraper_pdf

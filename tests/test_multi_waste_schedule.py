@@ -228,6 +228,13 @@ def test_schedule_multi_bucket_inherits_pdf_all_for_plastic_glass(temp_db):
         # Combined date list should be tagged with waste_type.
         assert all("waste_type" in d and "date" in d for d in payload["dates"])
 
+        alias_resp = client.get(
+            "/api/v1/schedule-multi?seniunija=Rie%C5%A1%C4%97s&village=Did%C5%BEioji%20Rie%C5%A1%C4%97&street=Vanagin%C4%97s%20g.&house=1-31A,2-14B"
+        )
+        assert alias_resp.status_code == 200
+        alias_payload = alias_resp.get_json()
+        assert set(alias_payload["schedules"].keys()) == {"bendros", "plastikas", "stiklas"}
+
 
 def test_schedule_multi_village_with_no_streets(temp_db):
     conn, _db_path = temp_db

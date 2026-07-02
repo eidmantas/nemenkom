@@ -7,6 +7,8 @@ trust, instead of manually re-checking PDFs and spreadsheets every few months.
 
 Public instance: https://nemenkom.eidmantas.lt
 
+Search Console sitemap: https://nemenkom.eidmantas.lt/sitemap.xml
+
 ## Current Release Track
 
 Current branch work targets `1.1.0-rc1`.

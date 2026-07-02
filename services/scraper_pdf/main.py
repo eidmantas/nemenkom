@@ -7,7 +7,6 @@ import logging
 import sqlite3
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -15,13 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import config
 from services.common.db import get_db_connection
 from services.common.fetch_cache import (
-    get_latest_cached_fetch,
-    head_url,
-    is_unchanged_by_head,
-    log_source_fetch,
+    log_prepared_source_fetch,
+    prepare_remote_source,
 )
 from services.common.logging_utils import setup_logging
-from services.scraper_pdf.fetcher import fetch_pdf
 from services.scraper_pdf.parser import MONTH_MAPPING, PdfParsedCell, parse_pdf
 
 
@@ -45,20 +41,6 @@ def _ensure_pdf_fetches_table(conn: sqlite3.Connection) -> None:
         """
     )
     conn.commit()
-
-
-def _already_parsed(conn: sqlite3.Connection, *, source_url: str, content_hash: str) -> bool:
-    _ensure_pdf_fetches_table(conn)
-    row = conn.execute(
-        """
-        SELECT 1
-        FROM pdf_fetches
-        WHERE source_url = ? AND content_hash = ? AND status = 'success'
-        LIMIT 1
-        """,
-        (source_url, content_hash),
-    ).fetchone()
-    return bool(row)
 
 
 def _log_fetch(
@@ -305,102 +287,68 @@ def main():
         url = args.url
         print(f"\n1. Fetching PDF from: {url}")
 
-        # HEAD-based skip to avoid BOTH download and parsing when unchanged.
         conn = get_db_connection()
         try:
-            cached = get_latest_cached_fetch(conn, kind="pdf", source_url=url)
+            remote_source = prepare_remote_source(
+                conn,
+                kind="pdf",
+                source_url=url,
+                suffix=".pdf",
+                default_source_file="waste_schedule.pdf",
+                force=args.force,
+                timeout_seconds=60,
+            )
         finally:
             conn.close()
-        head = head_url(url)
-        if not args.force and is_unchanged_by_head(cached=cached, head=head):
-            assert head is not None
-            hint = head.etag or head.last_modified or "unchanged"
-            print(f" Skip: PDF unchanged (HEAD match: {hint})")
+
+        if not remote_source.should_parse:
+            print(f" Skip: PDF {remote_source.skip_reason}")
+            if remote_source.cleanup_path and remote_source.path and remote_source.path.exists():
+                remote_source.path.unlink()
             return 0
 
-        local_path, content_hash, headers, byte_len = fetch_pdf(url)
-        source_file = Path(urlparse(url).path).name or Path(local_path).name
-
-        conn = get_db_connection()
-        if not args.force and _already_parsed(conn, source_url=url, content_hash=content_hash):
-            print(f" Skip: already parsed (url+hash match) -> {source_file} ({content_hash[:12]})")
-            conn.close()
-            return 0
-        conn.close()
+        assert remote_source.path is not None
+        assert remote_source.content_hash is not None
+        local_path = remote_source.path
+        source_file = remote_source.source_file or Path(local_path).name
+        content_hash = remote_source.content_hash
 
         try:
             rc = run_pdf_scraper(local_path, args.year, skip_ai=args.skip_ai)
             conn = get_db_connection()
-            _log_fetch(
-                conn,
-                source_url=url,
-                source_file=source_file,
-                content_hash=content_hash,
-                status="success" if rc == 0 else "failed",
-            )
-            # Also log into the shared source_fetches cache for HEAD-based skips.
             try:
-                etag = headers.get("ETag") if headers else None
-                last_modified = headers.get("Last-Modified") if headers else None
-                try:
-                    content_length_header = headers.get("Content-Length") if headers else None
-                    content_length = (
-                        int(content_length_header)
-                        if content_length_header is not None
-                        else byte_len
-                    )
-                except Exception:
-                    content_length = byte_len
-                log_source_fetch(
+                _log_fetch(
                     conn,
-                    kind="pdf",
                     source_url=url,
                     source_file=source_file,
-                    etag=etag,
-                    last_modified=last_modified,
-                    content_length=content_length,
                     content_hash=content_hash,
                     status="success" if rc == 0 else "failed",
                 )
-            except Exception:
-                pass
-            conn.close()
+                log_prepared_source_fetch(
+                    conn,
+                    source=remote_source,
+                    status="success" if rc == 0 else "failed",
+                )
+            finally:
+                conn.close()
+            if remote_source.cleanup_path and local_path.exists():
+                local_path.unlink()
             return rc
         except Exception:
             conn = get_db_connection()
-            _log_fetch(
-                conn,
-                source_url=url,
-                source_file=source_file,
-                content_hash=content_hash,
-                status="failed",
-            )
             try:
-                etag = headers.get("ETag") if headers else None
-                last_modified = headers.get("Last-Modified") if headers else None
-                try:
-                    content_length_header = headers.get("Content-Length") if headers else None
-                    content_length = (
-                        int(content_length_header)
-                        if content_length_header is not None
-                        else byte_len
-                    )
-                except Exception:
-                    content_length = byte_len
-                log_source_fetch(
+                _log_fetch(
                     conn,
-                    kind="pdf",
                     source_url=url,
                     source_file=source_file,
-                    etag=etag,
-                    last_modified=last_modified,
-                    content_length=content_length,
                     content_hash=content_hash,
                     status="failed",
                 )
-            except Exception:
-                pass
-            conn.close()
+                log_prepared_source_fetch(conn, source=remote_source, status="failed")
+            finally:
+                conn.close()
+            if remote_source.cleanup_path and local_path.exists():
+                local_path.unlink()
             raise
 
     return run_pdf_scraper(args.file, args.year, skip_ai=args.skip_ai)

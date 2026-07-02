@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   nemenkom:
     build:
@@ -14,6 +12,7 @@ services:
       - ./config.py:/app/config.py:ro # Mount config as read-only (not baked into image)
     environment:
       - FLASK_ENV=production
+      - DEBUG=0
       - TZ=Europe/Vilnius
     restart: unless-stopped
 

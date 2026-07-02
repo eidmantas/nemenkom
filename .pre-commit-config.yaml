@@ -7,8 +7,11 @@ repos:
     rev: v0.14.14
     hooks:
       - id: ruff
+        args: ["."]
+        pass_filenames: false
       - id: ruff-format
-        args: ["--check"]
+        args: ["--check", "."]
+        pass_filenames: false
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v4.0.0-alpha.8
     hooks:
@@ -30,5 +33,5 @@ repos:
         name: pip-audit
         entry: venv/bin/pip-audit
         language: system
-        args: ["--ignore-vuln", "CVE-2026-0994"]
+        args: ["-r", "requirements.txt"]
         pass_filenames: false

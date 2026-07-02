@@ -3,11 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)</title>
-    <meta name="description" content="Neoficialus Nemenkom.lt atliekų surinkimo grafiko kalendorius. Raskite išvežimo datas pagal kaimą/miestą, gatvę ir namo numerį, ir prenumeruokite Google kalendorius (bendros, plastikas, stiklas)." />
-    <meta property="og:title" content="Nemenkom.lt atliekų surinkimo grafikas – Google kalendorius (Nemenčinė)" />
-    <meta property="og:description" content="Neoficialus įrankis, padedantis patogiai rasti Nemenkom.lt atliekų išvežimo datas ir prenumeruoti Google kalendorius." />
+    <title>{{ seo_title }}</title>
+    <meta name="description" content="{{ seo_description }}" />
+    <meta name="keywords" content="{{ seo_keywords }}" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="{{ canonical_url }}" />
+    <link rel="alternate" type="text/markdown" href="{{ llms_txt_url }}" title="LLMs.txt" />
+    <meta property="og:title" content="{{ seo_title }}" />
+    <meta property="og:description" content="{{ seo_description }}" />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="{{ canonical_url }}" />
+    <meta property="og:locale" content="lt_LT" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="{{ seo_title }}" />
+    <meta name="twitter:description" content="{{ seo_description }}" />
+    <script type="application/ld+json">{{ structured_data | tojson }}</script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260630-status1') }}">
 </head>
 <body>

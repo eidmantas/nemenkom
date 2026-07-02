@@ -398,7 +398,10 @@ def test_process_pending_cleanup_streams_posts_notice_before_expiry():
     }
 
     with (
-        patch("services.calendar.worker.get_calendar_streams_pending_cleanup", return_value=[pending_stream]),
+        patch(
+            "services.calendar.worker.get_calendar_streams_pending_cleanup",
+            return_value=[pending_stream],
+        ),
         patch("services.calendar.worker.post_cleanup_notice_for_stream") as post_notice,
         patch("services.calendar.worker.delete_calendar_for_stream") as delete_stream,
     ):
@@ -418,7 +421,10 @@ def test_process_pending_cleanup_streams_deletes_after_expiry():
     }
 
     with (
-        patch("services.calendar.worker.get_calendar_streams_pending_cleanup", return_value=[pending_stream]),
+        patch(
+            "services.calendar.worker.get_calendar_streams_pending_cleanup",
+            return_value=[pending_stream],
+        ),
         patch("services.calendar.worker.post_cleanup_notice_for_stream") as post_notice,
         patch("services.calendar.worker.delete_calendar_for_stream") as delete_stream,
     ):

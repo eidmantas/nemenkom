@@ -6,25 +6,20 @@ import argparse
 import logging
 import re
 import sys
-import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from services.common.db import get_db_connection
 from services.common.fetch_cache import (
-    get_latest_cached_fetch,
-    head_url,
-    is_unchanged_by_head,
-    log_source_fetch,
-    sha256_file,
+    PreparedRemoteSource,
+    log_prepared_source_fetch,
+    prepare_remote_source,
 )
 from services.common.logging_utils import setup_logging
 from services.common.migrations import init_database
 from services.scraper.core.db_writer import write_parsed_data
-from services.scraper.core.fetcher import fetch_xlsx
 from services.scraper.core.validator import validate_file_and_data
 
 
@@ -112,15 +107,12 @@ def run_scraper(
     known_villages_by_seniunija = get_existing_villages_by_seniunija()
     if known_villages_by_seniunija:
         distinct_villages = {
-            village
-            for villages in known_villages_by_seniunija.values()
-            for village in villages
+            village for villages in known_villages_by_seniunija.values() for village in villages
         }
         print(f" Loaded {len(distinct_villages)} existing villages for AI matching")
 
     try:
-        headers: dict[str, str] | None = None
-        byte_len: int | None = None
+        remote_source: PreparedRemoteSource | None = None
 
         # Fetch or use local xlsx
         if file_path:
@@ -130,20 +122,32 @@ def run_scraper(
                 return 1
         else:
             print(f"\n1. Fetching xlsx from: {url}")
-            # HEAD-based skip to avoid BOTH download and parsing when unchanged.
             conn = get_db_connection()
             try:
-                cached = get_latest_cached_fetch(conn, kind="xlsx", source_url=url)
+                remote_source = prepare_remote_source(
+                    conn,
+                    kind="xlsx",
+                    source_url=url,
+                    suffix=".xlsx",
+                    default_source_file="waste_schedule.xlsx",
+                    force=force,
+                    timeout_seconds=30,
+                )
             finally:
                 conn.close()
-            head = head_url(url)
-            if not force and is_unchanged_by_head(cached=cached, head=head):
-                assert head is not None
-                hint = head.etag or head.last_modified or "unchanged"
-                print(f" Skip: XLSX unchanged (HEAD match: {hint})")
+
+            if not remote_source.should_parse:
+                print(f" Skip: XLSX {remote_source.skip_reason}")
+                if (
+                    remote_source.cleanup_path
+                    and remote_source.path
+                    and remote_source.path.exists()
+                ):
+                    remote_source.path.unlink()
                 return 0
 
-            file_path, headers, byte_len = fetch_xlsx(url)
+            assert remote_source.path is not None
+            file_path = remote_source.path
 
         # Validate and parse
         print("\n2. Validating and parsing xlsx...")
@@ -168,48 +172,25 @@ def run_scraper(
         print(f"\n3. Writing {len(parsed_data)} locations to database...")
         success = write_parsed_data(parsed_data, url, errors if not is_valid else None)
 
-        # Log successful source fetch metadata for future HEAD-based skips.
-        try:
-            downloaded_from_url = headers is not None and str(file_path).startswith(
-                tempfile.gettempdir()
-            )
-            if downloaded_from_url:
-                assert headers is not None
-                content_hash = sha256_file(Path(file_path))
-                etag = headers.get("ETag")
-                last_modified = headers.get("Last-Modified")
-                try:
-                    content_length_header = headers.get("Content-Length")
-                    content_length = (
-                        int(content_length_header)
-                        if content_length_header is not None
-                        else byte_len
-                    )
-                except Exception:
-                    content_length = byte_len
-                source_file = Path(urlparse(url).path).name if url else None
+        if remote_source:
+            try:
                 conn = get_db_connection()
                 try:
-                    log_source_fetch(
+                    log_prepared_source_fetch(
                         conn,
-                        kind="xlsx",
-                        source_url=url,
-                        source_file=source_file,
-                        etag=etag,
-                        last_modified=last_modified,
-                        content_length=content_length,
-                        content_hash=content_hash,
+                        source=remote_source,
                         status="success" if success else "failed",
                     )
                 finally:
                     conn.close()
-        except Exception:
-            # Never fail the run because of fetch-cache logging.
-            pass
+            except Exception:
+                # Never fail the run because of fetch-cache logging.
+                pass
 
         # Cleanup
-        if file_path.exists() and str(file_path).startswith(tempfile.gettempdir()):
-            file_path.unlink()
+        if remote_source and remote_source.cleanup_path and remote_source.path:
+            if remote_source.path.exists():
+                remote_source.path.unlink()
 
         if success:
             print("\n Successfully completed!")

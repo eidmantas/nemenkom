@@ -13,6 +13,7 @@ import sqlite3
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TypedDict
 
 from services.scraper.core.db_writer import generate_kaimai_hash
 
@@ -77,6 +78,11 @@ class PendingAssignment:
     candidates: list[HistoricalCandidate]
     assigned_hash: str = ""
     continuity_method: str = "raw"
+
+
+class HashMatch(TypedDict):
+    matched_count: int
+    best_candidate: HistoricalCandidate
 
 
 def _normalize_text(value: str, suffixes: list[str]) -> str:
@@ -225,7 +231,9 @@ def _build_existing_selection_candidates(
         if current is None or _candidate_rank(candidate) < _candidate_rank(current):
             candidate_map[key] = candidate
 
-    selection_candidates: dict[tuple[str, SelectionKey], list[HistoricalCandidate]] = defaultdict(list)
+    selection_candidates: dict[tuple[str, SelectionKey], list[HistoricalCandidate]] = defaultdict(
+        list
+    )
     missing_admin_candidates: dict[tuple[str, AdminlessSelectionKey], list[HistoricalCandidate]] = (
         defaultdict(list)
     )
@@ -288,7 +296,7 @@ def _choose_group_reuse_hash(
     if not selection_keys:
         return None
 
-    matches_by_hash: dict[str, dict[str, object]] = {}
+    matches_by_hash: dict[str, HashMatch] = {}
     for selection_key in selection_keys:
         for candidate in _get_selection_candidates(
             waste_type=waste_type,
@@ -303,12 +311,9 @@ def _choose_group_reuse_hash(
                     "best_candidate": candidate,
                 },
             )
-            bucket["matched_count"] = int(bucket["matched_count"]) + 1
+            bucket["matched_count"] += 1
             best_candidate = bucket["best_candidate"]
-            if (
-                isinstance(best_candidate, HistoricalCandidate)
-                and _candidate_rank(candidate) < _candidate_rank(best_candidate)
-            ):
+            if _candidate_rank(candidate) < _candidate_rank(best_candidate):
                 bucket["best_candidate"] = candidate
 
     if not matches_by_hash:
@@ -323,9 +328,7 @@ def _choose_group_reuse_hash(
             -int(item[1]["matched_count"]),
             0 if item[1]["best_candidate"].has_calendar_id else 1,
             0 if item[1]["best_candidate"].has_stream else 1,
-            abs(
-                len(historical_group_keys.get((waste_type, item[0]), set())) - len(selection_keys)
-            ),
+            abs(len(historical_group_keys.get((waste_type, item[0]), set())) - len(selection_keys)),
             _candidate_rank(item[1]["best_candidate"]),
         ),
     )
@@ -343,11 +346,7 @@ def _choose_group_reuse_hash(
         return top_hash
     if top_matched > second_matched and matched_ratio >= 0.5 and historical_coverage >= 0.75:
         return top_hash
-    if (
-        top_candidate.has_calendar_id
-        and top_matched > second_matched
-        and matched_ratio >= 0.5
-    ):
+    if top_candidate.has_calendar_id and top_matched > second_matched and matched_ratio >= 0.5:
         return top_hash
     return None
 
@@ -361,7 +360,9 @@ def _assign_group(
 ) -> None:
     waste_type = group_assignments[0].waste_type if group_assignments else ""
     selection_keys = {
-        assignment.selection_key for assignment in group_assignments if any(assignment.selection_key[:3])
+        assignment.selection_key
+        for assignment in group_assignments
+        if any(assignment.selection_key[:3])
     }
     group_reuse_hash = _choose_group_reuse_hash(
         waste_type=waste_type,
@@ -470,9 +471,9 @@ def assign_continuity_kaimai_hashes(
     }
     selection_candidates, missing_admin_candidates, historical_group_keys = (
         _build_existing_selection_candidates(
-        conn,
-        waste_types=waste_types,
-        source_file=source_file,
+            conn,
+            waste_types=waste_types,
+            source_file=source_file,
         )
     )
 

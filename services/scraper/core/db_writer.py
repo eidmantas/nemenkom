@@ -7,8 +7,15 @@ import json
 import sqlite3
 import uuid
 from datetime import date, datetime
+from typing import TypedDict
 
 from services.common.db import get_db_connection
+
+
+class StreamPayload(TypedDict):
+    dates_json: str | None
+    waste_type: str
+    schedule_group_ids: list[str]
 
 
 def generate_kaimai_hash(kaimai_str: str) -> str:
@@ -289,18 +296,20 @@ def reconcile_calendar_streams(conn: sqlite3.Connection) -> None:
     """
     )
 
-    stream_map: dict[str, dict[str, dict[str, object]]] = {}
+    stream_map: dict[str, dict[str, StreamPayload]] = {}
     for stream_id, schedule_group_id, dates_hash, dates_json, waste_type in cursor.fetchall():
+        stream_id = str(stream_id)
+        dates_hash = str(dates_hash)
         stream_map.setdefault(stream_id, {})
         payload = stream_map[stream_id].setdefault(
             dates_hash,
             {
-                "dates_json": dates_json,
-                "waste_type": waste_type,
+                "dates_json": str(dates_json) if dates_json is not None else None,
+                "waste_type": str(waste_type),
                 "schedule_group_ids": [],
             },
         )
-        payload["schedule_group_ids"].append(schedule_group_id)
+        payload["schedule_group_ids"].append(str(schedule_group_id))
 
     for stream_id, hashes in stream_map.items():
         if len(hashes) == 1:

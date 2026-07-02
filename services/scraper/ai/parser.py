@@ -7,8 +7,8 @@ import hashlib
 import logging
 import re
 import sys
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent

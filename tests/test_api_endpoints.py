@@ -539,6 +539,75 @@ def test_public_stats_includes_calendar_and_news_counts(temp_db):
     ]
 
 
+def test_homepage_includes_seo_metadata():
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "<title>Nemenkom atliekų išvežimo grafikas 2026 | Google kalendorius</title>" in html
+    assert '<link rel="canonical" href="https://nemenkom.eidmantas.lt/"' in html
+    assert (
+        '<link rel="alternate" type="text/markdown" href="https://nemenkom.eidmantas.lt/llms.txt"'
+        in html
+    )
+    assert "Nemenkom atliekų tvarkaraštis" in html
+    assert "application/ld+json" in html
+    assert "UtilitiesApplication" in html
+
+
+def test_robots_txt_allows_homepage_and_points_to_sitemap():
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.get("/robots.txt")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/plain"
+    body = response.get_data(as_text=True)
+    assert "User-agent: *" in body
+    assert "Allow: /" in body
+    assert "Disallow: /api/" in body
+    assert "Sitemap: https://nemenkom.eidmantas.lt/sitemap.xml" in body
+
+
+def test_sitemap_xml_includes_canonical_homepage(monkeypatch):
+    import services.api.app as api_app_module
+    from services.api.app import app
+
+    monkeypatch.setattr(api_app_module, "_sitemap_lastmod", lambda: "2026-06-30")
+
+    with app.test_client() as client:
+        response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/xml"
+    body = response.get_data(as_text=True)
+    assert "<loc>https://nemenkom.eidmantas.lt/</loc>" in body
+    assert "<lastmod>2026-06-30</lastmod>" in body
+    assert "<changefreq>daily</changefreq>" in body
+
+
+def test_llms_txt_directs_assistants_to_web_without_public_api_claims():
+    from services.api.app import app
+
+    with app.test_client() as client:
+        response = client.get("/llms.txt")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/markdown"
+    body = response.get_data(as_text=True)
+    assert "# Nemenkom.lt atliekų grafikas" in body
+    assert "Direct users to the homepage search flow" in body
+    assert "Do not assume direct API access is available" in body
+    assert "not currently a public tokenless integration" in body
+    assert "contact the project" in body
+    assert "maintainer to request a token" in body
+    assert "/api/v1/" not in body
+
+
 def test_api_villages_endpoint(test_db_with_village_and_streets):
     """Test /api/v1/villages endpoint returns correct format"""
     db_path = test_db_with_village_and_streets

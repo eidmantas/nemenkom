@@ -2,12 +2,9 @@
 PDF fetcher - downloads PDF files (plastic/glass) from nemenkom.lt or any URL.
 """
 
-import hashlib
-import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
 
-import requests
+from services.common.fetch_cache import download_url_to_file
 
 
 def fetch_pdf(
@@ -16,17 +13,11 @@ def fetch_pdf(
     """
     Download a PDF file and return (path, sha256 hex digest, response headers, byte length).
     """
-    resp = requests.get(url, allow_redirects=True, timeout=timeout_seconds)
-    resp.raise_for_status()
-
-    content = resp.content
-    sha = hashlib.sha256(content).hexdigest()
-
-    if save_path is None:
-        name = Path(urlparse(url).path).name or "waste_schedule.pdf"
-        tmp = Path(tempfile.gettempdir()) / name
-        save_path = tmp
-
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.write_bytes(content)
-    return save_path, sha, dict(resp.headers or {}), len(content)
+    downloaded = download_url_to_file(
+        url,
+        save_path=save_path,
+        suffix=".pdf",
+        default_source_file="waste_schedule.pdf",
+        timeout_seconds=timeout_seconds,
+    )
+    return downloaded.path, downloaded.content_hash, downloaded.headers, downloaded.byte_len
